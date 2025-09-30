@@ -1,0 +1,3 @@
+[submodule "terraform-hcloud-talos"]
+	path = terraform-hcloud-talos
+	url = https://github.com/hcloud-talos/terraform-hcloud-talos

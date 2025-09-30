@@ -1,0 +1,25 @@
+# Rust
+/target/
+Cargo.lock
+
+# Output files
+/output/
+*.yaml
+!cluster.example.yaml
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Secrets
+.env
+kubeconfig*
+talosconfig*
+secrets.yaml

@@ -1,0 +1,104 @@
+cluster_name: talos-cluster
+
+hcloud:
+  # Hetzner Cloud API token
+  # You can also set this via HCLOUD_TOKEN environment variable
+  # token: your-token-here
+
+  # Data center location
+  # Options: nbg1, fsn1, hel1, ash, hil, sin
+  location: nbg1
+
+  network:
+    # Private network CIDR
+    cidr: 10.0.0.0/16
+
+    # Subnet CIDR (must be within the network CIDR)
+    subnet_cidr: 10.0.1.0/24
+
+    # Network zone
+    # Options: eu-central, us-east, us-west, ap-southeast
+    zone: eu-central
+
+talos:
+  # Talos Linux version
+  # See: https://github.com/siderolabs/talos/releases
+  version: v1.7.0
+
+  # Kubernetes version
+  kubernetes_version: 1.30.0
+
+  # Hetzner Cloud snapshot ID containing Talos image (REQUIRED)
+  # To create a snapshot:
+  # 1. Create a server with Ubuntu image
+  # 2. Boot into rescue mode
+  # 3. Run: wget -O - https://github.com/siderolabs/talos/releases/download/v1.7.0/hcloud-amd64.raw.xz | xz -d | dd of=/dev/sda && sync
+  # 4. Reboot the server
+  # 5. Create a snapshot from the Hetzner Cloud console
+  # 6. Use the snapshot ID (number) here
+  hcloud_snapshot_id: "123456789"  # Replace with your snapshot ID
+
+  # Cluster endpoint (optional - defaults to first control plane IP)
+  # cluster_endpoint: https://your-domain.com:6443
+
+  # Additional Talos machine config patches (optional)
+  config_patches: []
+
+cilium:
+  # Cilium version
+  # See: https://github.com/cilium/cilium/releases
+  version: 1.15.0
+
+  # Enable Hubble observability platform
+  enable_hubble: true
+
+  # Enable IPv6 support
+  enable_ipv6: false
+
+  # Additional Helm values (optional)
+  # helm_values:
+  #   hubble:
+  #     metrics:
+  #       enabled:
+  #         - dns
+  #         - drop
+  #         - tcp
+  #         - flow
+
+# Control plane nodes
+control_planes:
+  - name: control-plane
+    # Hetzner server type
+    # Small: cx21 (2 vCPUs, 4GB RAM)
+    # Medium: cpx21 (3 vCPUs, 4GB RAM) - Recommended
+    # Large: cpx31 (4 vCPUs, 8GB RAM)
+    server_type: cpx21
+
+    # Number of control plane nodes (1 or 3 recommended for production)
+    count: 3
+
+    # Additional Kubernetes labels (optional)
+    labels: {}
+
+# Worker nodes
+workers:
+  - name: worker
+    # Hetzner server type
+    # Small: cx31 (2 vCPUs, 8GB RAM)
+    # Medium: cpx31 (4 vCPUs, 8GB RAM) - Recommended
+    # Large: cpx41 (8 vCPUs, 16GB RAM)
+    # XLarge: cpx51 (16 vCPUs, 32GB RAM)
+    server_type: cpx31
+
+    # Number of worker nodes
+    count: 3
+
+    # Additional Kubernetes labels (optional)
+    labels: {}
+
+  # You can define multiple worker pools with different specs:
+  # - name: worker-large
+  #   server_type: cpx51
+  #   count: 2
+  #   labels:
+  #     workload: memory-intensive
