@@ -234,6 +234,96 @@ More same-node traffic (native BPF, no VXLAN)
    - Advertise same IP from all nodes
    - Requires BGP support and network configuration
 
+#### NodeIPAM LB vs External Load Balancers
+
+**Why use NodeIPAM LB when you could use Cloudflare or other external load balancers?**
+
+NodeIPAM LB and external load balancers (like Cloudflare) solve **different problems** and are **complementary, not alternatives**.
+
+**NodeIPAM LB (Layer 4 - Network Layer)**
+
+What it provides:
+- **Kubernetes-native abstraction** - Clean `type: LoadBalancer` services
+- **Protocol agnostic** - Works for TCP, UDP, HTTP, gRPC, databases, game servers, etc.
+- **East-west traffic** - Service-to-service load balancing within cluster
+- **Direct access** - No external dependencies or proxy hops
+- **Zero cost** - No per-request pricing or monthly fees
+
+Without NodeIPAM LB, you're stuck with:
+```yaml
+# Awkward NodePort service
+spec:
+  type: NodePort
+  ports:
+    - port: 80
+      nodePort: 32392  # Random high port on every worker
+```
+
+Problems with NodePort-only:
+- ❌ Non-standard ports: `http://worker-ip:32392` instead of `:80`
+- ❌ Manual IP management in external load balancers
+- ❌ Tight coupling to infrastructure (can't move workers easily)
+- ❌ No clean abstraction for non-HTTP protocols
+
+**External Load Balancers (Layer 7 - Application Layer)**
+
+What they provide (using Cloudflare as example):
+- **Global distribution** - Route users to nearest cluster/region
+- **DDoS protection** - Absorb attacks before they hit your cluster
+- **WAF & caching** - Web Application Firewall, edge caching
+- **TLS termination** - Managed certificates at edge
+- **Advanced routing** - Geo-based, latency-based, A/B testing
+- **Analytics** - Traffic insights and observability
+
+**How They Work Together**
+
+```
+User Request (Global)
+    ↓
+Cloudflare Global Network (Layer 7)
+  ├─ DDoS protection
+  ├─ TLS termination at edge
+  ├─ WAF & security rules
+  ├─ Edge caching
+  └─ Geographic routing
+    ↓
+    ↓ Routes to nearest origin cluster
+    ↓
+Origin IPs: 178.156.188.143, 178.156.191.97, 178.156.203.237
+    ↓
+NodeIPAM LoadBalancer (Layer 4)
+  ├─ Native BPF load balancing
+  ├─ Protocol-agnostic forwarding
+  └─ Efficient pod distribution
+    ↓
+Pods across all worker nodes
+```
+
+**Real-World Scenarios**
+
+| Use Case | NodeIPAM LB | External LB | Why |
+|----------|-------------|-------------|-----|
+| **Public web app** | ✅ Required | ✅ Recommended | NodeIPAM for K8s abstraction + Cloudflare for DDoS/global reach |
+| **Internal database** | ✅ Required | ❌ Not needed | Direct access via worker IPs, no need for global distribution |
+| **Game server** | ✅ Required | ❌ Not needed | UDP protocol, low latency critical, no HTTP features needed |
+| **Microservices (internal)** | ✅ Required | ❌ Not needed | Service-to-service communication within cluster |
+| **Global SaaS** | ✅ Required | ✅ Required | Multi-region deployment with failover and DDoS protection |
+| **Simple blog** | ✅ Required | ⚠️ Optional | NodeIPAM sufficient, add Cloudflare for free tier DDoS/CDN |
+
+**Key Takeaway:**
+
+- **NodeIPAM LB** = Kubernetes-native service abstraction (Layer 4)
+  - Makes your cluster production-ready out of the box
+  - Required for clean LoadBalancer services
+  - Works for any protocol
+
+- **External LB** = Global infrastructure layer (Layer 7)
+  - Optional enhancement for specific needs
+  - Adds enterprise features when needed
+  - Best for HTTP/HTTPS workloads
+
+**Use NodeIPAM** to get working LoadBalancer services immediately. **Add external LB** when you need global reach, DDoS protection, or advanced Layer 7 features. They work together, not instead of each other.
+
 ### Talos-Specific Settings
 
 ```rust
