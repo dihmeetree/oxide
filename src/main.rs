@@ -701,6 +701,16 @@ async fn scale_up(
         info!("✓ Node {} created successfully", node_name);
     }
 
+    // Wait for new nodes to become Ready
+    info!("Waiting for new nodes to become Ready...");
+    let kubeconfig_path = cli.output.join("kubeconfig");
+
+    for i in 0..nodes_to_add {
+        let node_index = current_count + i + 1;
+        let node_name = format!("{}-{}-{}", config.cluster_name, pool_name, node_index);
+        TalosClient::wait_for_node_ready(&kubeconfig_path, &node_name, 300).await?;
+    }
+
     // Apply firewall to new servers
     if let Some(fw) = firewall {
         firewall_manager
@@ -765,17 +775,41 @@ async fn scale_down(
             node_name, server_info.server.id
         );
 
-        // Step 1: Run talosctl reset (cordon, drain, leave etcd, erase, power down)
+        // Step 1: Run talosctl reset --graceful --wait
+        // This will cordon, drain, leave etcd, erase disks, and power down
+        // The --wait flag means it will wait for the reset to complete or timeout
         if let Some(ip) = node_ip {
-            info!("Running talosctl reset on {} ({})...", node_name, ip);
-            match talos_client.reset_node(&ip, node_name).await {
+            info!(
+                "Running talosctl reset --graceful on {} ({})...",
+                node_name, ip
+            );
+            info!("This will cordon, drain workloads, and power down the node...");
+
+            // First verify we can connect to Talos API before attempting reset
+            match talos_client.get_cluster_info(&ip).await {
                 Ok(_) => {
-                    info!("✓ Node {} reset successfully", node_name);
+                    // Connection successful, proceed with reset
+                    match talos_client.reset_node(&ip, node_name).await {
+                        Ok(_) => {
+                            info!("✓ Node {} reset completed and powered down", node_name);
+                        }
+                        Err(e) => {
+                            // If reset fails after successful initial connection, it may have powered down
+                            let err_msg = e.to_string();
+                            if err_msg.contains("connection") || err_msg.contains("timeout") {
+                                info!(
+                                    "Node {} powered down during reset (expected behavior)",
+                                    node_name
+                                );
+                            } else {
+                                anyhow::bail!("Failed to reset node {}: {}", node_name, e);
+                            }
+                        }
+                    }
                 }
                 Err(e) => {
-                    // Log error but continue - the node might already be down
-                    info!(
-                        "Warning: Failed to reset node {} ({}): {}. Continuing...",
+                    anyhow::bail!(
+                        "Cannot connect to Talos API on {} ({}). Check firewall rules and node status: {}",
                         node_name, ip, e
                     );
                 }
@@ -787,7 +821,21 @@ async fn scale_down(
             );
         }
 
-        // Step 2: Delete from Kubernetes
+        // Step 2: Wait for node to be cordoned (SchedulingDisabled)
+        info!("Waiting for node {} to be cordoned...", node_name);
+        match TalosClient::wait_for_node_cordoned(&kubeconfig_path, node_name, 120).await {
+            Ok(_) => {
+                info!("✓ Node {} is cordoned and draining", node_name);
+            }
+            Err(e) => {
+                info!(
+                    "Warning: Could not verify node {} cordon status: {}. Continuing...",
+                    node_name, e
+                );
+            }
+        }
+
+        // Step 3: Delete from Kubernetes
         info!("Deleting node {} from Kubernetes...", node_name);
         match TalosClient::delete_kubernetes_node(&kubeconfig_path, node_name).await {
             Ok(_) => {

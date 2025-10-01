@@ -265,51 +265,13 @@ impl CiliumManager {
         }
 
         // Wait for all nodes to be Ready
-        self.wait_for_nodes_ready(timeout_secs).await?;
+        crate::talos::client::TalosClient::wait_for_all_nodes_ready(
+            &self.kubeconfig_path,
+            timeout_secs,
+        )
+        .await?;
 
         Ok(())
-    }
-
-    /// Wait for all nodes to be in Ready state
-    async fn wait_for_nodes_ready(&self, timeout_secs: u64) -> Result<()> {
-        info!("Waiting for all nodes to be Ready...");
-
-        let start = std::time::Instant::now();
-        let timeout = std::time::Duration::from_secs(timeout_secs);
-
-        loop {
-            let output = Command::new("kubectl")
-                .args([
-                    "get",
-                    "nodes",
-                    "-o",
-                    "jsonpath={.items[*].status.conditions[?(@.type=='Ready')].status}",
-                ])
-                .env("KUBECONFIG", &self.kubeconfig_path)
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped())
-                .output()
-                .await
-                .context("Failed to check node status")?;
-
-            if output.status.success() {
-                let status = String::from_utf8_lossy(&output.stdout);
-                let all_ready = status
-                    .split_whitespace()
-                    .all(|s| s.eq_ignore_ascii_case("true"));
-
-                if all_ready && !status.is_empty() {
-                    info!("All nodes are Ready");
-                    return Ok(());
-                }
-            }
-
-            if start.elapsed() > timeout {
-                anyhow::bail!("Timeout waiting for nodes to be ready");
-            }
-
-            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-        }
     }
 
     /// Check if Cilium pods are ready
