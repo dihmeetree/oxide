@@ -303,6 +303,133 @@ impl ServerManager {
     pub fn get_server_private_ip(server: &Server) -> Option<String> {
         server.private_net.first().map(|net| net.ip.clone())
     }
+
+    /// Delete specific servers by ID
+    pub async fn delete_servers(&self, server_ids: Vec<u64>) -> Result<()> {
+        if server_ids.is_empty() {
+            info!("No servers to delete");
+            return Ok(());
+        }
+
+        info!("Deleting {} servers", server_ids.len());
+
+        for server_id in server_ids {
+            info!("Deleting server ID: {}", server_id);
+            if let Err(e) = self.client.delete_server(server_id).await {
+                warn!("Failed to delete server {}: {}", server_id, e);
+            }
+        }
+
+        info!("Servers deleted");
+        Ok(())
+    }
+
+    /// Get servers by role and pool name
+    pub fn filter_by_role_and_pool(
+        servers: &[ServerInfo],
+        role: NodeRole,
+        pool_name: Option<&str>,
+    ) -> Vec<ServerInfo> {
+        servers
+            .iter()
+            .filter(|s| {
+                if s.role != role {
+                    return false;
+                }
+
+                // If pool name is specified, match it
+                if let Some(pool) = pool_name {
+                    // Extract pool name from server name (format: cluster-poolname-index)
+                    let server_name_parts: Vec<&str> = s.server.name.split('-').collect();
+                    if server_name_parts.len() >= 2 {
+                        let server_pool = server_name_parts[server_name_parts.len() - 2];
+                        return server_pool == pool;
+                    }
+                    return false;
+                }
+
+                true
+            })
+            .cloned()
+            .collect()
+    }
+
+    /// Create a single node with specific configuration
+    #[allow(clippy::too_many_arguments)]
+    pub async fn create_single_node(
+        &self,
+        cluster_name: &str,
+        node_name: &str,
+        server_type: &str,
+        location: &str,
+        network_id: u64,
+        role: NodeRole,
+        talos_version: &str,
+        snapshot_id: Option<&str>,
+        ssh_key_id: Option<u64>,
+        user_data: Option<String>,
+        labels: std::collections::HashMap<String, String>,
+    ) -> Result<ServerInfo> {
+        info!(
+            "Creating {} server: {} (type: {})",
+            role, node_name, server_type
+        );
+
+        let image = snapshot_id.ok_or_else(|| {
+            anyhow::anyhow!(
+                "Talos snapshot ID not configured. Please set 'talos.hcloud_snapshot_id' in your cluster configuration."
+            )
+        })?;
+
+        let mut server_labels = labels;
+        server_labels.insert("cluster".to_string(), cluster_name.to_string());
+        server_labels.insert("role".to_string(), role.to_string());
+        server_labels.insert("managed-by".to_string(), "oxide".to_string());
+        server_labels.insert("talos-version".to_string(), talos_version.to_string());
+
+        let request = CreateServerRequest {
+            name: node_name.to_string(),
+            server_type: server_type.to_string(),
+            location: location.to_string(),
+            image: image.to_string(),
+            ssh_keys: ssh_key_id.map(|id| vec![id]),
+            user_data,
+            networks: Some(vec![network_id]),
+            labels: Some(server_labels),
+            automount: Some(false),
+            start_after_create: Some(true),
+        };
+
+        let response = self
+            .client
+            .create_server(request)
+            .await
+            .context(format!("Failed to create server {}", node_name))?;
+
+        info!(
+            "Server {} created successfully (ID: {}), waiting for provisioning...",
+            node_name, response.server.id
+        );
+
+        self.client
+            .wait_for_action(response.action.id, 300)
+            .await
+            .context("Server creation action failed")?;
+
+        let server = self
+            .client
+            .get_server(response.server.id)
+            .await
+            .context("Failed to get server details")?;
+
+        info!("Server {} is ready", node_name);
+
+        Ok(ServerInfo {
+            server,
+            role,
+            index: 0,
+        })
+    }
 }
 
 #[cfg(test)]

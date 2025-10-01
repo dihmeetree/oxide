@@ -16,7 +16,7 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use crate::cilium::CiliumManager;
 use crate::config::ClusterConfig;
 use crate::hcloud::network::NetworkManager;
-use crate::hcloud::server::{NodeRole, ServerManager};
+use crate::hcloud::server::{NodeRole, ServerInfo, ServerManager};
 use crate::hcloud::{FirewallManager, HetznerCloudClient, SSHKeyManager};
 use crate::talos::{TalosClient, TalosConfigGenerator};
 
@@ -54,6 +54,21 @@ enum Commands {
     /// Generate example configuration file
     Init,
 
+    /// Scale cluster nodes
+    Scale {
+        /// Node type to scale
+        #[arg(value_enum)]
+        node_type: NodeType,
+
+        /// Target number of nodes
+        #[arg(short, long)]
+        count: u32,
+
+        /// Node pool name (optional, uses first pool if not specified)
+        #[arg(short, long)]
+        pool: Option<String>,
+    },
+
     /// Upgrade cluster
     Upgrade {
         /// New Talos version
@@ -67,6 +82,12 @@ enum Commands {
 
     /// Deploy nginx with Gateway API
     DeployNginx,
+}
+
+#[derive(Debug, Clone, clap::ValueEnum)]
+enum NodeType {
+    ControlPlane,
+    Worker,
 }
 
 #[tokio::main]
@@ -89,6 +110,11 @@ async fn main() {
         Commands::Destroy => destroy_cluster(&cli).await,
         Commands::Status => show_status(&cli).await,
         Commands::Init => init_config(&cli).await,
+        Commands::Scale {
+            ref node_type,
+            count,
+            ref pool,
+        } => scale_cluster(&cli, node_type.clone(), count, pool.clone()).await,
         Commands::Upgrade {
             ref talos_version,
             ref kubernetes_version,
@@ -371,7 +397,6 @@ async fn show_status(cli: &Cli) -> Result<()> {
 
     info!("Cluster: {}", config.cluster_name);
     info!("");
-    info!("Servers:");
 
     let mut control_planes: Vec<_> = servers
         .iter()
@@ -385,36 +410,61 @@ async fn show_status(cli: &Cli) -> Result<()> {
         .collect();
     workers.sort_by_key(|s| &s.server.name);
 
-    info!("  Control Planes:");
-    for server_info in control_planes {
-        let ip =
-            ServerManager::get_server_ip(&server_info.server).unwrap_or_else(|| "N/A".to_string());
-        let private_ip = ServerManager::get_server_private_ip(&server_info.server)
-            .unwrap_or_else(|| "N/A".to_string());
-        info!(
-            "    - {} (ID: {}, Status: {}, IP: {}, Private IP: {})",
-            server_info.server.name,
-            server_info.server.id,
-            server_info.server.status,
-            ip,
-            private_ip
+    // Display control plane node pools
+    info!("Control Plane Pools:");
+    for pool in &config.control_planes {
+        let pool_servers = ServerManager::filter_by_role_and_pool(
+            &servers,
+            NodeRole::ControlPlane,
+            Some(&pool.name),
         );
+        info!(
+            "  {} - {} node(s) (server type: {})",
+            pool.name,
+            pool_servers.len(),
+            pool.server_type
+        );
+        for server_info in pool_servers {
+            let ip = ServerManager::get_server_ip(&server_info.server)
+                .unwrap_or_else(|| "N/A".to_string());
+            let private_ip = ServerManager::get_server_private_ip(&server_info.server)
+                .unwrap_or_else(|| "N/A".to_string());
+            info!(
+                "    - {} (ID: {}, Status: {}, IP: {}, Private IP: {})",
+                server_info.server.name,
+                server_info.server.id,
+                server_info.server.status,
+                ip,
+                private_ip
+            );
+        }
     }
 
-    info!("  Workers:");
-    for server_info in workers {
-        let ip =
-            ServerManager::get_server_ip(&server_info.server).unwrap_or_else(|| "N/A".to_string());
-        let private_ip = ServerManager::get_server_private_ip(&server_info.server)
-            .unwrap_or_else(|| "N/A".to_string());
+    info!("");
+    info!("Worker Pools:");
+    for pool in &config.workers {
+        let pool_servers =
+            ServerManager::filter_by_role_and_pool(&servers, NodeRole::Worker, Some(&pool.name));
         info!(
-            "    - {} (ID: {}, Status: {}, IP: {}, Private IP: {})",
-            server_info.server.name,
-            server_info.server.id,
-            server_info.server.status,
-            ip,
-            private_ip
+            "  {} - {} node(s) (server type: {})",
+            pool.name,
+            pool_servers.len(),
+            pool.server_type
         );
+        for server_info in pool_servers {
+            let ip = ServerManager::get_server_ip(&server_info.server)
+                .unwrap_or_else(|| "N/A".to_string());
+            let private_ip = ServerManager::get_server_private_ip(&server_info.server)
+                .unwrap_or_else(|| "N/A".to_string());
+            info!(
+                "    - {} (ID: {}, Status: {}, IP: {}, Private IP: {})",
+                server_info.server.name,
+                server_info.server.id,
+                server_info.server.status,
+                ip,
+                private_ip
+            );
+        }
     }
 
     // Try to show Cilium status if kubeconfig exists
@@ -458,6 +508,234 @@ async fn init_config(cli: &Cli) -> Result<()> {
     info!("     export HCLOUD_TOKEN=your-token-here");
     info!("  3. Create the cluster:");
     info!("     oxide create");
+
+    Ok(())
+}
+
+/// Scale cluster nodes
+async fn scale_cluster(
+    cli: &Cli,
+    node_type: NodeType,
+    target_count: u32,
+    pool_name: Option<String>,
+) -> Result<()> {
+    info!("Starting cluster scaling...");
+
+    let config = ClusterConfig::from_file(&cli.config).context("Failed to load configuration")?;
+
+    info!("Cluster name: {}", config.cluster_name);
+
+    let hcloud_token = config.get_hcloud_token()?;
+    let hcloud_client = HetznerCloudClient::new(hcloud_token)?;
+
+    // Get existing servers
+    let server_manager = ServerManager::new(hcloud_client.clone());
+    let all_servers = server_manager
+        .list_cluster_servers(&config.cluster_name)
+        .await?;
+
+    // Determine role and pool configuration
+    let (role, pool_config) = match node_type {
+        NodeType::ControlPlane => {
+            let pool = if let Some(ref name) = pool_name {
+                config
+                    .control_planes
+                    .iter()
+                    .find(|p| &p.name == name)
+                    .ok_or_else(|| anyhow::anyhow!("Control plane pool '{}' not found", name))?
+            } else {
+                config
+                    .control_planes
+                    .first()
+                    .ok_or_else(|| anyhow::anyhow!("No control plane pools configured"))?
+            };
+            (NodeRole::ControlPlane, pool)
+        }
+        NodeType::Worker => {
+            let pool = if let Some(ref name) = pool_name {
+                config
+                    .workers
+                    .iter()
+                    .find(|p| &p.name == name)
+                    .ok_or_else(|| anyhow::anyhow!("Worker pool '{}' not found", name))?
+            } else {
+                config
+                    .workers
+                    .first()
+                    .ok_or_else(|| anyhow::anyhow!("No worker pools configured"))?
+            };
+            (NodeRole::Worker, pool)
+        }
+    };
+
+    // Filter servers by role and pool
+    let pool_servers =
+        ServerManager::filter_by_role_and_pool(&all_servers, role, Some(&pool_config.name));
+
+    let current_count = pool_servers.len() as u32;
+
+    info!(
+        "Current {} count in pool '{}': {}",
+        role, pool_config.name, current_count
+    );
+    info!("Target count: {}", target_count);
+
+    if current_count == target_count {
+        info!("Cluster is already at the target size");
+        return Ok(());
+    }
+
+    if target_count > current_count {
+        // Scale up
+        let nodes_to_add = target_count - current_count;
+        info!("Scaling up: adding {} nodes", nodes_to_add);
+
+        scale_up(
+            cli,
+            &config,
+            &hcloud_client,
+            &pool_config.name,
+            pool_config,
+            role,
+            nodes_to_add,
+            current_count,
+        )
+        .await?;
+    } else {
+        // Scale down
+        let nodes_to_remove = current_count - target_count;
+        info!("Scaling down: removing {} nodes", nodes_to_remove);
+
+        scale_down(&server_manager, pool_servers, nodes_to_remove).await?;
+    }
+
+    info!("✓ Cluster scaling completed successfully!");
+
+    Ok(())
+}
+
+/// Scale up by adding new nodes
+#[allow(clippy::too_many_arguments)]
+async fn scale_up(
+    cli: &Cli,
+    config: &ClusterConfig,
+    hcloud_client: &HetznerCloudClient,
+    pool_name: &str,
+    pool_config: &crate::config::NodeConfig,
+    role: NodeRole,
+    nodes_to_add: u32,
+    current_count: u32,
+) -> Result<()> {
+    // Get network
+    let network_manager = NetworkManager::new(hcloud_client.clone());
+    let network = network_manager
+        .get_or_find_network(&config.cluster_name)
+        .await?;
+
+    // Get SSH key
+    let ssh_key_manager = SSHKeyManager::new(hcloud_client.clone());
+    let ssh_key = ssh_key_manager
+        .ensure_ssh_key(&config.cluster_name)
+        .await?
+        .0;
+
+    // Get firewall
+    let firewall_manager = FirewallManager::new(hcloud_client.clone());
+    let firewall = firewall_manager
+        .get_cluster_firewall(&config.cluster_name)
+        .await?;
+
+    // Read existing Talos configuration files (cluster must already exist)
+    let config_path = if role == NodeRole::ControlPlane {
+        cli.output.join("controlplane.yaml")
+    } else {
+        cli.output.join("worker.yaml")
+    };
+
+    if !config_path.exists() {
+        anyhow::bail!(
+            "Talos configuration file not found: {}\n\
+            Scaling requires an existing cluster. Please run 'oxide create' first.",
+            config_path.display()
+        );
+    }
+
+    info!(
+        "Using existing {} configuration from {}",
+        role,
+        config_path.display()
+    );
+
+    let user_data = tokio::fs::read_to_string(&config_path)
+        .await
+        .context(format!(
+            "Failed to read config from {}",
+            config_path.display()
+        ))?;
+
+    let server_manager = ServerManager::new(hcloud_client.clone());
+
+    // Create new nodes
+    let mut new_server_ids = Vec::new();
+    for i in 0..nodes_to_add {
+        let node_index = current_count + i + 1;
+        let node_name = format!("{}-{}-{}", config.cluster_name, pool_name, node_index);
+
+        let server_info = server_manager
+            .create_single_node(
+                &config.cluster_name,
+                &node_name,
+                &pool_config.server_type,
+                &config.hcloud.location,
+                network.id,
+                role,
+                &config.talos.version,
+                config.talos.hcloud_snapshot_id.as_deref(),
+                Some(ssh_key.id),
+                Some(user_data.clone()),
+                pool_config.labels.clone(),
+            )
+            .await?;
+
+        new_server_ids.push(server_info.server.id);
+        info!("✓ Node {} created successfully", node_name);
+    }
+
+    // Apply firewall to new servers
+    if let Some(fw) = firewall {
+        firewall_manager
+            .apply_to_servers(fw.id, new_server_ids)
+            .await?;
+    }
+
+    info!("All new nodes created and configured");
+
+    Ok(())
+}
+
+/// Scale down by removing nodes
+async fn scale_down(
+    server_manager: &ServerManager,
+    mut pool_servers: Vec<ServerInfo>,
+    nodes_to_remove: u32,
+) -> Result<()> {
+    // Sort servers by index (highest first) to remove newest nodes first
+    pool_servers.sort_by(|a, b| b.server.name.cmp(&a.server.name));
+
+    let servers_to_delete: Vec<u64> = pool_servers
+        .iter()
+        .take(nodes_to_remove as usize)
+        .map(|s| s.server.id)
+        .collect();
+
+    if servers_to_delete.is_empty() {
+        info!("No servers to remove");
+        return Ok(());
+    }
+
+    info!("Removing servers: {:?}", servers_to_delete);
+
+    server_manager.delete_servers(servers_to_delete).await?;
 
     Ok(())
 }

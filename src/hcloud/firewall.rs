@@ -181,6 +181,15 @@ impl FirewallManager {
         Ok(response.firewall)
     }
 
+    /// Get firewall for cluster
+    pub async fn get_cluster_firewall(&self, cluster_name: &str) -> Result<Option<Firewall>> {
+        let firewalls = self.list_firewalls().await?;
+
+        Ok(firewalls
+            .into_iter()
+            .find(|f| f.name == format!("{}-firewall", cluster_name)))
+    }
+
     /// Delete firewall
     pub async fn delete_cluster_firewall(&self, cluster_name: &str) -> Result<()> {
         use tokio::time::{sleep, Duration};

@@ -91,6 +91,21 @@ impl NetworkManager {
 
         Ok(())
     }
+
+    /// Get existing network or find it by cluster name
+    pub async fn get_or_find_network(&self, cluster_name: &str) -> Result<Network> {
+        let networks = self.client.list_networks().await?;
+
+        networks
+            .into_iter()
+            .find(|n| n.name == format!("{}-network", cluster_name))
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "Network not found for cluster '{}'. Please create the cluster first.",
+                    cluster_name
+                )
+            })
+    }
 }
 
 #[cfg(test)]

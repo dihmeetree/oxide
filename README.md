@@ -170,7 +170,48 @@ oxide create --config cluster.yaml
 oxide status --config cluster.yaml
 ```
 
-Shows information about all servers and Cilium pods.
+Shows information about all servers organized by node pools, including current node counts and server specifications.
+
+### Scale Cluster Nodes
+
+Scale the number of nodes in your cluster up or down:
+
+```bash
+# Scale workers to 5 nodes (uses first worker pool by default)
+oxide scale worker --count 5
+
+# Scale control plane nodes to 3
+oxide scale control-plane --count 3
+
+# Scale a specific node pool
+oxide scale worker --count 10 --pool worker-large
+```
+
+**Scaling Behavior**:
+
+- **Scale Up**: Creates new nodes with the same configuration as the existing pool, automatically configures them with Talos, and applies firewall rules
+- **Scale Down**: Removes the newest nodes first (highest index numbers)
+- **Pool-specific**: Can target specific node pools if you have multiple worker or control plane pools configured
+
+**Example Use Cases**:
+
+```bash
+# Increase workers for higher workload
+oxide scale worker --count 10
+
+# Scale down to save costs during low-usage periods
+oxide scale worker --count 2
+
+# Add more control plane nodes for HA
+oxide scale control-plane --count 3
+```
+
+**Important Notes**:
+
+- Scaling is idempotent - if already at target count, no changes are made
+- New nodes are automatically joined to the cluster
+- When scaling down, ensure your workloads can handle node removals
+- Control plane scaling: maintaining odd numbers (1, 3, 5) is recommended for etcd quorum
 
 ### Destroy a Cluster
 
@@ -178,7 +219,7 @@ Shows information about all servers and Cilium pods.
 oxide destroy --config cluster.yaml
 ```
 
-**Warning**: This permanently deletes all servers and networks.
+**Warning**: This permanently deletes all servers, networks, and SSH keys.
 
 ### Generate Example Config
 
