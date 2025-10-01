@@ -5,6 +5,7 @@
 mod cilium;
 mod config;
 mod hcloud;
+mod k8s;
 mod talos;
 
 use anyhow::{Context, Result};
@@ -18,6 +19,7 @@ use crate::config::ClusterConfig;
 use crate::hcloud::network::NetworkManager;
 use crate::hcloud::server::{NodeRole, ServerInfo, ServerManager};
 use crate::hcloud::{FirewallManager, HetznerCloudClient, SSHKeyManager};
+use crate::k8s::{KubernetesClient, NodeManager, ResourceManager};
 use crate::talos::{TalosClient, TalosConfigGenerator};
 
 #[derive(Parser)]
@@ -136,7 +138,7 @@ async fn create_cluster(cli: &Cli) -> Result<()> {
     TalosClient::check_talosctl_installed()
         .await
         .context("talosctl is required")?;
-    CiliumManager::check_kubectl_installed()
+    KubernetesClient::check_kubectl_installed()
         .await
         .context("kubectl is required")?;
     CiliumManager::check_helm_installed()
@@ -708,7 +710,7 @@ async fn scale_up(
     for i in 0..nodes_to_add {
         let node_index = current_count + i + 1;
         let node_name = format!("{}-{}-{}", config.cluster_name, pool_name, node_index);
-        TalosClient::wait_for_node_ready(&kubeconfig_path, &node_name, 300).await?;
+        NodeManager::wait_for_node_ready(&kubeconfig_path, &node_name, 300).await?;
     }
 
     // Apply firewall to new servers
@@ -823,7 +825,7 @@ async fn scale_down(
 
         // Step 2: Wait for node to be cordoned (SchedulingDisabled)
         info!("Waiting for node {} to be cordoned...", node_name);
-        match TalosClient::wait_for_node_cordoned(&kubeconfig_path, node_name, 120).await {
+        match NodeManager::wait_for_node_cordoned(&kubeconfig_path, node_name, 120).await {
             Ok(_) => {
                 info!("✓ Node {} is cordoned and draining", node_name);
             }
@@ -837,7 +839,7 @@ async fn scale_down(
 
         // Step 3: Delete from Kubernetes
         info!("Deleting node {} from Kubernetes...", node_name);
-        match TalosClient::delete_kubernetes_node(&kubeconfig_path, node_name).await {
+        match NodeManager::delete_node(&kubeconfig_path, node_name).await {
             Ok(_) => {
                 info!("✓ Node {} removed from Kubernetes", node_name);
             }
@@ -875,8 +877,6 @@ async fn upgrade_cluster(
 async fn deploy_nginx(cli: &Cli) -> Result<()> {
     info!("Deploying nginx with Gateway API...");
 
-    let config = ClusterConfig::from_file(&cli.config).context("Failed to load configuration")?;
-
     let kubeconfig_path = cli.output.join("kubeconfig");
     if !kubeconfig_path.exists() {
         anyhow::bail!(
@@ -885,23 +885,19 @@ async fn deploy_nginx(cli: &Cli) -> Result<()> {
         );
     }
 
-    let control_plane_count = config.control_planes.iter().map(|cp| cp.count).sum();
-    let cilium_manager =
-        CiliumManager::new(config.cilium.clone(), kubeconfig_path, control_plane_count);
-
     // Apply nginx deployment and service
     let nginx_deployment_path = std::path::Path::new("nginx-deployment.yaml");
     if !nginx_deployment_path.exists() {
         anyhow::bail!("nginx-deployment.yaml not found in current directory");
     }
-    cilium_manager.apply_manifest(nginx_deployment_path).await?;
+    ResourceManager::apply_manifest(&kubeconfig_path, nginx_deployment_path).await?;
 
     // Apply Gateway and HTTPRoute
     let nginx_gateway_path = std::path::Path::new("nginx-gateway.yaml");
     if !nginx_gateway_path.exists() {
         anyhow::bail!("nginx-gateway.yaml not found in current directory");
     }
-    cilium_manager.apply_manifest(nginx_gateway_path).await?;
+    ResourceManager::apply_manifest(&kubeconfig_path, nginx_gateway_path).await?;
 
     info!("✓ nginx deployed successfully with Gateway API!");
     info!("");

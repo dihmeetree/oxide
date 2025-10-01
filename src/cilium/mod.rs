@@ -44,24 +44,6 @@ impl CiliumManager {
         }
     }
 
-    /// Check if kubectl is installed
-    pub async fn check_kubectl_installed() -> Result<()> {
-        let output = Command::new("kubectl")
-            .arg("version")
-            .arg("--client")
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .output()
-            .await;
-
-        match output {
-            Ok(output) if output.status.success() => Ok(()),
-            _ => anyhow::bail!(
-                "kubectl is not installed or not in PATH. Please install from https://kubernetes.io/docs/tasks/tools/"
-            ),
-        }
-    }
-
     /// Install Cilium CNI using Helm
     pub async fn install(&self) -> Result<()> {
         info!("Installing Cilium CNI version {}...", self.config.version);
@@ -265,7 +247,7 @@ impl CiliumManager {
         }
 
         // Wait for all nodes to be Ready
-        crate::talos::client::TalosClient::wait_for_all_nodes_ready(
+        crate::k8s::nodes::NodeManager::wait_for_all_nodes_ready(
             &self.kubeconfig_path,
             timeout_secs,
         )
@@ -324,30 +306,6 @@ impl CiliumManager {
 
         Ok(String::from_utf8_lossy(&output.stdout).to_string())
     }
-
-    /// Apply a Kubernetes manifest file
-    pub async fn apply_manifest(&self, manifest_path: &std::path::Path) -> Result<()> {
-        info!("Applying Kubernetes manifest: {}", manifest_path.display());
-
-        let output = Command::new("kubectl")
-            .args(["apply", "-f", manifest_path.to_str().unwrap()])
-            .env("KUBECONFIG", &self.kubeconfig_path)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .output()
-            .await
-            .context("Failed to apply manifest")?;
-
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            anyhow::bail!("Failed to apply manifest: {}", stderr);
-        }
-
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        info!("{}", stdout.trim());
-
-        Ok(())
-    }
 }
 
 #[cfg(test)]
@@ -356,9 +314,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_check_tools() {
-        // These tests check if kubectl and helm are installed
+        // These tests check if helm is installed
         // They may fail in CI/test environments without these tools
-        let _ = CiliumManager::check_kubectl_installed().await;
         let _ = CiliumManager::check_helm_installed().await;
     }
 }
