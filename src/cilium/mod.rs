@@ -70,7 +70,7 @@ impl CiliumManager {
             .args([
                 "apply",
                 "-f",
-                "https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.1.0/experimental-install.yaml",
+                "https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.3.0/experimental-install.yaml",
             ])
             .env("KUBECONFIG", &self.kubeconfig_path)
             .stdout(Stdio::piped())
@@ -191,14 +191,15 @@ impl CiliumManager {
             "k8sServicePort=7445",
         ]);
 
-        // Enable Node IPAM for LoadBalancer services with native routing
+        // Enable Node IPAM for LoadBalancer services with tunnel mode
+        // Hetzner private network requires gateway routing, so use VXLAN tunnel for pod traffic
         args.extend_from_slice(&[
             "--set",
             "nodeIPAM.enabled=true",
             "--set",
-            "routingMode=native",
+            "tunnelProtocol=vxlan",
             "--set",
-            "ipv4NativeRoutingCIDR=10.0.16.0/20",
+            "autoDirectNodeRoutes=false",
             "--set",
             "bpf.masquerade=true",
             "--set",
