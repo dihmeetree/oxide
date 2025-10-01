@@ -28,6 +28,8 @@ chrono = { version = "0.4", features = ["serde"] }
 base64 = "0.22"
 # Random generation for secrets
 rand = "0.8"
+# ED25519 SSH key generation
+ed25519-dalek = { version = "2.1", features = ["rand_core"] }
 # Process execution for kubectl/talosctl
 tokio-process = "0.2"
 # URL handling

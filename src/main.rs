@@ -17,7 +17,7 @@ use crate::cilium::CiliumManager;
 use crate::config::ClusterConfig;
 use crate::hcloud::network::NetworkManager;
 use crate::hcloud::server::{NodeRole, ServerManager};
-use crate::hcloud::{FirewallManager, HetznerCloudClient};
+use crate::hcloud::{FirewallManager, HetznerCloudClient, SSHKeyManager};
 use crate::talos::{TalosClient, TalosConfigGenerator};
 
 #[derive(Parser)]
@@ -78,7 +78,7 @@ async fn main() {
     tracing_subscriber::registry()
         .with(
             tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| format!("talos_hcloud={}", log_level).into()),
+                .unwrap_or_else(|_| format!("oxide={}", log_level).into()),
         )
         .with(tracing_subscriber::fmt::layer())
         .init();
@@ -142,6 +142,33 @@ async fn create_cluster(cli: &Cli) -> Result<()> {
         .ensure_network(&config.cluster_name, &config.hcloud.network)
         .await?;
 
+    // Ensure SSH key exists for cluster
+    let ssh_key_manager = SSHKeyManager::new(hcloud_client.clone());
+    let (ssh_key, private_key) = ssh_key_manager.ensure_ssh_key(&config.cluster_name).await?;
+
+    // Save private key if it was newly generated
+    if let Some(private_key_content) = private_key {
+        let ssh_key_path = cli.output.join("id_ed25519");
+        tokio::fs::write(&ssh_key_path, private_key_content)
+            .await
+            .context("Failed to save SSH private key")?;
+        info!("SSH private key saved to: {}", ssh_key_path.display());
+
+        // Set appropriate permissions (0600)
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perms = tokio::fs::metadata(&ssh_key_path)
+                .await
+                .context("Failed to get SSH key metadata")?
+                .permissions();
+            perms.set_mode(0o600);
+            tokio::fs::set_permissions(&ssh_key_path, perms)
+                .await
+                .context("Failed to set SSH key permissions")?;
+        }
+    }
+
     // Generate Talos configuration first (using placeholder endpoint if needed)
     let cluster_endpoint = config
         .talos
@@ -181,7 +208,7 @@ async fn create_cluster(cli: &Cli) -> Result<()> {
             &network,
             &config.talos.version,
             config.talos.hcloud_snapshot_id.as_deref(),
-            None,
+            Some(ssh_key.id),
             Some(controlplane_user_data),
         ),
         server_manager.create_workers(
@@ -191,7 +218,7 @@ async fn create_cluster(cli: &Cli) -> Result<()> {
             &network,
             &config.talos.version,
             config.talos.hcloud_snapshot_id.as_deref(),
-            None,
+            Some(ssh_key.id),
             Some(worker_user_data),
         )
     );
@@ -308,6 +335,12 @@ async fn destroy_cluster(cli: &Cli) -> Result<()> {
     let firewall_manager = FirewallManager::new(hcloud_client.clone());
     firewall_manager
         .delete_cluster_firewall(&config.cluster_name)
+        .await?;
+
+    // Delete SSH key
+    let ssh_key_manager = SSHKeyManager::new(hcloud_client.clone());
+    ssh_key_manager
+        .delete_cluster_ssh_key(&config.cluster_name)
         .await?;
 
     // Delete network
