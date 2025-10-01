@@ -74,20 +74,52 @@ Pod B (10.0.18.1) on Node B
 #### What Uses Native BPF (No Overhead)
 
 - **LoadBalancer ingress traffic** - Uses `loadBalancer.acceleration=native`
+- **Same-node pod access** - Direct delivery, no encapsulation
+- **LoadBalancer → Pod on same node** - Pure native BPF path
 - **Service load balancing** - Full eBPF kube-proxy replacement
 - **NAT/Masquerading** - Uses `bpf.masquerade=true`
 - **Policy enforcement** - eBPF-based network policies
 
 #### What Uses VXLAN Encapsulation
 
-- **Pod-to-pod traffic across nodes** - VXLAN tunnel between nodes
+- **Pod-to-pod traffic across different nodes** - VXLAN tunnel between nodes
+- **LoadBalancer → Pod on different node** - VXLAN encapsulation for cross-node delivery
+
+#### Traffic Path Examples
+
+**Same-node traffic (no VXLAN):**
+```
+External traffic → worker-1 IP (178.156.191.97)
+    ↓
+BPF program on worker-1 (native, no encapsulation)
+    ↓
+Pod on worker-1 (10.0.18.x) - direct delivery ✅ Native BPF
+```
+
+**Cross-node traffic (uses VXLAN):**
+```
+External traffic → worker-1 IP (178.156.191.97)
+    ↓
+BPF program decides backend is on worker-2
+    ↓
+VXLAN encapsulation (UDP packet)
+    ↓
+worker-1 → worker-2 (via gateway)
+    ↓
+VXLAN decapsulation on worker-2
+    ↓
+Pod on worker-2 (10.0.19.x) ⚠️ VXLAN overhead
+```
+
+**Key Insight**: The tunnel mode setting only affects **cross-node pod traffic**. Same-node traffic always uses native BPF regardless of the routing mode configuration.
 
 #### Performance Impact
 
-- **VXLAN overhead**: ~50 bytes per packet
+- **VXLAN overhead**: ~50 bytes per packet (only for cross-node traffic)
 - **Throughput impact**: 3-5% for large packets, negligible for most workloads
 - **Latency impact**: Minimal (microseconds for encap/decap)
-- **LoadBalancer performance**: **No impact** - still uses native BPF
+- **Same-node performance**: **No impact** - always native BPF
+- **LoadBalancer performance**: **Minimal impact** - only cross-node backend selection uses VXLAN
 
 For Hetzner's network topology, this is the correct trade-off. Native routing simply doesn't work without direct L2 connectivity.
 
@@ -144,6 +176,63 @@ nginx-lb   LoadBalancer   178.156.188.143,178.156.203.237,5.161.58.170
 ```
 
 All worker IPs become entry points with native BPF load balancing to backend pods across all nodes.
+
+#### Load Distribution Strategy
+
+**Single IP vs All IPs:**
+
+You can send traffic to any single worker IP and Cilium will distribute it to pods across all nodes. However, **using all worker IPs is strongly recommended** for production:
+
+**Single IP approach (works, but not optimal):**
+```
+All traffic → worker-1 IP (178.156.191.97)
+    ↓
+BPF load balances to pods on worker-1, worker-2, worker-3
+    ↓
+Cross-node traffic uses VXLAN (overhead)
+Single NIC bandwidth limit on worker-1
+```
+
+**Limitations:**
+- All ingress traffic limited to 1 node's NIC bandwidth (bottleneck)
+- Single point of failure - if node goes down, service unavailable
+- More VXLAN overhead due to cross-node traffic
+- CPU load concentrated on one node
+
+**All IPs approach (recommended):**
+```
+Traffic distributed → worker-1, worker-2, worker-3 IPs
+    ↓
+Each node handles ~33% of ingress traffic
+    ↓
+More same-node traffic (native BPF, no VXLAN)
+3x aggregate NIC bandwidth capacity
+```
+
+**Benefits:**
+- **3x aggregate bandwidth** - uses all node NICs in parallel
+- **High availability** - survives individual node failures
+- **Less VXLAN overhead** - better same-node locality (native BPF)
+- **Better CPU distribution** - load spread across all nodes
+
+**How to distribute traffic across all IPs:**
+
+1. **DNS Round-Robin:**
+   ```
+   your-app.com A 178.156.188.143
+   your-app.com A 178.156.191.97
+   your-app.com A 178.156.203.237
+   ```
+
+2. **External Load Balancer (recommended):**
+   - Use Cloudflare Load Balancing, AWS ALB, or similar
+   - Configure all worker IPs as origin servers
+   - Enable health checks per IP
+   - Automatic failover on node failure
+
+3. **BGP/Anycast (advanced):**
+   - Advertise same IP from all nodes
+   - Requires BGP support and network configuration
 
 ### Talos-Specific Settings
 
