@@ -606,7 +606,7 @@ async fn scale_cluster(
         let nodes_to_remove = current_count - target_count;
         info!("Scaling down: removing {} nodes", nodes_to_remove);
 
-        scale_down(&server_manager, pool_servers, nodes_to_remove).await?;
+        scale_down(cli, &server_manager, pool_servers, nodes_to_remove).await?;
     }
 
     info!("✓ Cluster scaling completed successfully!");
@@ -715,6 +715,7 @@ async fn scale_up(
 
 /// Scale down by removing nodes
 async fn scale_down(
+    cli: &Cli,
     server_manager: &ServerManager,
     mut pool_servers: Vec<ServerInfo>,
     nodes_to_remove: u32,
@@ -722,20 +723,93 @@ async fn scale_down(
     // Sort servers by index (highest first) to remove newest nodes first
     pool_servers.sort_by(|a, b| b.server.name.cmp(&a.server.name));
 
-    let servers_to_delete: Vec<u64> = pool_servers
-        .iter()
+    let servers_to_remove: Vec<ServerInfo> = pool_servers
+        .into_iter()
         .take(nodes_to_remove as usize)
-        .map(|s| s.server.id)
         .collect();
 
-    if servers_to_delete.is_empty() {
+    if servers_to_remove.is_empty() {
         info!("No servers to remove");
         return Ok(());
     }
 
-    info!("Removing servers: {:?}", servers_to_delete);
+    info!("Gracefully removing {} node(s)...", servers_to_remove.len());
 
-    server_manager.delete_servers(servers_to_delete).await?;
+    // Initialize Talos client
+    let talosconfig_path = cli.output.join("talosconfig");
+    if !talosconfig_path.exists() {
+        anyhow::bail!(
+            "Talosconfig not found at {}. Cannot perform graceful node removal.",
+            talosconfig_path.display()
+        );
+    }
+    let talos_client = TalosClient::new(talosconfig_path);
+
+    // Kubeconfig for kubectl delete
+    let kubeconfig_path = cli.output.join("kubeconfig");
+    if !kubeconfig_path.exists() {
+        anyhow::bail!(
+            "Kubeconfig not found at {}. Cannot perform graceful node removal.",
+            kubeconfig_path.display()
+        );
+    }
+
+    let mut server_ids_to_delete = Vec::new();
+
+    for server_info in servers_to_remove {
+        let node_name = &server_info.server.name;
+        let node_ip = ServerManager::get_server_ip(&server_info.server);
+
+        info!(
+            "Removing node: {} (ID: {})",
+            node_name, server_info.server.id
+        );
+
+        // Step 1: Run talosctl reset (cordon, drain, leave etcd, erase, power down)
+        if let Some(ip) = node_ip {
+            info!("Running talosctl reset on {} ({})...", node_name, ip);
+            match talos_client.reset_node(&ip, node_name).await {
+                Ok(_) => {
+                    info!("✓ Node {} reset successfully", node_name);
+                }
+                Err(e) => {
+                    // Log error but continue - the node might already be down
+                    info!(
+                        "Warning: Failed to reset node {} ({}): {}. Continuing...",
+                        node_name, ip, e
+                    );
+                }
+            }
+        } else {
+            info!(
+                "Warning: Node {} has no public IP, skipping talosctl reset",
+                node_name
+            );
+        }
+
+        // Step 2: Delete from Kubernetes
+        info!("Deleting node {} from Kubernetes...", node_name);
+        match TalosClient::delete_kubernetes_node(&kubeconfig_path, node_name).await {
+            Ok(_) => {
+                info!("✓ Node {} removed from Kubernetes", node_name);
+            }
+            Err(e) => {
+                info!(
+                    "Warning: Failed to delete node {} from Kubernetes: {}. Continuing...",
+                    node_name, e
+                );
+            }
+        }
+
+        // Collect server ID for final cleanup
+        server_ids_to_delete.push(server_info.server.id);
+    }
+
+    // Step 3: Delete servers from Hetzner Cloud
+    info!("Deleting servers from Hetzner Cloud...");
+    server_manager.delete_servers(server_ids_to_delete).await?;
+
+    info!("✓ All nodes removed successfully");
 
     Ok(())
 }

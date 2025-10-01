@@ -322,6 +322,77 @@ impl TalosClient {
         Ok(())
     }
 
+    /// Reset a node (cordon, drain, leave etcd, erase disks, power down)
+    ///
+    /// This performs a graceful node removal by:
+    /// 1. Cordoning the node (preventing new pods)
+    /// 2. Draining existing workloads
+    /// 3. Leaving etcd cluster (if control plane)
+    /// 4. Erasing disks
+    /// 5. Powering down
+    pub async fn reset_node(&self, node_ip: &str, node_name: &str) -> Result<()> {
+        info!("Resetting node {} ({})", node_name, node_ip);
+        info!("This will cordon, drain, leave etcd (if needed), erase disks, and power down...");
+
+        let output = Command::new("talosctl")
+            .args([
+                "-n",
+                node_ip,
+                "--talosconfig",
+                self.talosconfig_path.to_str().unwrap(),
+                "reset",
+                "--graceful",
+            ])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .output()
+            .await
+            .context("Failed to execute talosctl reset")?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            anyhow::bail!("Failed to reset node {}: {}", node_name, stderr);
+        }
+
+        info!("Node {} reset successfully", node_name);
+
+        Ok(())
+    }
+
+    /// Delete a Kubernetes node
+    pub async fn delete_kubernetes_node(
+        kubeconfig_path: &std::path::Path,
+        node_name: &str,
+    ) -> Result<()> {
+        info!("Deleting Kubernetes node: {}", node_name);
+
+        let output = Command::new("kubectl")
+            .args(["delete", "node", node_name])
+            .env("KUBECONFIG", kubeconfig_path)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .output()
+            .await
+            .context("Failed to delete Kubernetes node")?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            // Don't fail if node doesn't exist
+            if stderr.contains("NotFound") || stderr.contains("not found") {
+                info!(
+                    "Node {} not found in Kubernetes (already removed)",
+                    node_name
+                );
+                return Ok(());
+            }
+            anyhow::bail!("Failed to delete node {}: {}", node_name, stderr);
+        }
+
+        info!("Kubernetes node {} deleted successfully", node_name);
+
+        Ok(())
+    }
+
     /// Check if talosctl is installed
     pub async fn check_talosctl_installed() -> Result<()> {
         let output = Command::new("talosctl")
