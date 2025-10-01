@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://i.imgur.com/sUo78EC.png" alt="Oxide" width="600">
+  <img src="https://i.imgur.com/sUo78EC.png" alt="Oxide" width="800">
 </p>
 
 <p align="center"><strong>Talos Kubernetes with Cilium</strong></p>
