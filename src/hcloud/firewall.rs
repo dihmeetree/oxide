@@ -84,10 +84,18 @@ impl FirewallManager {
             // HTTP - port 80
             FirewallRule {
                 direction: "in".to_string(),
-                source_ips: vec!["0.0.0.0/0".to_string()],
+                source_ips: vec!["0.0.0.0/0".to_string(), "::/0".to_string()],
                 destination_ips: vec![],
                 protocol: "tcp".to_string(),
                 port: Some("80".to_string()),
+            },
+            // HTTPS - port 443
+            FirewallRule {
+                direction: "in".to_string(),
+                source_ips: vec!["0.0.0.0/0".to_string(), "::/0".to_string()],
+                destination_ips: vec![],
+                protocol: "tcp".to_string(),
+                port: Some("443".to_string()),
             },
         ];
 
