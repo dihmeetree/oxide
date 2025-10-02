@@ -6,6 +6,10 @@
 
 A Rust-based tool for deploying Talos Linux Kubernetes clusters with Cilium CNI. Currently supports Hetzner Cloud, with more cloud providers coming soon. Similar to [terraform-hcloud-talos](https://github.com/hcloud-talos/terraform-hcloud-talos) but built entirely in Rust without Terraform dependencies.
 
+> [!WARNING]
+> This project is under active development and is considered experimental. Features may change, and not all functionality is production-ready yet.
+> If you encounter bugs or have feature requests, please open an issue on [GitHub](https://github.com/dihmeetree/oxide/issues).
+
 ## Features
 
 - **Automated Cluster Deployment**: Create production-ready Kubernetes clusters on Hetzner Cloud
