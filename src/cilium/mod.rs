@@ -167,13 +167,25 @@ impl CiliumManager {
         if self.config.enable_hubble {
             args.extend_from_slice(&[
                 "--set",
+                "hubble.enabled=true",
+                "--set",
                 "hubble.relay.enabled=true",
                 "--set",
                 "hubble.ui.enabled=true",
+                "--set",
+                "hubble.metrics.enabled={dns,drop,tcp,flow,port-distribution,icmp,httpV2:exemplars=true;labelsContext=source_ip\\,source_namespace\\,source_workload\\,destination_ip\\,destination_namespace\\,destination_workload\\,traffic_direction}",
             ]);
         } else {
             args.extend_from_slice(&["--set", "hubble.enabled=false"]);
         }
+
+        // Enable Prometheus metrics
+        args.extend_from_slice(&[
+            "--set",
+            "prometheus.enabled=true",
+            "--set",
+            "operator.prometheus.enabled=true",
+        ]);
 
         // Add IPv6 settings if enabled
         if self.config.enable_ipv6 {
