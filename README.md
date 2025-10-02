@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://i.imgur.com/sUo78EC.png" alt="Oxide" width="800">
+  <img src="https://i.imgur.com/sUo78EC.png" alt="Oxide" width="850">
 </p>
 
 A Rust-based tool for deploying Talos Linux Kubernetes clusters with Cilium CNI. Currently supports Hetzner Cloud, with more cloud providers coming soon. Similar to [terraform-hcloud-talos](https://github.com/hcloud-talos/terraform-hcloud-talos) but built entirely in Rust without Terraform dependencies.
