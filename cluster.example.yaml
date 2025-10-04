@@ -1,4 +1,4 @@
-cluster_name: talos-cluster
+cluster_name: oxide-cluster
 
 hcloud:
   # Hetzner Cloud API token
