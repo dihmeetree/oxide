@@ -7,6 +7,7 @@ mod config;
 mod hcloud;
 mod k8s;
 mod talos;
+mod utils;
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
@@ -69,6 +70,14 @@ enum Commands {
         /// Node pool name (optional, uses first pool if not specified)
         #[arg(short, long)]
         pool: Option<String>,
+
+        /// Force non-graceful scale down (skip drain, immediate removal)
+        #[arg(long)]
+        force: bool,
+
+        /// Timeout in seconds for graceful node reset (default: 600)
+        #[arg(long, default_value = "600")]
+        timeout: u64,
     },
 
     /// Upgrade cluster
@@ -116,7 +125,9 @@ async fn main() {
             ref node_type,
             count,
             ref pool,
-        } => scale_cluster(&cli, node_type.clone(), count, pool.clone()).await,
+            force,
+            timeout,
+        } => scale_cluster(&cli, node_type.clone(), count, pool.clone(), force, timeout).await,
         Commands::Upgrade {
             ref talos_version,
             ref kubernetes_version,
@@ -520,6 +531,8 @@ async fn scale_cluster(
     node_type: NodeType,
     target_count: u32,
     pool_name: Option<String>,
+    force: bool,
+    timeout: u64,
 ) -> Result<()> {
     info!("Starting cluster scaling...");
 
@@ -608,7 +621,21 @@ async fn scale_cluster(
         let nodes_to_remove = current_count - target_count;
         info!("Scaling down: removing {} nodes", nodes_to_remove);
 
-        scale_down(cli, &server_manager, pool_servers, nodes_to_remove).await?;
+        if force {
+            info!(
+                "⚠️  FORCE mode enabled: nodes will be removed immediately without graceful drain"
+            );
+        }
+
+        scale_down(
+            cli,
+            &server_manager,
+            pool_servers,
+            nodes_to_remove,
+            force,
+            timeout,
+        )
+        .await?;
     }
 
     info!("✓ Cluster scaling completed successfully!");
@@ -725,12 +752,14 @@ async fn scale_up(
     Ok(())
 }
 
-/// Scale down by removing nodes
+/// Scale down by removing nodes with parallel reset and validation
 async fn scale_down(
     cli: &Cli,
     server_manager: &ServerManager,
     mut pool_servers: Vec<ServerInfo>,
     nodes_to_remove: u32,
+    force: bool,
+    timeout: u64,
 ) -> Result<()> {
     // Sort servers by index (highest first) to remove newest nodes first
     pool_servers.sort_by(|a, b| b.server.name.cmp(&a.server.name));
@@ -755,9 +784,8 @@ async fn scale_down(
             talosconfig_path.display()
         );
     }
-    let talos_client = TalosClient::new(talosconfig_path);
 
-    // Kubeconfig for kubectl delete
+    // Kubeconfig for kubectl operations
     let kubeconfig_path = cli.output.join("kubeconfig");
     if !kubeconfig_path.exists() {
         anyhow::bail!(
@@ -766,100 +794,163 @@ async fn scale_down(
         );
     }
 
-    let mut server_ids_to_delete = Vec::new();
+    // PRE-FLIGHT VALIDATION
+    let node_names: Vec<String> = servers_to_remove
+        .iter()
+        .map(|s| s.server.name.clone())
+        .collect();
 
-    for server_info in servers_to_remove {
-        let node_name = &server_info.server.name;
+    info!("Running pre-flight validation checks...");
+
+    // Validate etcd quorum won't be broken
+    NodeManager::validate_etcd_quorum(&kubeconfig_path, &node_names).await?;
+
+    info!("✓ Pre-flight validation passed");
+
+    // PHASE 1: PARALLEL NODE RESET
+    info!("Phase 1/3: Resetting nodes in parallel...");
+
+    let mut reset_tasks = Vec::new();
+
+    for server_info in &servers_to_remove {
+        let node_name = server_info.server.name.clone();
         let node_ip = ServerManager::get_server_ip(&server_info.server);
+        let talos_client_clone = TalosClient::new(talosconfig_path.clone());
+        let kubeconfig_path_clone = kubeconfig_path.clone();
 
-        info!(
-            "Removing node: {} (ID: {})",
-            node_name, server_info.server.id
-        );
+        let task = tokio::spawn(async move {
+            if let Some(ip) = node_ip {
+                info!("Resetting node {} ({})...", node_name, ip);
 
-        // Step 1: Run talosctl reset --graceful --wait
-        // This will cordon, drain, leave etcd, erase disks, and power down
-        // The --wait flag means it will wait for the reset to complete or timeout
-        if let Some(ip) = node_ip {
-            info!(
-                "Running talosctl reset --graceful on {} ({})...",
-                node_name, ip
-            );
-            info!("This will cordon, drain workloads, and power down the node...");
+                // Proceed with reset (talosctl will handle connectivity)
+                let reset_result = talos_client_clone
+                    .reset_node_with_timeout(&ip, &node_name, timeout, force, 2)
+                    .await;
 
-            // First verify we can connect to Talos API before attempting reset
-            match talos_client.get_cluster_info(&ip).await {
-                Ok(_) => {
-                    // Connection successful, proceed with reset
-                    match talos_client.reset_node(&ip, node_name).await {
-                        Ok(_) => {
-                            info!("✓ Node {} reset completed and powered down", node_name);
-                        }
-                        Err(e) => {
-                            // If reset fails after successful initial connection, it may have powered down
-                            let err_msg = e.to_string();
-                            if err_msg.contains("connection") || err_msg.contains("timeout") {
-                                info!(
-                                    "Node {} powered down during reset (expected behavior)",
-                                    node_name
-                                );
-                            } else {
-                                anyhow::bail!("Failed to reset node {}: {}", node_name, e);
-                            }
+                match reset_result {
+                    Ok(_) => {
+                        info!("✓ Node {} reset completed", node_name);
+                    }
+                    Err(e) => {
+                        // Check if this is an expected error (node powered down during reset)
+                        let err_msg = e.to_string();
+                        if err_msg.contains("connection closed")
+                            || err_msg.contains("broken pipe")
+                            || err_msg.contains("reset by peer")
+                        {
+                            info!("✓ Node {} powered down during reset (expected)", node_name);
+                        } else {
+                            return Err(e);
                         }
                     }
                 }
-                Err(e) => {
-                    anyhow::bail!(
-                        "Cannot connect to Talos API on {} ({}). Check firewall rules and node status: {}",
-                        node_name, ip, e
-                    );
+
+                // Monitor drain progress if not in force mode
+                if !force {
+                    info!("Monitoring drain progress for {}...", node_name);
+                    if let Err(e) = NodeManager::monitor_drain_progress(
+                        &kubeconfig_path_clone,
+                        &node_name,
+                        timeout,
+                    )
+                    .await
+                    {
+                        info!(
+                            "Warning: Failed to monitor drain progress for {}: {}",
+                            node_name, e
+                        );
+                    }
                 }
+
+                Ok::<String, anyhow::Error>(node_name)
+            } else {
+                info!(
+                    "⚠️  Warning: Node {} has no public IP, skipping reset",
+                    node_name
+                );
+                Ok::<String, anyhow::Error>(node_name)
             }
-        } else {
+        });
+
+        reset_tasks.push(task);
+    }
+
+    // Wait for all resets to complete
+    info!("Waiting for all node resets to complete...");
+    let reset_results = futures::future::join_all(reset_tasks).await;
+
+    let mut successfully_reset = Vec::new();
+    let mut failed_resets = Vec::new();
+
+    for (idx, result) in reset_results.into_iter().enumerate() {
+        match result {
+            Ok(Ok(node_name)) => {
+                successfully_reset.push(node_name);
+            }
+            Ok(Err(e)) => {
+                let node_name = &servers_to_remove[idx].server.name;
+                failed_resets.push(format!("{}: {}", node_name, e));
+            }
+            Err(e) => {
+                let node_name = &servers_to_remove[idx].server.name;
+                failed_resets.push(format!("{}: task join error: {}", node_name, e));
+            }
+        }
+    }
+
+    if !failed_resets.is_empty() {
+        anyhow::bail!(
+            "Failed to reset {} node(s):\n  {}",
+            failed_resets.len(),
+            failed_resets.join("\n  ")
+        );
+    }
+
+    info!(
+        "✓ Phase 1 complete: {} nodes reset successfully",
+        successfully_reset.len()
+    );
+
+    // PHASE 2: DELETE FROM KUBERNETES
+    info!("Phase 2/3: Removing nodes from Kubernetes...");
+
+    for node_name in &successfully_reset {
+        // Wait for node to be cordoned and NotReady before deleting
+        if let Err(e) = NodeManager::wait_for_node_cordoned(&kubeconfig_path, node_name, 120).await
+        {
             info!(
-                "Warning: Node {} has no public IP, skipping talosctl reset",
-                node_name
+                "⚠️  Warning: Could not verify node {} cordon status: {}. Proceeding with deletion...",
+                node_name, e
             );
         }
 
-        // Step 2: Wait for node to be cordoned (SchedulingDisabled)
-        info!("Waiting for node {} to be cordoned...", node_name);
-        match NodeManager::wait_for_node_cordoned(&kubeconfig_path, node_name, 120).await {
-            Ok(_) => {
-                info!("✓ Node {} is cordoned and draining", node_name);
-            }
-            Err(e) => {
-                info!(
-                    "Warning: Could not verify node {} cordon status: {}. Continuing...",
-                    node_name, e
-                );
-            }
-        }
-
-        // Step 3: Delete from Kubernetes
-        info!("Deleting node {} from Kubernetes...", node_name);
         match NodeManager::delete_node(&kubeconfig_path, node_name).await {
             Ok(_) => {
                 info!("✓ Node {} removed from Kubernetes", node_name);
             }
             Err(e) => {
                 info!(
-                    "Warning: Failed to delete node {} from Kubernetes: {}. Continuing...",
+                    "⚠️  Warning: Failed to delete node {} from Kubernetes: {}",
                     node_name, e
                 );
             }
         }
-
-        // Collect server ID for final cleanup
-        server_ids_to_delete.push(server_info.server.id);
     }
 
-    // Step 3: Delete servers from Hetzner Cloud
-    info!("Deleting servers from Hetzner Cloud...");
+    info!("✓ Phase 2 complete");
+
+    // PHASE 3: DELETE FROM HETZNER CLOUD
+    info!("Phase 3/3: Deleting servers from Hetzner Cloud...");
+
+    let server_ids_to_delete: Vec<u64> = servers_to_remove.iter().map(|s| s.server.id).collect();
+
     server_manager.delete_servers(server_ids_to_delete).await?;
 
-    info!("✓ All nodes removed successfully");
+    info!("✓ Phase 3 complete");
+    info!(
+        "✓ All {} nodes removed successfully",
+        servers_to_remove.len()
+    );
 
     Ok(())
 }

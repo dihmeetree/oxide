@@ -6,6 +6,8 @@ use tokio::process::Command;
 use tracing::info;
 
 use crate::hcloud::server::ServerInfo;
+use crate::utils::command::CommandBuilder;
+use crate::utils::polling::PollingConfig;
 
 /// Talos client for cluster operations
 pub struct TalosClient {
@@ -55,44 +57,43 @@ impl TalosClient {
         control_plane_ip: &str,
         timeout_secs: u64,
     ) -> Result<()> {
-        info!("Waiting for Kubernetes API server to be ready...");
-
-        let start = std::time::Instant::now();
-        let timeout = std::time::Duration::from_secs(timeout_secs);
         let api_url = format!("https://{}:6443/version", control_plane_ip);
 
-        loop {
-            // Try to reach the API server endpoint directly
-            let output = Command::new("curl")
-                .args([
-                    "-k",
-                    "-s",
-                    "-o",
-                    "/dev/null",
-                    "-w",
-                    "%{http_code}",
-                    &api_url,
-                ])
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped())
-                .output()
-                .await;
+        let config = PollingConfig::new(
+            timeout_secs,
+            5,
+            "Waiting for Kubernetes API server to be ready",
+        );
 
-            if let Ok(output) = output {
-                let status_code = String::from_utf8_lossy(&output.stdout);
-                // 401 Unauthorized or 403 Forbidden means API server is up, just needs auth
-                if status_code == "401" || status_code == "403" || status_code == "200" {
-                    info!("Kubernetes API server is ready");
-                    return Ok(());
+        config
+            .poll_until(|| {
+                let api_url = api_url.clone();
+                async move {
+                    // Try to reach the API server endpoint directly
+                    let output = CommandBuilder::new("curl")
+                        .args([
+                            "-k",
+                            "-s",
+                            "-o",
+                            "/dev/null",
+                            "-w",
+                            "%{http_code}",
+                            &api_url,
+                        ])
+                        .output()
+                        .await;
+
+                    if let Ok(output) = output {
+                        // 401 Unauthorized or 403 Forbidden means API server is up, just needs auth
+                        let status_code = output.stdout.trim();
+                        if status_code == "401" || status_code == "403" || status_code == "200" {
+                            return Ok(true);
+                        }
+                    }
+                    Ok(false)
                 }
-            }
-
-            if start.elapsed() > timeout {
-                anyhow::bail!("Timeout waiting for API server to be ready");
-            }
-
-            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-        }
+            })
+            .await
     }
 
     /// Generate kubeconfig file
@@ -330,52 +331,127 @@ impl TalosClient {
     /// 3. Leaving etcd cluster (if control plane)
     /// 4. Erasing disks
     /// 5. Powering down
+    #[allow(dead_code)]
     pub async fn reset_node(&self, node_ip: &str, node_name: &str) -> Result<()> {
-        info!("Resetting node {} ({})", node_name, node_ip);
-        info!("This will cordon, drain, leave etcd (if needed), erase disks, and power down...");
-
-        let output = Command::new("talosctl")
-            .args([
-                "-n",
-                node_ip,
-                "--talosconfig",
-                self.talosconfig_path.to_str().unwrap(),
-                "reset",
-                "--graceful",
-                "--wait",
-            ])
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .output()
+        self.reset_node_with_timeout(node_ip, node_name, 600, false, 0)
             .await
-            .context("Failed to execute talosctl reset")?;
+    }
 
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            anyhow::bail!("Failed to reset node {}: {}", node_name, stderr);
+    /// Reset a node with custom timeout and retry options
+    ///
+    /// # Arguments
+    /// * `node_ip` - IP address of the node to reset
+    /// * `node_name` - Name of the node for logging
+    /// * `timeout_secs` - Timeout in seconds for the reset operation (default: 600)
+    /// * `force` - If true, skip graceful reset and force immediate reset
+    /// * `max_retries` - Number of retries if reset fails (default: 0)
+    pub async fn reset_node_with_timeout(
+        &self,
+        node_ip: &str,
+        node_name: &str,
+        timeout_secs: u64,
+        force: bool,
+        max_retries: u32,
+    ) -> Result<()> {
+        info!("Resetting node {} ({})", node_name, node_ip);
+        if force {
+            info!("Using FORCE reset (non-graceful)");
+        } else {
+            info!(
+                "This will cordon, drain, leave etcd (if needed), erase disks, and power down..."
+            );
+            info!("Timeout: {} seconds", timeout_secs);
         }
 
-        info!("Node {} reset successfully", node_name);
+        let mut attempts = 0;
+        let max_attempts = max_retries + 1;
 
-        Ok(())
+        loop {
+            attempts += 1;
+            if attempts > 1 {
+                info!(
+                    "Retry attempt {}/{} for node {}",
+                    attempts - 1,
+                    max_retries,
+                    node_name
+                );
+            }
+
+            let mut args = vec![
+                "--talosconfig".to_string(),
+                self.talosconfig_path.to_str().unwrap().to_string(),
+                "reset".to_string(),
+                "--nodes".to_string(),
+                node_ip.to_string(),
+            ];
+
+            if force {
+                args.push("--graceful=false".to_string());
+            }
+
+            args.push("--wait".to_string());
+            args.push("--timeout".to_string());
+            args.push(format!("{}s", timeout_secs));
+
+            let output = Command::new("talosctl")
+                .args(&args)
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .output()
+                .await
+                .context("Failed to execute talosctl reset")?;
+
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let stderr = String::from_utf8_lossy(&output.stderr);
+
+            // Debug: always log what we got from talosctl
+            if !stdout.is_empty() {
+                info!("talosctl stdout for {}: {}", node_name, stdout);
+            }
+            if !stderr.is_empty() {
+                info!("talosctl stderr for {}: {}", node_name, stderr);
+            }
+            info!(
+                "talosctl exit code for {}: {}",
+                node_name,
+                output.status.code().unwrap_or(-1)
+            );
+
+            if output.status.success() {
+                info!("Node {} reset successfully", node_name);
+                return Ok(());
+            }
+
+            // Check if this is a retriable error (but not normal progress messages)
+            let is_retriable = (stderr.contains("i/o timeout")
+                || stderr.contains("connection refused")
+                || stderr.contains("no route to host"))
+                && !stderr.contains("events check condition met");
+
+            if attempts < max_attempts && is_retriable {
+                info!("Reset failed with retriable error, retrying in 10 seconds...");
+                tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+                continue;
+            }
+
+            // Non-retriable error or max retries reached
+            anyhow::bail!(
+                "Failed to reset node {} after {} attempts: {}",
+                node_name,
+                attempts,
+                stderr
+            );
+        }
     }
 
     /// Check if talosctl is installed
     pub async fn check_talosctl_installed() -> Result<()> {
-        let output = Command::new("talosctl")
-            .arg("version")
-            .arg("--client")
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .output()
-            .await;
-
-        match output {
-            Ok(output) if output.status.success() => Ok(()),
-            _ => anyhow::bail!(
-                "talosctl is not installed or not in PATH. Please install from https://www.talos.dev/latest/talos-guides/install/talosctl/"
-            ),
-        }
+        crate::utils::command::check_tool_installed(
+            "talosctl",
+            "version",
+            "https://www.talos.dev/latest/talos-guides/install/talosctl/",
+        )
+        .await
     }
 }
 

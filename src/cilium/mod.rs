@@ -1,10 +1,10 @@
 /// Cilium CNI deployment and management
-use anyhow::{Context, Result};
-use std::process::Stdio;
-use tokio::process::Command;
+use anyhow::Result;
 use tracing::info;
 
 use crate::config::CiliumConfig;
+use crate::utils::command::CommandBuilder;
+use crate::utils::polling::PollingConfig;
 
 /// Cilium deployment manager
 pub struct CiliumManager {
@@ -29,19 +29,12 @@ impl CiliumManager {
 
     /// Check if helm is installed
     pub async fn check_helm_installed() -> Result<()> {
-        let output = Command::new("helm")
-            .arg("version")
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .output()
-            .await;
-
-        match output {
-            Ok(output) if output.status.success() => Ok(()),
-            _ => anyhow::bail!(
-                "helm is not installed or not in PATH. Please install from https://helm.sh/docs/intro/install/"
-            ),
-        }
+        crate::utils::command::check_tool_installed(
+            "helm",
+            "version",
+            "https://helm.sh/docs/intro/install/",
+        )
+        .await
     }
 
     /// Install Cilium CNI using Helm
@@ -66,23 +59,16 @@ impl CiliumManager {
     async fn install_gateway_api_crds(&self) -> Result<()> {
         info!("Installing Gateway API CRDs...");
 
-        let output = Command::new("kubectl")
+        CommandBuilder::new("kubectl")
             .args([
                 "apply",
                 "-f",
                 "https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.3.0/experimental-install.yaml",
             ])
-            .env("KUBECONFIG", &self.kubeconfig_path)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .output()
-            .await
-            .context("Failed to install Gateway API CRDs")?;
-
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            anyhow::bail!("Failed to install Gateway API CRDs: {}", stderr);
-        }
+            .kubeconfig(&self.kubeconfig_path)
+            .context("Failed to install Gateway API CRDs")
+            .run_silent()
+            .await?;
 
         info!("Gateway API CRDs installed successfully");
         Ok(())
@@ -92,37 +78,27 @@ impl CiliumManager {
     async fn add_helm_repo(&self) -> Result<()> {
         info!("Adding Cilium Helm repository...");
 
-        let output = Command::new("helm")
+        let output = CommandBuilder::new("helm")
             .args(["repo", "add", "cilium", "https://helm.cilium.io/"])
-            .env("KUBECONFIG", &self.kubeconfig_path)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
+            .kubeconfig(&self.kubeconfig_path)
+            .context("Failed to add Cilium Helm repo")
             .output()
-            .await
-            .context("Failed to add Cilium Helm repo")?;
+            .await?;
 
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
+        if !output.success {
             // Ignore "already exists" errors
-            if !stderr.contains("already exists") {
-                anyhow::bail!("Failed to add Helm repo: {}", stderr);
+            if !output.stderr.contains("already exists") {
+                anyhow::bail!("Failed to add Helm repo: {}", output.stderr);
             }
         }
 
         // Update Helm repositories
-        let output = Command::new("helm")
+        CommandBuilder::new("helm")
             .args(["repo", "update"])
-            .env("KUBECONFIG", &self.kubeconfig_path)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .output()
-            .await
-            .context("Failed to update Helm repos")?;
-
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            anyhow::bail!("Failed to update Helm repos: {}", stderr);
-        }
+            .kubeconfig(&self.kubeconfig_path)
+            .context("Failed to update Helm repos")
+            .run_silent()
+            .await?;
 
         Ok(())
     }
@@ -220,44 +196,23 @@ impl CiliumManager {
             "defaultLBServiceIPAM=nodeipam",
         ]);
 
-        let output = Command::new("helm")
+        CommandBuilder::new("helm")
             .args(&args)
-            .env("KUBECONFIG", &self.kubeconfig_path)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .output()
-            .await
-            .context("Failed to install Cilium")?;
-
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            anyhow::bail!("Failed to install Cilium: {}", stderr);
-        }
+            .kubeconfig(&self.kubeconfig_path)
+            .context("Failed to install Cilium")
+            .run_silent()
+            .await?;
 
         Ok(())
     }
 
     /// Wait for Cilium to be ready
     pub async fn wait_for_ready(&self, timeout_secs: u64) -> Result<()> {
-        info!("Waiting for Cilium to be ready...");
+        let config = PollingConfig::new(timeout_secs, 10, "Waiting for Cilium to be ready");
 
-        let start = std::time::Instant::now();
-        let timeout = std::time::Duration::from_secs(timeout_secs);
-
-        loop {
-            let ready = self.check_cilium_status().await?;
-
-            if ready {
-                info!("Cilium is ready");
-                break;
-            }
-
-            if start.elapsed() > timeout {
-                anyhow::bail!("Timeout waiting for Cilium to be ready");
-            }
-
-            tokio::time::sleep(std::time::Duration::from_secs(10)).await;
-        }
+        config
+            .poll_until(|| async { self.check_cilium_status().await })
+            .await?;
 
         // Wait for all nodes to be Ready
         crate::k8s::nodes::NodeManager::wait_for_all_nodes_ready(
@@ -271,7 +226,7 @@ impl CiliumManager {
 
     /// Check if Cilium pods are ready
     async fn check_cilium_status(&self) -> Result<bool> {
-        let output = Command::new("kubectl")
+        let output = CommandBuilder::new("kubectl")
             .args([
                 "get",
                 "pods",
@@ -282,42 +237,31 @@ impl CiliumManager {
                 "-o",
                 "jsonpath={.items[*].status.conditions[?(@.type=='Ready')].status}",
             ])
-            .env("KUBECONFIG", &self.kubeconfig_path)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
+            .kubeconfig(&self.kubeconfig_path)
+            .context("Failed to check Cilium status")
             .output()
-            .await
-            .context("Failed to check Cilium status")?;
+            .await?;
 
-        if !output.status.success() {
+        if !output.success {
             return Ok(false);
         }
 
-        let status = String::from_utf8_lossy(&output.stdout);
-        let all_ready = status
+        let all_ready = output
+            .stdout
             .split_whitespace()
             .all(|s| s.eq_ignore_ascii_case("true"));
 
-        Ok(all_ready && !status.is_empty())
+        Ok(all_ready && !output.stdout.is_empty())
     }
 
     /// Get Cilium status
     pub async fn get_status(&self) -> Result<String> {
-        let output = Command::new("kubectl")
+        CommandBuilder::new("kubectl")
             .args(["get", "pods", "-n", "kube-system", "-l", "k8s-app=cilium"])
-            .env("KUBECONFIG", &self.kubeconfig_path)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .output()
+            .kubeconfig(&self.kubeconfig_path)
+            .context("Failed to get Cilium status")
+            .run()
             .await
-            .context("Failed to get Cilium status")?;
-
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            anyhow::bail!("Failed to get status: {}", stderr);
-        }
-
-        Ok(String::from_utf8_lossy(&output.stdout).to_string())
     }
 }
 

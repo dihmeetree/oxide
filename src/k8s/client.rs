@@ -1,7 +1,5 @@
 /// Kubernetes operations client
 use anyhow::Result;
-use std::process::Stdio;
-use tokio::process::Command;
 
 /// Kubernetes client for kubectl operations
 pub struct KubernetesClient;
@@ -9,20 +7,12 @@ pub struct KubernetesClient;
 impl KubernetesClient {
     /// Check if kubectl is installed
     pub async fn check_kubectl_installed() -> Result<()> {
-        let output = Command::new("kubectl")
-            .arg("version")
-            .arg("--client")
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .output()
-            .await;
-
-        match output {
-            Ok(output) if output.status.success() => Ok(()),
-            _ => anyhow::bail!(
-                "kubectl is not installed or not in PATH. Please install from https://kubernetes.io/docs/tasks/tools/"
-            ),
-        }
+        crate::utils::command::check_tool_installed(
+            "kubectl",
+            "version",
+            "https://kubernetes.io/docs/tasks/tools/",
+        )
+        .await
     }
 }
 
