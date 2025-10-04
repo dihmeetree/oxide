@@ -50,6 +50,7 @@ impl CommandBuilder {
     }
 
     /// Add a single argument
+    #[allow(dead_code)]
     pub fn arg<S: AsRef<OsStr>>(mut self, arg: S) -> Self {
         self.command.arg(arg);
         self
@@ -110,11 +111,11 @@ impl CommandBuilder {
 /// Check if a command-line tool is installed
 pub async fn check_tool_installed(
     tool_name: &str,
-    version_arg: &str,
+    version_args: &[&str],
     install_url: &str,
 ) -> Result<()> {
     let output = CommandBuilder::new(tool_name)
-        .arg(version_arg)
+        .args(version_args)
         .output()
         .await;
 

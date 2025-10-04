@@ -9,7 +9,7 @@ impl KubernetesClient {
     pub async fn check_kubectl_installed() -> Result<()> {
         crate::utils::command::check_tool_installed(
             "kubectl",
-            "version",
+            &["version", "--client"],
             "https://kubernetes.io/docs/tasks/tools/",
         )
         .await

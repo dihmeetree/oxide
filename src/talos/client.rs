@@ -448,7 +448,7 @@ impl TalosClient {
     pub async fn check_talosctl_installed() -> Result<()> {
         crate::utils::command::check_tool_installed(
             "talosctl",
-            "version",
+            &["version", "--client"],
             "https://www.talos.dev/latest/talos-guides/install/talosctl/",
         )
         .await

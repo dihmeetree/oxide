@@ -31,7 +31,7 @@ impl CiliumManager {
     pub async fn check_helm_installed() -> Result<()> {
         crate::utils::command::check_tool_installed(
             "helm",
-            "version",
+            &["version"],
             "https://helm.sh/docs/intro/install/",
         )
         .await
