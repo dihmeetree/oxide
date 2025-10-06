@@ -140,30 +140,21 @@ jobs:
 
           cat release_notes.md
 
+      - name: Generate checksums
+        run: |
+          cd artifacts
+          find . -name "*.tar.gz" -exec sha256sum {} \; > ../SHA256SUMS
+          cd ..
+          cat SHA256SUMS
+
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
           body_path: release_notes.md
           files: |
-            artifacts/*/oxide-*.tar.gz
+            artifacts/**/*.tar.gz
+            SHA256SUMS
           draft: false
           prerelease: false
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Generate checksums
-        run: |
-          cd artifacts
-          for dir in */; do
-            cd "$dir"
-            sha256sum *.tar.gz > SHA256SUMS
-            cd ..
-          done
-
-      - name: Upload checksums
-        uses: softprops/action-gh-release@v1
-        with:
-          files: |
-            artifacts/*/SHA256SUMS
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
