@@ -116,11 +116,14 @@ autoscaler:
   version: v1.34.0
 
   # Worker pools to autoscale
+  # IMPORTANT: Set min_nodes to 0 so the autoscaler only manages nodes it creates,
+  # and never touches the initial worker nodes created at cluster initialization.
+  # This ensures your base worker nodes (defined in workers.count below) always remain.
   worker_pools:
     - name: worker-pool
       server_type: cpx11 # Hetzner server type
       location: fsn1 # Hetzner location
-      min_nodes: 1
+      min_nodes: 0 # Only autoscale above the initial worker count
       max_nodes: 10
 
 # Control plane nodes

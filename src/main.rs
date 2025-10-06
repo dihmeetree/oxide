@@ -1494,6 +1494,8 @@ spec:
             - --skip-nodes-with-local-storage=false
             - --balance-similar-node-groups
             - --expander=least-waste
+            - --scale-down-utilization-threshold=0.5
+            - --scale-down-unneeded-time=5m
             - --v=4
           env:
             - name: HCLOUD_TOKEN
@@ -1514,6 +1516,8 @@ spec:
               value: "{}-firewall"
             - name: HCLOUD_SSH_KEY
               value: "{}-oxide"
+            - name: HCLOUD_SERVER_TAINTS
+              value: "node.kubernetes.io/autoscaled=true:PreferNoSchedule"
           resources:
             limits:
               cpu: 100m

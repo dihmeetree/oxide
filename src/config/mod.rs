@@ -181,8 +181,8 @@ pub struct AutoscalePoolConfig {
     /// Location (e.g., "fsn1", "nbg1", "hel1")
     pub location: String,
 
-    /// Minimum number of nodes
-    #[serde(default = "default_one")]
+    /// Minimum number of nodes (set to 0 to only manage autoscaled nodes)
+    #[serde(default)]
     pub min_nodes: u32,
 
     /// Maximum number of nodes

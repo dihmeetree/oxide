@@ -266,6 +266,111 @@ To test both HPA and Cluster Autoscaler together:
    kubectl logs -n oxide-system -l app=cluster-autoscaler -f
    ```
 
+## Pod Consolidation for Efficient Scale-Down
+
+Oxide's Cluster Autoscaler is configured to automatically consolidate pods onto your original worker nodes, making autoscaled nodes easy to remove when they're no longer needed.
+
+### **How It Works: Node Tainting Strategy**
+
+The autoscaler uses **taints** to distinguish between node types:
+
+1. **Original Worker Nodes** (created at cluster initialization):
+   - No taints (clean)
+   - Pods prefer to schedule here by default
+   - Always remain in the cluster (never removed by autoscaler)
+
+2. **Autoscaled Nodes** (created dynamically by autoscaler):
+   - Tainted with `node.kubernetes.io/autoscaled=true:PreferNoSchedule`
+   - Pods avoid these nodes unless capacity is needed
+   - Automatically removed when underutilized
+
+### **Configuration**
+
+The autoscaler is pre-configured with:
+
+```yaml
+# In cluster.yaml
+autoscaler:
+  worker_pools:
+    - name: worker-pool
+      min_nodes: 0  # Only manage autoscaled nodes
+      max_nodes: 10
+```
+
+**Autoscaler Settings:**
+- `min_nodes: 0` - Ensures autoscaler only manages nodes it creates
+- `HCLOUD_SERVER_TAINTS` - Taints autoscaled nodes with `PreferNoSchedule`
+- `--scale-down-unneeded-time=5m` - Remove idle nodes after 5 minutes
+- `--scale-down-utilization-threshold=0.5` - Scale down when below 50% utilization
+
+### **Pod Behavior**
+
+**Without Tolerations (Default):**
+Pods will prefer original worker nodes and avoid autoscaled nodes unless necessary.
+
+**With Explicit Tolerations (If Needed):**
+```yaml
+spec:
+  template:
+    spec:
+      tolerations:
+      - key: node.kubernetes.io/autoscaled
+        operator: Equal
+        value: "true"
+        effect: PreferNoSchedule
+```
+
+Most workloads don't need explicit tolerations - Kubernetes will automatically schedule on tainted nodes when capacity is needed.
+
+### **Scale-Down Flow**
+
+1. **Load Decreases**: HPA scales down pod count
+2. **Autoscaler Detects**: Autoscaled node is underutilized for 5 minutes
+3. **Drain Simulation**: Checks if pods can move to original nodes
+4. **Pod Migration**: Evicts pods gracefully (respecting PodDisruptionBudget)
+5. **Scheduler Reschedules**: Places pods on original (untainted) nodes
+6. **Node Removal**: Deletes empty autoscaled node from Hetzner Cloud
+
+### **Monitoring**
+
+```bash
+# Check node taints
+kubectl get nodes -o custom-columns=NAME:.metadata.name,TAINTS:.spec.taints
+
+# Check pod distribution
+kubectl get pods -o wide | awk '{print $7}' | sort | uniq -c
+
+# View autoscaler decisions
+kubectl logs -n oxide-system -l app=cluster-autoscaler -f | grep -E "scale down|taint"
+
+# Check node utilization
+kubectl top nodes
+```
+
+### **Verification**
+
+After deploying the autoscaler, verify taints are applied to new nodes:
+
+```bash
+# Trigger scale-up (HPA will create pending pods)
+kubectl apply -f docs/k6-load-test.yaml
+
+# Watch for new autoscaled node
+watch kubectl get nodes
+
+# Verify new node has taint
+kubectl describe node <autoscaled-node-name> | grep Taints
+# Should show: node.kubernetes.io/autoscaled=true:PreferNoSchedule
+```
+
+### **Benefits**
+
+✅ **Cost Efficient**: Automatically removes unused nodes
+✅ **Preserves Base Capacity**: Original 3 workers always remain
+✅ **Fast Scale-Down**: 5-minute window (vs default 10 minutes)
+✅ **Automatic**: No manual intervention required
+✅ **Safe**: Respects PodDisruptionBudgets and graceful termination
+
 ## Troubleshooting
 
 ### K6 Test Not Starting
