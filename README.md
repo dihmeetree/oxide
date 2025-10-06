@@ -497,6 +497,7 @@ The tool creates:
 │  - Talos API (50000): Your IP only           │
 │  - Kubernetes API (6443): Your IP only       │
 │  - HTTP (80): Public access                  │
+│  - HTTPS (443): Public access                │
 └──────────────────────────────────────────────┘
                     ↓
 ┌──────────────────────────────────────────────┐
@@ -526,6 +527,7 @@ The automatically configured firewall includes:
 | 6443  | TCP      | Your IP   | Kubernetes API |
 | 50000 | TCP      | Your IP   | Talos API      |
 | 80    | TCP      | 0.0.0.0/0 | HTTP Traffic   |
+| 443   | TCP      | 0.0.0.0/0 | HTTPS Traffic  |
 
 **Note**: Internal cluster communication on the private network (10.0.0.0/16) is not restricted by Hetzner Cloud firewalls.
 
