@@ -1459,7 +1459,7 @@ spec:
             - --skip-nodes-with-local-storage=false
             - --balance-similar-node-groups
             - --expander=least-waste
-            - --v=6
+            - --v=4
           env:
             - name: HCLOUD_TOKEN
               valueFrom:
