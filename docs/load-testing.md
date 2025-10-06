@@ -42,6 +42,34 @@ make deploy
 kubectl get pods -n k6-operator-system
 ```
 
+## Workload Isolation with Node Taints
+
+To ensure clean separation between your application (nginx) and load testing (K6) workloads, taint the original worker nodes so K6 pods cannot schedule on them:
+
+```bash
+# Taint the original 3 worker nodes
+kubectl taint nodes <cluster-name>-worker-1 <cluster-name>-worker-2 <cluster-name>-worker-3 workload=application:NoSchedule
+```
+
+**How it works:**
+- **Original worker nodes** (worker-1, 2, 3) are tainted with `workload=application:NoSchedule`
+- **Nginx pods** have a toleration for this taint, so they CAN schedule on original workers
+- **K6 load test pods** do NOT have the toleration, so they CANNOT schedule on original workers
+- **Both pod types** have hard anti-affinity rules preventing them from sharing any node
+
+**Result:**
+- **Complete separation**: Nginx and K6 never share a node
+- **Nginx gets dedicated CPU** on original workers without K6 interference
+- **K6 runs on autoscaled nodes** only, ensuring clean load generation
+- **When nginx scales beyond original capacity**, it overflows to autoscaled nodes (but still separate from K6)
+
+**Example separation:**
+```
+Nginx pods on: worker-2, worker-3, worker-6096ca1921be9e10
+K6 pods on: worker-2ebe5781c69f618a, worker-78c14dbba476037b, worker-9f84bcb522596dd
+Zero overlap! ✅
+```
+
 ## Deploy Test Application (nginx)
 
 First, ensure you have the nginx deployment with HPA configured:
@@ -56,6 +84,8 @@ This will create:
 - Service exposing nginx
 - HorizontalPodAutoscaler (min: 3, max: 100)
 - PodDisruptionBudget for high availability
+- Pod anti-affinity rules to prevent co-location with K6 pods
+- Toleration for `workload=application` taint to schedule on original workers
 
 ## Run Load Test
 
