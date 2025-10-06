@@ -377,6 +377,32 @@ async fn create_cluster(cli: &Cli) -> Result<()> {
     info!("  Talosconfig: {}", configs.talosconfig.display());
     info!("  Kubeconfig: {}", kubeconfig_path.display());
     info!("");
+
+    // Install optional components based on configuration
+    info!("Installing optional cluster components...");
+    info!("");
+
+    // Install Metrics Server if enabled
+    if let Some(metrics_config) = &config.metrics_server {
+        if metrics_config.enabled {
+            install_metrics_server(cli).await?;
+        }
+    }
+
+    // Install Prometheus if enabled
+    if let Some(prometheus_config) = &config.prometheus {
+        if prometheus_config.enabled {
+            install_prometheus(cli).await?;
+        }
+    }
+
+    // Deploy Cluster Autoscaler if enabled
+    if let Some(autoscaler_config) = &config.autoscaler {
+        if autoscaler_config.enabled {
+            deploy_autoscaler(cli).await?;
+        }
+    }
+
     info!("To access your cluster:");
     info!("  export KUBECONFIG={}", kubeconfig_path.display());
     info!("  kubectl get nodes");

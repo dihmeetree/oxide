@@ -101,22 +101,27 @@ prometheus:
   #           cpu: 500m
   #           memory: 2Gi
 
-# Kubernetes Cluster Autoscaler with Hetzner support (optional)
-# autoscaler:
-#   # Enable cluster autoscaler
-#   enabled: true
-#
-#   # Cluster autoscaler version
-#   # See: https://github.com/kubernetes/autoscaler/releases
-#   version: v1.34.0
-#
-#   # Worker pools to autoscale
-#   worker_pools:
-#     - name: worker-pool
-#       server_type: cpx11  # Hetzner server type
-#       location: fsn1      # Hetzner location
-#       min_nodes: 1
-#       max_nodes: 10
+# Kubernetes Metrics Server (required for HPA and kubectl top commands)
+metrics_server:
+  # Enable metrics server installation
+  enabled: true
+
+# Kubernetes Cluster Autoscaler with Hetzner support
+autoscaler:
+  # Enable cluster autoscaler
+  enabled: true
+
+  # Cluster autoscaler version
+  # See: https://github.com/kubernetes/autoscaler/releases
+  version: v1.34.0
+
+  # Worker pools to autoscale
+  worker_pools:
+    - name: worker-pool
+      server_type: cpx11 # Hetzner server type
+      location: fsn1 # Hetzner location
+      min_nodes: 1
+      max_nodes: 10
 
 # Control plane nodes
 control_planes:

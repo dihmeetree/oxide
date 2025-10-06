@@ -15,6 +15,7 @@ A Rust-based tool for deploying Talos Linux Kubernetes clusters with Cilium CNI.
 - **Cilium CNI**: High-performance networking with eBPF
 - **LoadBalancer Support**: Cilium Node IPAM for LoadBalancer services using node IPs
 - **Prometheus Monitoring**: Built-in support for Prometheus stack (Prometheus, Grafana, AlertManager)
+- **Metrics Server**: Kubernetes resource metrics for HPA and kubectl top commands
 - **Cluster Autoscaler**: Automatic worker node scaling based on pod resource demands (official Kubernetes autoscaler with Hetzner support)
 - **Private Networking**: Automatic setup of Hetzner Cloud private networks
 - **Security First**:
@@ -124,6 +125,9 @@ prometheus:
   storage_size: 50Gi
   enable_persistent_storage: false
 
+metrics_server:
+  enabled: true
+
 control_planes:
   - name: control-plane
     server_type: cpx21 # 3 vCPUs, 4GB RAM
@@ -156,6 +160,7 @@ This will:
 5. Bootstrap the Kubernetes cluster
 6. Install Cilium CNI
 7. Generate kubeconfig file
+8. Install optional components (Metrics Server, Prometheus, Autoscaler) based on configuration
 
 **Security Notes:**
 
@@ -345,6 +350,33 @@ kubectl logs -n oxide-system -l app=cluster-autoscaler -f --kubeconfig=./output/
 oxide uninstall-autoscaler
 ```
 
+### Install Metrics Server
+
+Install the Kubernetes Metrics Server for resource metrics and HPA support:
+
+```bash
+oxide install-metrics-server
+```
+
+The Metrics Server enables:
+- `kubectl top nodes` and `kubectl top pods` commands
+- HorizontalPodAutoscaler (HPA) to scale pods based on CPU/memory usage
+- Resource-based autoscaling decisions
+
+**Verify Installation**:
+
+```bash
+kubectl top nodes --kubeconfig=./output/kubeconfig
+```
+
+**Note**: Metrics Server is automatically installed during cluster creation if enabled in the configuration.
+
+### Uninstall Metrics Server
+
+```bash
+oxide uninstall-metrics-server
+```
+
 ### Generate Example Config
 
 ```bash
@@ -362,6 +394,7 @@ oxide init --config my-cluster.yaml
 | `talos`          | Talos Linux configuration      | Yes      |
 | `cilium`         | Cilium CNI settings            | Yes      |
 | `prometheus`     | Prometheus monitoring settings | No       |
+| `metrics_server` | Metrics Server settings        | No       |
 | `autoscaler`     | Cluster autoscaler settings    | No       |
 | `control_planes` | Control plane node specs       | Yes      |
 | `workers`        | Worker node specs              | No       |
@@ -388,6 +421,14 @@ oxide init --config my-cluster.yaml
 | `retention`                 | Prometheus data retention period         | 30d        |
 | `storage_size`              | Prometheus persistent storage size       | 50Gi       |
 | `enable_persistent_storage` | Enable persistent storage for Prometheus | false      |
+
+### Metrics Server Configuration
+
+| Field     | Description                  | Default |
+| --------- | ---------------------------- | ------- |
+| `enabled` | Enable metrics server        | true    |
+
+**Note**: Metrics Server is automatically installed during cluster creation when enabled.
 
 ### Cluster Autoscaler Configuration
 

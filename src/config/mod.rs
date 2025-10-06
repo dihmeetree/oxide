@@ -25,6 +25,10 @@ pub struct ClusterConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub autoscaler: Option<AutoscalerConfig>,
 
+    /// Metrics server configuration
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metrics_server: Option<MetricsServerConfig>,
+
     /// Control plane nodes
     pub control_planes: Vec<NodeConfig>,
 
@@ -139,6 +143,14 @@ pub struct PrometheusConfig {
     /// Additional Helm values
     #[serde(default)]
     pub helm_values: serde_yaml::Value,
+}
+
+/// Metrics server configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MetricsServerConfig {
+    /// Enable metrics server
+    #[serde(default = "default_true")]
+    pub enabled: bool,
 }
 
 /// Cluster autoscaler configuration
@@ -311,6 +323,7 @@ impl ClusterConfig {
                 helm_values: serde_yaml::Value::Null,
             },
             prometheus: Some(PrometheusConfig::default()),
+            metrics_server: Some(MetricsServerConfig { enabled: true }),
             autoscaler: None,
             control_planes: vec![NodeConfig {
                 name: "control-plane".to_string(),
