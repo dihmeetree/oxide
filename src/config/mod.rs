@@ -17,6 +17,10 @@ pub struct ClusterConfig {
     /// Cilium configuration
     pub cilium: CiliumConfig,
 
+    /// Prometheus configuration
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prometheus: Option<PrometheusConfig>,
+
     /// Control plane nodes
     pub control_planes: Vec<NodeConfig>,
 
@@ -93,6 +97,46 @@ pub struct CiliumConfig {
     pub helm_values: serde_yaml::Value,
 }
 
+/// Prometheus monitoring configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PrometheusConfig {
+    /// kube-prometheus-stack Helm chart version (e.g., "65.8.1")
+    #[serde(default = "default_prometheus_version")]
+    pub version: String,
+
+    /// Enable Prometheus
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+
+    /// Namespace to deploy Prometheus in
+    #[serde(default = "default_prometheus_namespace")]
+    pub namespace: String,
+
+    /// Enable Grafana dashboards
+    #[serde(default = "default_true")]
+    pub enable_grafana: bool,
+
+    /// Enable AlertManager
+    #[serde(default = "default_true")]
+    pub enable_alertmanager: bool,
+
+    /// Prometheus retention period (e.g., "30d")
+    #[serde(default = "default_prometheus_retention")]
+    pub retention: String,
+
+    /// Prometheus storage size (e.g., "50Gi")
+    #[serde(default = "default_prometheus_storage")]
+    pub storage_size: String,
+
+    /// Enable persistent storage for Prometheus
+    #[serde(default = "default_true")]
+    pub enable_persistent_storage: bool,
+
+    /// Additional Helm values
+    #[serde(default)]
+    pub helm_values: serde_yaml::Value,
+}
+
 /// Node configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NodeConfig {
@@ -117,6 +161,39 @@ fn default_true() -> bool {
 
 fn default_one() -> u32 {
     1
+}
+
+fn default_prometheus_version() -> String {
+    "65.8.1".to_string()
+}
+
+fn default_prometheus_namespace() -> String {
+    "monitoring".to_string()
+}
+
+fn default_prometheus_retention() -> String {
+    "30d".to_string()
+}
+
+fn default_prometheus_storage() -> String {
+    "50Gi".to_string()
+}
+
+impl PrometheusConfig {
+    /// Create default Prometheus configuration
+    pub fn default() -> Self {
+        Self {
+            version: default_prometheus_version(),
+            enabled: true,
+            namespace: default_prometheus_namespace(),
+            enable_grafana: true,
+            enable_alertmanager: true,
+            retention: default_prometheus_retention(),
+            storage_size: default_prometheus_storage(),
+            enable_persistent_storage: true,
+            helm_values: serde_yaml::Value::Null,
+        }
+    }
 }
 
 impl ClusterConfig {
@@ -189,6 +266,7 @@ impl ClusterConfig {
                 enable_ipv6: false,
                 helm_values: serde_yaml::Value::Null,
             },
+            prometheus: Some(PrometheusConfig::default()),
             control_planes: vec![NodeConfig {
                 name: "control-plane".to_string(),
                 server_type: "cpx21".to_string(),

@@ -6,6 +6,7 @@ mod cilium;
 mod config;
 mod hcloud;
 mod k8s;
+mod prometheus;
 mod talos;
 mod utils;
 
@@ -21,6 +22,7 @@ use crate::hcloud::network::NetworkManager;
 use crate::hcloud::server::{NodeRole, ServerInfo, ServerManager};
 use crate::hcloud::{FirewallManager, HetznerCloudClient, SSHKeyManager};
 use crate::k8s::{KubernetesClient, NodeManager, ResourceManager};
+use crate::prometheus::PrometheusManager;
 use crate::talos::{TalosClient, TalosConfigGenerator};
 
 #[derive(Parser)]
@@ -93,6 +95,15 @@ enum Commands {
 
     /// Deploy nginx with Gateway API
     DeployNginx,
+
+    /// Install Prometheus monitoring stack
+    InstallPrometheus,
+
+    /// Show Prometheus status
+    PrometheusStatus,
+
+    /// Uninstall Prometheus monitoring stack
+    UninstallPrometheus,
 }
 
 #[derive(Debug, Clone, clap::ValueEnum)]
@@ -133,6 +144,9 @@ async fn main() {
             ref kubernetes_version,
         } => upgrade_cluster(&cli, talos_version.clone(), kubernetes_version.clone()).await,
         Commands::DeployNginx => deploy_nginx(&cli).await,
+        Commands::InstallPrometheus => install_prometheus(&cli).await,
+        Commands::PrometheusStatus => prometheus_status(&cli).await,
+        Commands::UninstallPrometheus => uninstall_prometheus(&cli).await,
     };
 
     if let Err(e) = result {
@@ -996,6 +1010,100 @@ async fn deploy_nginx(cli: &Cli) -> Result<()> {
     info!("  kubectl get pods");
     info!("  kubectl get gateway");
     info!("  kubectl get httproute");
+
+    Ok(())
+}
+
+/// Install Prometheus monitoring stack
+async fn install_prometheus(cli: &Cli) -> Result<()> {
+    info!("Installing Prometheus monitoring stack...");
+
+    let config = ClusterConfig::from_file(&cli.config).context("Failed to load configuration")?;
+
+    let prometheus_config = config
+        .prometheus
+        .ok_or_else(|| anyhow::anyhow!("Prometheus configuration not found in cluster config"))?;
+
+    let kubeconfig_path = cli.output.join("kubeconfig");
+    if !kubeconfig_path.exists() {
+        anyhow::bail!(
+            "Kubeconfig not found at {}. Please create the cluster first.",
+            kubeconfig_path.display()
+        );
+    }
+
+    let prometheus_manager = PrometheusManager::new(prometheus_config.clone(), kubeconfig_path);
+
+    prometheus_manager.install().await?;
+    prometheus_manager.wait_for_ready(600).await?;
+
+    info!("✓ Prometheus monitoring stack installed successfully!");
+    info!("");
+
+    if prometheus_config.enable_grafana {
+        let grafana_info = prometheus_manager.get_grafana_info().await?;
+        info!("{}", grafana_info);
+    }
+
+    info!("To check Prometheus status:");
+    info!("  oxide prometheus-status");
+
+    Ok(())
+}
+
+/// Show Prometheus status
+async fn prometheus_status(cli: &Cli) -> Result<()> {
+    let config = ClusterConfig::from_file(&cli.config).context("Failed to load configuration")?;
+
+    let prometheus_config = config
+        .prometheus
+        .ok_or_else(|| anyhow::anyhow!("Prometheus configuration not found in cluster config"))?;
+
+    let kubeconfig_path = cli.output.join("kubeconfig");
+    if !kubeconfig_path.exists() {
+        anyhow::bail!(
+            "Kubeconfig not found at {}. Please create the cluster first.",
+            kubeconfig_path.display()
+        );
+    }
+
+    let prometheus_manager = PrometheusManager::new(prometheus_config.clone(), kubeconfig_path);
+
+    let status = prometheus_manager.get_status().await?;
+    info!("Prometheus Status:");
+    info!("{}", status);
+
+    if prometheus_config.enable_grafana {
+        info!("");
+        let grafana_info = prometheus_manager.get_grafana_info().await?;
+        info!("{}", grafana_info);
+    }
+
+    Ok(())
+}
+
+/// Uninstall Prometheus monitoring stack
+async fn uninstall_prometheus(cli: &Cli) -> Result<()> {
+    info!("Uninstalling Prometheus monitoring stack...");
+
+    let config = ClusterConfig::from_file(&cli.config).context("Failed to load configuration")?;
+
+    let prometheus_config = config
+        .prometheus
+        .ok_or_else(|| anyhow::anyhow!("Prometheus configuration not found in cluster config"))?;
+
+    let kubeconfig_path = cli.output.join("kubeconfig");
+    if !kubeconfig_path.exists() {
+        anyhow::bail!(
+            "Kubeconfig not found at {}. Please create the cluster first.",
+            kubeconfig_path.display()
+        );
+    }
+
+    let prometheus_manager = PrometheusManager::new(prometheus_config, kubeconfig_path);
+    prometheus_manager.uninstall().await?;
+
+    info!("✓ Prometheus monitoring stack uninstalled successfully!");
 
     Ok(())
 }

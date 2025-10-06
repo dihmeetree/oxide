@@ -14,6 +14,7 @@ A Rust-based tool for deploying Talos Linux Kubernetes clusters with Cilium CNI.
 - **Talos Linux**: Immutable, minimal, and secure Kubernetes operating system
 - **Cilium CNI**: High-performance networking with eBPF
 - **LoadBalancer Support**: Cilium Node IPAM for LoadBalancer services using node IPs
+- **Prometheus Monitoring**: Built-in support for Prometheus stack (Prometheus, Grafana, AlertManager)
 - **Private Networking**: Automatic setup of Hetzner Cloud private networks
 - **Security First**:
   - Firewall with Talos/Kubernetes API ports pre-configured
@@ -111,6 +112,16 @@ cilium:
   version: 1.15.0
   enable_hubble: true
   enable_ipv6: false
+
+prometheus:
+  version: 65.8.1
+  enabled: true
+  namespace: monitoring
+  enable_grafana: true
+  enable_alertmanager: true
+  retention: 30d
+  storage_size: 50Gi
+  enable_persistent_storage: false
 
 control_planes:
   - name: control-plane
@@ -225,6 +236,67 @@ oxide destroy --config cluster.yaml
 
 **Warning**: This permanently deletes all servers, networks, and SSH keys.
 
+### Install Prometheus Monitoring
+
+Install the Prometheus monitoring stack (Prometheus, Grafana, AlertManager):
+
+```bash
+oxide install-prometheus
+```
+
+This installs the `kube-prometheus-stack` Helm chart with:
+
+- Prometheus server with persistent storage
+- Grafana dashboards (default login: admin/admin)
+- AlertManager for notifications
+- Service monitors for Cilium and Kubernetes components
+
+### Show Prometheus Status
+
+```bash
+oxide prometheus-status
+```
+
+Shows the status of all Prometheus components and provides Grafana access instructions.
+
+### Access Grafana Dashboard
+
+To access Grafana locally, use port-forwarding:
+
+```bash
+kubectl port-forward -n monitoring svc/prometheus-grafana 3000:80 --kubeconfig=./output/kubeconfig
+```
+
+Then open http://localhost:3000 in your browser:
+- Username: `admin`
+- Password: `admin` (change after first login)
+
+### Access Prometheus UI
+
+To access Prometheus UI locally:
+
+```bash
+kubectl port-forward -n monitoring svc/prometheus-kube-prometheus-prometheus 9090:9090 --kubeconfig=./output/kubeconfig
+```
+
+Then open http://localhost:9090 in your browser.
+
+### Access AlertManager UI
+
+To access AlertManager UI locally:
+
+```bash
+kubectl port-forward -n monitoring svc/prometheus-kube-prometheus-alertmanager 9093:9093 --kubeconfig=./output/kubeconfig
+```
+
+Then open http://localhost:9093 in your browser.
+
+### Uninstall Prometheus
+
+```bash
+oxide uninstall-prometheus
+```
+
 ### Generate Example Config
 
 ```bash
@@ -235,14 +307,15 @@ oxide init --config my-cluster.yaml
 
 ### Cluster Configuration
 
-| Field            | Description                  | Required |
-| ---------------- | ---------------------------- | -------- |
-| `cluster_name`   | Unique name for your cluster | Yes      |
-| `hcloud`         | Hetzner Cloud settings       | Yes      |
-| `talos`          | Talos Linux configuration    | Yes      |
-| `cilium`         | Cilium CNI settings          | Yes      |
-| `control_planes` | Control plane node specs     | Yes      |
-| `workers`        | Worker node specs            | No       |
+| Field            | Description                    | Required |
+| ---------------- | ------------------------------ | -------- |
+| `cluster_name`   | Unique name for your cluster   | Yes      |
+| `hcloud`         | Hetzner Cloud settings         | Yes      |
+| `talos`          | Talos Linux configuration      | Yes      |
+| `cilium`         | Cilium CNI settings            | Yes      |
+| `prometheus`     | Prometheus monitoring settings | No       |
+| `control_planes` | Control plane node specs       | Yes      |
+| `workers`        | Worker node specs              | No       |
 
 ### Hetzner Cloud Settings
 
@@ -253,6 +326,19 @@ oxide init --config my-cluster.yaml
 | `network.cidr`        | Private network CIDR                          | 10.0.0.0/16 |
 | `network.subnet_cidr` | Subnet CIDR                                   | 10.0.1.0/24 |
 | `network.zone`        | Network zone                                  | eu-central  |
+
+### Prometheus Configuration
+
+| Field                       | Description                              | Default    |
+| --------------------------- | ---------------------------------------- | ---------- |
+| `version`                   | kube-prometheus-stack chart version      | 77.13.0    |
+| `enabled`                   | Enable Prometheus installation           | true       |
+| `namespace`                 | Kubernetes namespace for Prometheus      | monitoring |
+| `enable_grafana`            | Enable Grafana dashboards                | true       |
+| `enable_alertmanager`       | Enable AlertManager                      | true       |
+| `retention`                 | Prometheus data retention period         | 30d        |
+| `storage_size`              | Prometheus persistent storage size       | 50Gi       |
+| `enable_persistent_storage` | Enable persistent storage for Prometheus | false      |
 
 ### Node Configuration
 

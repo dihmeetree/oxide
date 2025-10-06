@@ -65,6 +65,42 @@ cilium:
   #         - tcp
   #         - flow
 
+# Prometheus monitoring stack (optional)
+prometheus:
+  # kube-prometheus-stack Helm chart version
+  # See: https://github.com/prometheus-community/helm-charts/tree/main/charts/kube-prometheus-stack
+  version: 77.13.0
+
+  # Enable Prometheus installation
+  enabled: true
+
+  # Kubernetes namespace for Prometheus stack
+  namespace: monitoring
+
+  # Enable Grafana dashboards
+  enable_grafana: true
+
+  # Enable AlertManager for alerting
+  enable_alertmanager: true
+
+  # Prometheus data retention period
+  retention: 30d
+
+  # Prometheus persistent storage size
+  storage_size: 50Gi
+
+  # Enable persistent storage for Prometheus
+  enable_persistent_storage: false
+
+  # Additional Helm values (optional)
+  # helm_values:
+  #   prometheus:
+  #     prometheusSpec:
+  #       resources:
+  #         requests:
+  #           cpu: 500m
+  #           memory: 2Gi
+
 # Control plane nodes
 control_planes:
   - name: control-plane
