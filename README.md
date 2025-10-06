@@ -440,15 +440,16 @@ oxide init --config my-cluster.yaml
 
 **Worker Pool Configuration**:
 
-| Field         | Description                                                                 | Required | Default |
-| ------------- | --------------------------------------------------------------------------- | -------- | ------- |
-| `name`        | Worker pool name                                                            | Yes      | -       |
-| `server_type` | Hetzner server type (cpx11, cpx21...)                                       | Yes      | -       |
-| `location`    | Hetzner location (fsn1, nbg1...)                                            | Yes      | -       |
-| `min_nodes`   | Minimum autoscaled nodes (set to 0 to preserve initial worker nodes)       | No       | 0       |
-| `max_nodes`   | Maximum autoscaled nodes                                                    | Yes      | -       |
+| Field         | Description                                                          | Required | Default |
+| ------------- | -------------------------------------------------------------------- | -------- | ------- |
+| `name`        | Worker pool name                                                     | Yes      | -       |
+| `server_type` | Hetzner server type (cpx11, cpx21...)                                | Yes      | -       |
+| `location`    | Hetzner location (fsn1, nbg1...)                                     | Yes      | -       |
+| `min_nodes`   | Minimum autoscaled nodes (set to 0 to preserve initial worker nodes) | No       | 0       |
+| `max_nodes`   | Maximum autoscaled nodes                                             | Yes      | -       |
 
 > **Important**: Set `min_nodes: 0` to ensure the autoscaler only manages nodes it creates dynamically, leaving your initial worker nodes (defined in `workers.count`) untouched. This way:
+>
 > - Your base worker nodes always remain in the cluster
 > - The autoscaler only creates/deletes additional nodes above this baseline
 > - Pods will be consolidated back to original nodes when autoscaled nodes are no longer needed

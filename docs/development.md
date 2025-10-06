@@ -145,6 +145,7 @@ cargo test -- --nocapture
 **Manual testing with real cluster:**
 
 1. Create test configuration:
+
    ```yaml
    # test-cluster.yaml
    cluster_name: oxide-test
@@ -154,11 +155,13 @@ cargo test -- --nocapture
    ```
 
 2. Test create:
+
    ```bash
    cargo run -- create --config test-cluster.yaml
    ```
 
 3. Test operations:
+
    ```bash
    cargo run -- status
    cargo run -- scale worker --count 5
@@ -248,6 +251,7 @@ error!("Failed to connect to API: {}", err);
 ### Adding a New Command
 
 1. **Add to CLI** (`src/main.rs`):
+
    ```rust
    #[derive(Subcommand)]
    enum Commands {
@@ -260,6 +264,7 @@ error!("Failed to connect to API: {}", err);
    ```
 
 2. **Add handler**:
+
    ```rust
    Commands::MyNewCommand { my_option } => {
        my_new_command_handler(my_option).await?;
@@ -267,6 +272,7 @@ error!("Failed to connect to API: {}", err);
    ```
 
 3. **Implement logic**:
+
    ```rust
    async fn my_new_command_handler(option: String) -> Result<()> {
        // Implementation
@@ -281,6 +287,7 @@ error!("Failed to connect to API: {}", err);
 To add support for AWS, GCP, etc.:
 
 1. **Create new module**:
+
    ```
    src/
    └── aws/
@@ -291,6 +298,7 @@ To add support for AWS, GCP, etc.:
    ```
 
 2. **Implement provider trait** (create if doesn't exist):
+
    ```rust
    #[async_trait]
    pub trait CloudProvider {
@@ -301,11 +309,12 @@ To add support for AWS, GCP, etc.:
    ```
 
 3. **Update config** to support multiple providers:
+
    ```yaml
-   provider: aws  # or hcloud, gcp, etc.
+   provider: aws # or hcloud, gcp, etc.
    aws:
-       region: us-east-1
-       # ...
+     region: us-east-1
+     # ...
    ```
 
 4. **Add provider selection** in main.rs
@@ -315,6 +324,7 @@ To add support for AWS, GCP, etc.:
 To add new Cilium configuration options:
 
 1. **Update config struct** (`src/config/mod.rs`):
+
    ```rust
    pub struct CiliumConfig {
        pub version: String,
@@ -324,6 +334,7 @@ To add new Cilium configuration options:
    ```
 
 2. **Update Helm values** (`src/cilium/mod.rs`):
+
    ```rust
    if self.config.my_new_option {
        args.extend_from_slice(&[
@@ -349,33 +360,42 @@ Follow [Semantic Versioning](https://semver.org/):
 ### Creating a Release
 
 1. **Update version** in `Cargo.toml`:
+
    ```toml
    [package]
    version = "0.2.0"
    ```
 
 2. **Update CHANGELOG.md** (if exists):
+
    ```markdown
    ## [0.2.0] - 2025-01-15
+
    ### Added
+
    - New scaling feature
+
    ### Fixed
+
    - Firewall bug
    ```
 
 3. **Commit version bump**:
+
    ```bash
    git add Cargo.toml CHANGELOG.md
    git commit -m "chore: Bump version to 0.2.0"
    ```
 
 4. **Create tag**:
+
    ```bash
    git tag -a v0.2.0 -m "Release v0.2.0"
    git push origin v0.2.0
    ```
 
 5. **Build release binary**:
+
    ```bash
    cargo build --release
    # Binary at: target/release/oxide
@@ -390,6 +410,7 @@ Follow [Semantic Versioning](https://semver.org/):
 ### CI/CD (Future)
 
 **TODO:** Set up GitHub Actions for:
+
 - Automated testing on PR
 - Release binary builds
 - Documentation deployment
@@ -399,6 +420,7 @@ Follow [Semantic Versioning](https://semver.org/):
 ### Adding a New Hetzner API Endpoint
 
 1. **Add types** to `src/hcloud/models.rs`:
+
    ```rust
    #[derive(Serialize, Deserialize)]
    pub struct NewResource {
@@ -408,6 +430,7 @@ Follow [Semantic Versioning](https://semver.org/):
    ```
 
 2. **Add client method** to `src/hcloud/client.rs`:
+
    ```rust
    pub async fn create_resource(&self, name: &str) -> Result<NewResource> {
        self.client
@@ -475,22 +498,26 @@ cargo clippy -- -D warnings --verbose
 ## Contributing Guidelines
 
 1. **Code Quality**
+
    - All code must compile without warnings
    - All tests must pass
    - Clippy must pass with `-D warnings`
    - Code must be formatted with `cargo fmt`
 
 2. **Documentation**
+
    - Public APIs must have doc comments
    - Update relevant docs in `docs/` directory
    - Update README.md if adding user-facing features
 
 3. **Testing**
+
    - Add unit tests for new functions
    - Manually test with real cluster
    - Document test procedures in PR
 
 4. **Commits**
+
    - Follow project commit message format
    - Format code before `git add`
    - Keep commits focused and atomic
@@ -514,12 +541,14 @@ cargo clippy -- -D warnings --verbose
 Instead of native Rust libraries:
 
 **Pros:**
+
 - Leverage existing, well-tested tools
 - Faster development
 - Users already have tools installed
 - Easier to match official behavior
 
 **Cons:**
+
 - External dependencies
 - Parsing CLI output (potential fragility)
 - No compile-time guarantees

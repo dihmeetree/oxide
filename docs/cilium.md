@@ -88,6 +88,7 @@ Pod B (10.0.18.1) on Node B
 #### Traffic Path Examples
 
 **Same-node traffic (no VXLAN):**
+
 ```
 External traffic → worker-1 IP (178.156.191.97)
     ↓
@@ -97,6 +98,7 @@ Pod on worker-1 (10.0.18.x) - direct delivery ✅ Native BPF
 ```
 
 **Cross-node traffic (uses VXLAN):**
+
 ```
 External traffic → worker-1 IP (178.156.191.97)
     ↓
@@ -184,6 +186,7 @@ All worker IPs become entry points with native BPF load balancing to backend pod
 You can send traffic to any single worker IP and Cilium will distribute it to pods across all nodes. However, **using all worker IPs is strongly recommended** for production:
 
 **Single IP approach (works, but not optimal):**
+
 ```
 All traffic → worker-1 IP (178.156.191.97)
     ↓
@@ -194,12 +197,14 @@ Single NIC bandwidth limit on worker-1
 ```
 
 **Limitations:**
+
 - All ingress traffic limited to 1 node's NIC bandwidth (bottleneck)
 - Single point of failure - if node goes down, service unavailable
 - More VXLAN overhead due to cross-node traffic
 - CPU load concentrated on one node
 
 **All IPs approach (recommended):**
+
 ```
 Traffic distributed → worker-1, worker-2, worker-3 IPs
     ↓
@@ -210,6 +215,7 @@ More same-node traffic (native BPF, no VXLAN)
 ```
 
 **Benefits:**
+
 - **3x aggregate bandwidth** - uses all node NICs in parallel
 - **High availability** - survives individual node failures
 - **Less VXLAN overhead** - better same-node locality (native BPF)
@@ -218,6 +224,7 @@ More same-node traffic (native BPF, no VXLAN)
 **How to distribute traffic across all IPs:**
 
 1. **DNS Round-Robin:**
+
    ```
    your-app.com A 178.156.188.143
    your-app.com A 178.156.191.97
@@ -225,6 +232,7 @@ More same-node traffic (native BPF, no VXLAN)
    ```
 
 2. **External Load Balancer (recommended):**
+
    - Use Cloudflare Load Balancing, AWS ALB, or similar
    - Configure all worker IPs as origin servers
    - Enable health checks per IP
@@ -243,6 +251,7 @@ NodeIPAM LB and external load balancers (like Cloudflare) solve **different prob
 **NodeIPAM LB (Layer 4 - Network Layer)**
 
 What it provides:
+
 - **Kubernetes-native abstraction** - Clean `type: LoadBalancer` services
 - **Protocol agnostic** - Works for TCP, UDP, HTTP, gRPC, databases, game servers, etc.
 - **East-west traffic** - Service-to-service load balancing within cluster
@@ -250,16 +259,18 @@ What it provides:
 - **Zero cost** - No per-request pricing or monthly fees
 
 Without NodeIPAM LB, you're stuck with:
+
 ```yaml
 # Awkward NodePort service
 spec:
   type: NodePort
   ports:
     - port: 80
-      nodePort: 32392  # Random high port on every worker
+      nodePort: 32392 # Random high port on every worker
 ```
 
 Problems with NodePort-only:
+
 - ❌ Non-standard ports: `http://worker-ip:32392` instead of `:80`
 - ❌ Manual IP management in external load balancers
 - ❌ Tight coupling to infrastructure (can't move workers easily)
@@ -268,6 +279,7 @@ Problems with NodePort-only:
 **External Load Balancers (Layer 7 - Application Layer)**
 
 What they provide (using Cloudflare as example):
+
 - **Global distribution** - Route users to nearest cluster/region
 - **DDoS protection** - Absorb attacks before they hit your cluster
 - **WAF & caching** - Web Application Firewall, edge caching
@@ -301,18 +313,19 @@ Pods across all worker nodes
 
 **Real-World Scenarios**
 
-| Use Case | NodeIPAM LB | External LB | Why |
-|----------|-------------|-------------|-----|
-| **Public web app** | ✅ Required | ✅ Recommended | NodeIPAM for K8s abstraction + Cloudflare for DDoS/global reach |
-| **Internal database** | ✅ Required | ❌ Not needed | Direct access via worker IPs, no need for global distribution |
-| **Game server** | ✅ Required | ❌ Not needed | UDP protocol, low latency critical, no HTTP features needed |
-| **Microservices (internal)** | ✅ Required | ❌ Not needed | Service-to-service communication within cluster |
-| **Global SaaS** | ✅ Required | ✅ Required | Multi-region deployment with failover and DDoS protection |
-| **Simple blog** | ✅ Required | ⚠️ Optional | NodeIPAM sufficient, add Cloudflare for free tier DDoS/CDN |
+| Use Case                     | NodeIPAM LB | External LB    | Why                                                             |
+| ---------------------------- | ----------- | -------------- | --------------------------------------------------------------- |
+| **Public web app**           | ✅ Required | ✅ Recommended | NodeIPAM for K8s abstraction + Cloudflare for DDoS/global reach |
+| **Internal database**        | ✅ Required | ❌ Not needed  | Direct access via worker IPs, no need for global distribution   |
+| **Game server**              | ✅ Required | ❌ Not needed  | UDP protocol, low latency critical, no HTTP features needed     |
+| **Microservices (internal)** | ✅ Required | ❌ Not needed  | Service-to-service communication within cluster                 |
+| **Global SaaS**              | ✅ Required | ✅ Required    | Multi-region deployment with failover and DDoS protection       |
+| **Simple blog**              | ✅ Required | ⚠️ Optional    | NodeIPAM sufficient, add Cloudflare for free tier DDoS/CDN      |
 
 **Key Takeaway:**
 
 - **NodeIPAM LB** = Kubernetes-native service abstraction (Layer 4)
+
   - Makes your cluster production-ready out of the box
   - Required for clean LoadBalancer services
   - Works for any protocol

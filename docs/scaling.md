@@ -46,6 +46,7 @@ oxide scale worker --count 5
 ### Scale Up Example
 
 **Current state:**
+
 ```bash
 kubectl get nodes
 NAME                READY   STATUS   ROLES    AGE
@@ -55,11 +56,13 @@ worker-2            Ready   <none>           5d
 ```
 
 **Scale up:**
+
 ```bash
 oxide scale worker --count 5
 ```
 
 **Process output:**
+
 ```
 Scaling up: Current count = 2, Target count = 5
 Creating 3 new worker nodes...
@@ -82,6 +85,7 @@ Scale up completed! 3 nodes added.
 ```
 
 **Result:**
+
 ```bash
 kubectl get nodes
 NAME                READY   STATUS   ROLES    AGE
@@ -128,6 +132,7 @@ Indices start at 1 and increment sequentially.
 ### Automatic Configuration
 
 New nodes automatically:
+
 - ✅ Join the Kubernetes cluster (via Talos config)
 - ✅ Get assigned to private network
 - ✅ Receive firewall protection
@@ -180,6 +185,7 @@ oxide scale worker --count 2
 ### Scale Down Example
 
 **Current state:**
+
 ```bash
 kubectl get nodes
 NAME                READY   STATUS   ROLES    AGE
@@ -192,11 +198,13 @@ worker-5            Ready   <none>           2h
 ```
 
 **Scale down:**
+
 ```bash
 oxide scale worker --count 2
 ```
 
 **Process output:**
+
 ```
 Scaling down: Current count = 5, Target count = 2
 Removing 3 worker nodes (newest first)...
@@ -226,6 +234,7 @@ Scale down completed! 3 nodes removed.
 ```
 
 **Result:**
+
 ```bash
 kubectl get nodes
 NAME                READY   STATUS   ROLES    AGE
@@ -247,6 +256,7 @@ Kept:    worker-1, worker-2
 ```
 
 **Rationale:**
+
 - Removes newest nodes first
 - Preserves original/stable nodes
 - Predictable behavior
@@ -256,6 +266,7 @@ Kept:    worker-1, worker-2
 The `talosctl reset --graceful --wait` command:
 
 **What `--graceful` does:**
+
 1. **Cordons node** - Prevents new pods from scheduling
 2. **Drains pods** - Evicts all pods gracefully
    - Respects PodDisruptionBudgets
@@ -265,11 +276,13 @@ The `talosctl reset --graceful --wait` command:
 5. **Powers down** - Shuts down the node
 
 **What `--wait` does:**
+
 - Blocks until reset completes
 - Returns when node powers down
 - May timeout if node takes too long (expected behavior)
 
 **Expected behaviors:**
+
 - ✅ Connection timeout when node powers down (normal)
 - ✅ Node becomes NotReady,SchedulingDisabled (expected state)
 - ❌ Connection error before reset starts (firewall issue)
@@ -279,6 +292,7 @@ The `talosctl reset --graceful --wait` command:
 During scale down, Oxide checks for:
 
 **NotReady,SchedulingDisabled status:**
+
 ```bash
 kubectl get nodes
 NAME       STATUS                        ROLES    AGE
@@ -286,6 +300,7 @@ worker-3   NotReady,SchedulingDisabled   <none>   5d
 ```
 
 **Why this status matters:**
+
 - `SchedulingDisabled` = Node is cordoned (step 1 of graceful reset)
 - `NotReady` = Node is shutting down or powered off (step 4-5)
 
@@ -345,12 +360,12 @@ spec:
 
 **Control plane count guidelines:**
 
-| Count | Availability | etcd Quorum | Use Case |
-|-------|--------------|-------------|----------|
-| 1     | Single point of failure | 1/1 | Development only |
-| 3     | Survives 1 failure | 2/3 | Production (recommended) |
-| 5     | Survives 2 failures | 3/5 | Large production |
-| 7     | Survives 3 failures | 4/7 | Critical infrastructure |
+| Count | Availability            | etcd Quorum | Use Case                 |
+| ----- | ----------------------- | ----------- | ------------------------ |
+| 1     | Single point of failure | 1/1         | Development only         |
+| 3     | Survives 1 failure      | 2/3         | Production (recommended) |
+| 5     | Survives 2 failures     | 3/5         | Large production         |
+| 7     | Survives 3 failures     | 4/7         | Critical infrastructure  |
 
 **Why odd numbers?**
 
@@ -367,22 +382,26 @@ etcd requires a majority (quorum) for consensus:
 ### Scaling Control Planes
 
 **Scale up to 3 (HA):**
+
 ```bash
 oxide scale control-plane --count 3
 ```
 
 **Process:**
+
 1. Creates 2 new control plane nodes
 2. Nodes automatically join etcd cluster
 3. KubePrism updates to include new endpoints
 4. Cluster is now highly available
 
 **Scale down to 1 (dev mode):**
+
 ```bash
 oxide scale control-plane --count 1
 ```
 
 **WARNING:** Scaling control plane down:
+
 - Removes nodes from etcd cluster
 - Can cause cluster unavailability if quorum is lost
 - Only do this in development environments
@@ -390,6 +409,7 @@ oxide scale control-plane --count 1
 ### etcd Health Monitoring
 
 **Check etcd cluster status:**
+
 ```bash
 talosctl --talosconfig ./output/talosconfig \
   --nodes <control-plane-ip> \
@@ -397,6 +417,7 @@ talosctl --talosconfig ./output/talosconfig \
 ```
 
 **Check etcd members:**
+
 ```bash
 talosctl --talosconfig ./output/talosconfig \
   --nodes <control-plane-ip> \
@@ -408,6 +429,7 @@ talosctl --talosconfig ./output/talosconfig \
 ### Scale Up Best Practices
 
 1. **Gradual scaling** - Add nodes in small batches
+
    ```bash
    # Good: Scale from 3 to 5
    oxide scale worker --count 5
@@ -417,6 +439,7 @@ talosctl --talosconfig ./output/talosconfig \
    ```
 
 2. **Wait for readiness** - Let new nodes stabilize before adding more
+
    ```bash
    oxide scale worker --count 5
    # Wait a few minutes, verify workloads are distributed
@@ -424,6 +447,7 @@ talosctl --talosconfig ./output/talosconfig \
    ```
 
 3. **Monitor resource usage** - Scale based on actual demand
+
    ```bash
    kubectl top nodes
    kubectl top pods -A
@@ -446,17 +470,20 @@ talosctl --talosconfig ./output/talosconfig \
 ### Scale Down Best Practices
 
 1. **Check workload capacity** - Ensure remaining nodes can handle load
+
    ```bash
    # Check resource requests before scaling down
    kubectl describe nodes | grep -A 5 "Allocated resources"
    ```
 
 2. **Verify PodDisruptionBudgets** - Don't break availability requirements
+
    ```bash
    kubectl get pdb -A
    ```
 
 3. **Drain manually first** (optional, for safety)
+
    ```bash
    kubectl drain worker-5 --ignore-daemonsets --delete-emptydir-data
    # Verify pods moved successfully
@@ -464,6 +491,7 @@ talosctl --talosconfig ./output/talosconfig \
    ```
 
 4. **Scale down slowly** - Remove 1-2 nodes at a time
+
    ```bash
    # Good: 10 → 8 → 6 → 5
    # Avoid: 10 → 2 (sudden removal)
@@ -487,6 +515,7 @@ crontab:
 ```
 
 **Production:**
+
 - Keep minimum viable capacity (don't over-optimize)
 - Use Horizontal Pod Autoscaler (HPA) for application scaling
 - Scale nodes when HPA can't schedule pods (pending pods)
@@ -498,6 +527,7 @@ crontab:
 #### New Nodes Not Joining Cluster
 
 **Symptom:**
+
 ```bash
 kubectl get nodes
 # New nodes don't appear after 5+ minutes
@@ -506,12 +536,15 @@ kubectl get nodes
 **Causes & Solutions:**
 
 1. **Configuration file missing**
+
    ```
    Error: output/worker.yaml not found
    ```
+
    - Solution: Cluster must exist first, can't scale non-existent cluster
 
 2. **Network issues**
+
    - Check Hetzner private network is attached
    - Verify nodes have private IPs assigned
 
@@ -524,6 +557,7 @@ kubectl get nodes
 #### New Nodes Stuck in "NotReady"
 
 **Symptom:**
+
 ```bash
 kubectl get nodes
 NAME       STATUS     ROLES    AGE
@@ -533,12 +567,14 @@ worker-3   NotReady   <none>   5m
 **Causes & Solutions:**
 
 1. **CNI not ready**
+
    ```bash
    kubectl get pods -n kube-system -l k8s-app=cilium -o wide
    # Check if Cilium pod is running on the new node
    ```
 
 2. **Check node logs**
+
    ```bash
    kubectl describe node worker-3
    # Look at "Conditions" and "Events"
@@ -556,6 +592,7 @@ worker-3   NotReady   <none>   5m
 #### "Cannot connect to Talos API" Error
 
 **Symptom:**
+
 ```
 Error: Cannot connect to Talos API on worker-3 (10.0.1.6)
 Check firewall rules: Ensure port 50000 is accessible from your IP
@@ -564,10 +601,12 @@ Check firewall rules: Ensure port 50000 is accessible from your IP
 **Causes & Solutions:**
 
 1. **Your IP changed**
+
    - Check current IP: `curl https://api.ipify.org`
    - Update firewall in Hetzner Console
 
 2. **Node already powered off**
+
    - Check Hetzner Console
    - If deleted externally, update cluster.yaml manually
 
@@ -578,6 +617,7 @@ Check firewall rules: Ensure port 50000 is accessible from your IP
 #### Node Reset Timeout
 
 **Symptom:**
+
 ```
 Timeout waiting for node worker-3 to be cordoned and NotReady
 ```
@@ -585,6 +625,7 @@ Timeout waiting for node worker-3 to be cordoned and NotReady
 **Causes & Solutions:**
 
 1. **Pods not draining** (PodDisruptionBudget too restrictive)
+
    ```bash
    kubectl get pods -o wide | grep worker-3
    # Check which pods are still running
@@ -604,6 +645,7 @@ Timeout waiting for node worker-3 to be cordoned and NotReady
 #### etcd Quorum Lost During Control Plane Scale Down
 
 **Symptom:**
+
 ```
 kubectl get nodes
 Unable to connect to the server: dial tcp: connection refused
@@ -614,6 +656,7 @@ Unable to connect to the server: dial tcp: connection refused
 **Recovery:**
 
 If you still have access to Talos API:
+
 ```bash
 # Check remaining etcd members
 talosctl --nodes <any-control-plane-ip> etcd members
@@ -682,11 +725,11 @@ While Hetzner doesn't have spot instances, you can simulate similar behavior:
 workers:
   - name: worker-stable
     server_type: cpx31
-    count: 2           # Always-on baseline
+    count: 2 # Always-on baseline
 
   - name: worker-burst
     server_type: cpx21
-    count: 0           # Scale up during high load
+    count: 0 # Scale up during high load
 ```
 
 ```bash

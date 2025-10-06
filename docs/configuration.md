@@ -5,12 +5,12 @@ Complete reference for `cluster.yaml` configuration file.
 ## File Structure
 
 ```yaml
-cluster_name: string          # Required: Unique cluster identifier
-hcloud: { ... }               # Required: Hetzner Cloud settings
-talos: { ... }                # Required: Talos Linux configuration
-cilium: { ... }               # Required: Cilium CNI settings
-control_planes: [...]         # Required: Control plane node pools
-workers: [...]                # Optional: Worker node pools
+cluster_name: string # Required: Unique cluster identifier
+hcloud: { ... } # Required: Hetzner Cloud settings
+talos: { ... } # Required: Talos Linux configuration
+cilium: { ... } # Required: Cilium CNI settings
+control_planes: [...] # Required: Control plane node pools
+workers: [...] # Optional: Worker node pools
 ```
 
 ## Top-Level Fields
@@ -22,11 +22,13 @@ workers: [...]                # Optional: Worker node pools
 **Description:** Unique name for your cluster. Used as prefix for all resources.
 
 **Example:**
+
 ```yaml
 cluster_name: my-production-cluster
 ```
 
 **Validation:**
+
 - Must be alphanumeric + hyphens
 - No spaces or special characters
 - Used in resource names: `{cluster_name}-worker-1`
@@ -37,12 +39,12 @@ cluster_name: my-production-cluster
 
 ```yaml
 hcloud:
-  token: string                     # Optional: API token (use env var instead)
-  location: string                  # Required: Data center location
+  token: string # Optional: API token (use env var instead)
+  location: string # Required: Data center location
   network:
-    cidr: string                    # Required: Private network CIDR
-    subnet_cidr: string             # Required: Node subnet CIDR
-    zone: string                    # Required: Network zone
+    cidr: string # Required: Private network CIDR
+    subnet_cidr: string # Required: Node subnet CIDR
+    zone: string # Required: Network zone
 ```
 
 #### `hcloud.token`
@@ -52,6 +54,7 @@ hcloud:
 **Description:** Hetzner Cloud API token
 
 **Best Practice:**
+
 ```bash
 export HCLOUD_TOKEN=your-token-here
 # Don't put token in cluster.yaml
@@ -65,6 +68,7 @@ export HCLOUD_TOKEN=your-token-here
 **Description:** Hetzner data center location
 
 **Valid Values:**
+
 - `nbg1` - Nuremberg, Germany
 - `fsn1` - Falkenstein, Germany
 - `hel1` - Helsinki, Finland
@@ -79,6 +83,7 @@ export HCLOUD_TOKEN=your-token-here
 **Description:** Private network CIDR range
 
 **Constraints:**
+
 - Must not overlap with pod_cidr or service_cidr
 - Recommended: /16 network (65,536 IPs)
 
@@ -90,6 +95,7 @@ export HCLOUD_TOKEN=your-token-here
 **Description:** Subnet for node IPs within private network
 
 **Constraints:**
+
 - Must be within network.cidr range
 - /24 allows ~250 nodes
 
@@ -101,6 +107,7 @@ export HCLOUD_TOKEN=your-token-here
 **Description:** Hetzner network zone
 
 **Valid Values:**
+
 - `eu-central` (for nbg1, fsn1, hel1)
 - `us-east` (for ash)
 - `us-west` (for hil)
@@ -113,11 +120,11 @@ export HCLOUD_TOKEN=your-token-here
 
 ```yaml
 talos:
-  version: string                   # Required: Talos version
-  kubernetes_version: string        # Required: Kubernetes version
-  hcloud_snapshot_id: string        # Required: Talos snapshot ID
-  pod_cidr: string                  # Optional: Pod network CIDR
-  service_cidr: string              # Optional: Service network CIDR
+  version: string # Required: Talos version
+  kubernetes_version: string # Required: Kubernetes version
+  hcloud_snapshot_id: string # Required: Talos snapshot ID
+  pod_cidr: string # Optional: Pod network CIDR
+  service_cidr: string # Optional: Service network CIDR
 ```
 
 #### `talos.version`
@@ -158,6 +165,7 @@ talos:
 **Description:** CIDR range for pod IPs
 
 **Constraints:**
+
 - Must not overlap with hcloud.network.cidr
 - /20 provides 4,096 IPs
 - Each node gets /24 subnet (254 pods/node)
@@ -170,6 +178,7 @@ talos:
 **Description:** CIDR range for Kubernetes service IPs
 
 **Constraints:**
+
 - Must not overlap with pod_cidr or network.cidr
 - /21 provides 2,048 IPs
 
@@ -179,9 +188,9 @@ talos:
 
 ```yaml
 cilium:
-  version: string                   # Required: Cilium version
-  enable_hubble: boolean            # Optional: Enable Hubble observability
-  enable_ipv6: boolean              # Optional: Enable IPv6 support
+  version: string # Required: Cilium version
+  enable_hubble: boolean # Optional: Enable Hubble observability
+  enable_ipv6: boolean # Optional: Enable IPv6 support
 ```
 
 #### `cilium.version`
@@ -218,31 +227,33 @@ cilium:
 
 ```yaml
 control_planes:
-  - name: string                    # Required: Pool name
-    server_type: string             # Required: Hetzner server type
-    count: integer                  # Required: Number of nodes
-    labels: map[string]string       # Optional: Kubernetes labels
+  - name: string # Required: Pool name
+    server_type: string # Required: Hetzner server type
+    count: integer # Required: Number of nodes
+    labels: map[string]string # Optional: Kubernetes labels
 ```
 
 **Example:**
+
 ```yaml
 control_planes:
   - name: control-plane
-    server_type: cpx21              # 3 vCPU, 4GB RAM
-    count: 3                        # HA configuration
+    server_type: cpx21 # 3 vCPU, 4GB RAM
+    count: 3 # HA configuration
 ```
 
 ### Worker Pools
 
 ```yaml
 workers:
-  - name: string                    # Required: Pool name
-    server_type: string             # Required: Hetzner server type
-    count: integer                  # Required: Number of nodes
-    labels: map[string]string       # Optional: Kubernetes labels
+  - name: string # Required: Pool name
+    server_type: string # Required: Hetzner server type
+    count: integer # Required: Number of nodes
+    labels: map[string]string # Optional: Kubernetes labels
 ```
 
 **Example:**
+
 ```yaml
 workers:
   - name: worker-small
@@ -250,7 +261,7 @@ workers:
     count: 3
 
   - name: worker-large
-    server_type: cpx41              # 8 vCPU, 16GB RAM
+    server_type: cpx41 # 8 vCPU, 16GB RAM
     count: 2
     labels:
       workload-type: memory-intensive
@@ -271,6 +282,7 @@ workers:
 **Description:** Hetzner server type
 
 **Common Types:**
+
 - `cx21` - 2 vCPU, 4GB RAM (shared)
 - `cpx21` - 3 vCPU, 4GB RAM (dedicated)
 - `cpx31` - 4 vCPU, 8GB RAM (dedicated)
@@ -286,6 +298,7 @@ workers:
 **Description:** Number of nodes in pool
 
 **Recommendations:**
+
 - Control plane: 1 (dev), 3 (production), 5 (large)
 - Workers: 2+ (for redundancy)
 
@@ -296,6 +309,7 @@ workers:
 **Description:** Kubernetes labels to apply to nodes
 
 **Example:**
+
 ```yaml
 labels:
   workload-type: compute-intensive
@@ -350,6 +364,7 @@ workers:
 Oxide validates configuration on load:
 
 ✅ **Checked:**
+
 - Required fields present
 - Valid CIDR notation
 - No CIDR overlaps
@@ -357,6 +372,7 @@ Oxide validates configuration on load:
 - Server types exist
 
 ❌ **Not Checked:**
+
 - Snapshot exists
 - API token valid
 - Account has sufficient quota
@@ -365,10 +381,10 @@ Oxide validates configuration on load:
 
 ## Environment Variables
 
-| Variable | Description | Required |
-|----------|-------------|----------|
-| `HCLOUD_TOKEN` | Hetzner Cloud API token | Yes |
-| `KUBECONFIG` | Path to kubeconfig file | No (for kubectl commands) |
+| Variable       | Description             | Required                  |
+| -------------- | ----------------------- | ------------------------- |
+| `HCLOUD_TOKEN` | Hetzner Cloud API token | Yes                       |
+| `KUBECONFIG`   | Path to kubeconfig file | No (for kubectl commands) |
 
 ## References
 
