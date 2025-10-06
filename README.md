@@ -108,12 +108,12 @@ hcloud:
     zone: eu-central
 
 talos:
-  version: v1.7.0
-  kubernetes_version: 1.30.0
+  version: v1.11.2
+  kubernetes_version: 1.34.1
   hcloud_snapshot_id: "123456789" # Your snapshot ID from step 1
 
 cilium:
-  version: 1.15.0
+  version: 1.17.8
   enable_hubble: true
   enable_ipv6: false
 
