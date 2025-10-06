@@ -42,7 +42,7 @@ Download the latest release from the [GitHub Releases page](https://github.com/d
 #### Linux (x86_64)
 
 ```bash
-wget https://github.com/dihmeetree/oxide/releases/latest/download/oxide-linux-x86_64.tar.gz
+curl -LO https://github.com/dihmeetree/oxide/releases/latest/download/oxide-linux-x86_64.tar.gz
 tar xzf oxide-linux-x86_64.tar.gz
 sudo mv oxide /usr/local/bin/
 ```
@@ -50,7 +50,7 @@ sudo mv oxide /usr/local/bin/
 #### Linux (ARM64)
 
 ```bash
-wget https://github.com/dihmeetree/oxide/releases/latest/download/oxide-linux-aarch64.tar.gz
+curl -LO https://github.com/dihmeetree/oxide/releases/latest/download/oxide-linux-aarch64.tar.gz
 tar xzf oxide-linux-aarch64.tar.gz
 sudo mv oxide /usr/local/bin/
 ```
@@ -58,7 +58,7 @@ sudo mv oxide /usr/local/bin/
 #### macOS (Intel)
 
 ```bash
-wget https://github.com/dihmeetree/oxide/releases/latest/download/oxide-macos-x86_64.tar.gz
+curl -LO https://github.com/dihmeetree/oxide/releases/latest/download/oxide-macos-x86_64.tar.gz
 tar xzf oxide-macos-x86_64.tar.gz
 sudo mv oxide /usr/local/bin/
 ```
@@ -66,7 +66,7 @@ sudo mv oxide /usr/local/bin/
 #### macOS (Apple Silicon)
 
 ```bash
-wget https://github.com/dihmeetree/oxide/releases/latest/download/oxide-macos-aarch64.tar.gz
+curl -LO https://github.com/dihmeetree/oxide/releases/latest/download/oxide-macos-aarch64.tar.gz
 tar xzf oxide-macos-aarch64.tar.gz
 sudo mv oxide /usr/local/bin/
 ```
