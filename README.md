@@ -89,7 +89,7 @@ Create an example configuration file:
 oxide init
 ```
 
-This creates a `cluster.yaml` file with default settings.
+This creates a `cluster.yaml` file with default settings that you can customize.
 
 ### 3. Configure Your Cluster
 
@@ -378,12 +378,6 @@ kubectl top nodes --kubeconfig=./output/kubeconfig
 
 ```bash
 oxide uninstall-metrics-server
-```
-
-### Generate Example Config
-
-```bash
-oxide init --config my-cluster.yaml
 ```
 
 ## Configuration Reference
