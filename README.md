@@ -184,13 +184,21 @@ kubectl get nodes
 ### Create a Cluster
 
 ```bash
-oxide create --config cluster.yaml
+# Using default cluster.yaml
+oxide create
+
+# Using a custom configuration file
+oxide --config my-cluster.yaml create
 ```
 
 ### Show Cluster Status
 
 ```bash
-oxide status --config cluster.yaml
+# Using default cluster.yaml
+oxide status
+
+# Using a custom configuration file
+oxide --config my-cluster.yaml status
 ```
 
 Shows information about all servers organized by node pools, including current node counts and server specifications.
@@ -239,7 +247,11 @@ oxide scale control-plane --count 3
 ### Destroy a Cluster
 
 ```bash
-oxide destroy --config cluster.yaml
+# Using default cluster.yaml
+oxide destroy
+
+# Using a custom configuration file
+oxide --config my-cluster.yaml destroy
 ```
 
 **Warning**: This permanently deletes all servers, networks, and SSH keys.
