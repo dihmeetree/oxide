@@ -528,7 +528,7 @@ Update the version in `cluster.yaml`:
 
 ```yaml
 talos:
-  kubernetes_version: 1.31.0
+  kubernetes_version: 1.34.1
 ```
 
 Then run upgrade:
@@ -536,7 +536,7 @@ Then run upgrade:
 ```bash
 talosctl --talosconfig ./output/talosconfig \
   --nodes <node-ip> \
-  upgrade-k8s --to 1.31.0
+  upgrade-k8s --to 1.34.1
 ```
 
 **Best Practices:**

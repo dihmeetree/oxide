@@ -232,7 +232,7 @@ fn default_prometheus_storage() -> String {
 }
 
 fn default_autoscaler_version() -> String {
-    "v1.31.0".to_string()
+    "v1.34.0".to_string()
 }
 
 impl PrometheusConfig {
