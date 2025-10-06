@@ -52,6 +52,8 @@ The binary will be available as `oxide`.
 
 Before deploying clusters, you need to create a Hetzner Cloud snapshot containing the Talos image:
 
+> **Note**: Check the latest Talos version at https://github.com/siderolabs/talos/releases and update the version in the commands below accordingly.
+
 ```bash
 # 1. Create a temporary server
 hcloud server create --type cx11 --name talos-snapshot --image ubuntu-22.04 --location nbg1
@@ -63,14 +65,14 @@ hcloud server reboot talos-snapshot
 # 3. Connect to rescue system and write Talos image
 # SSH into the server in rescue mode
 ssh root@<server-ip>
-# Then run this command to write the Talos image
-wget -O - https://github.com/siderolabs/talos/releases/download/v1.7.0/hcloud-amd64.raw.xz | xz -d | dd of=/dev/sda && sync
+# Then run this command to write the Talos image (replace v1.11.2 with latest version)
+wget -O - https://github.com/siderolabs/talos/releases/download/v1.11.2/hcloud-amd64.raw.xz | xz -d | dd of=/dev/sda && sync
 
 # 4. Reboot the server
 hcloud server reboot talos-snapshot
 
 # 5. Wait for boot, then create snapshot
-hcloud server create-image --type snapshot --description "Talos v1.7.0" talos-snapshot
+hcloud server create-image --type snapshot --description "Talos v1.11.2" talos-snapshot
 
 # 6. Note the snapshot ID (you'll need this for configuration)
 hcloud image list
