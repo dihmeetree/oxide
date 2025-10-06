@@ -272,17 +272,18 @@ Oxide's Cluster Autoscaler is configured to automatically consolidate pods onto 
 
 ### **How It Works: Node Tainting Strategy**
 
-The autoscaler uses **taints** to distinguish between node types:
+The Cluster Autoscaler automatically uses **taints** to mark nodes that are candidates for scale-down:
 
 1. **Original Worker Nodes** (created at cluster initialization):
-   - No taints (clean)
+
+   - No taints (clean) - except when marked as deletion candidates
    - Pods prefer to schedule here by default
-   - Always remain in the cluster (never removed by autoscaler)
+   - Always remain in the cluster (never removed by autoscaler with `min_nodes: 0`)
 
 2. **Autoscaled Nodes** (created dynamically by autoscaler):
-   - Tainted with `node.kubernetes.io/autoscaled=true:PreferNoSchedule`
+   - Automatically tainted with `DeletionCandidateOfClusterAutoscaler:PreferNoSchedule` when underutilized
    - Pods avoid these nodes unless capacity is needed
-   - Automatically removed when underutilized
+   - Prioritized for removal when load decreases
 
 ### **Configuration**
 
@@ -293,34 +294,30 @@ The autoscaler is pre-configured with:
 autoscaler:
   worker_pools:
     - name: worker-pool
-      min_nodes: 0  # Only manage autoscaled nodes
+      min_nodes: 0 # Only manage autoscaled nodes
       max_nodes: 10
 ```
 
 **Autoscaler Settings:**
+
 - `min_nodes: 0` - Ensures autoscaler only manages nodes it creates
-- `HCLOUD_SERVER_TAINTS` - Taints autoscaled nodes with `PreferNoSchedule`
 - `--scale-down-unneeded-time=5m` - Remove idle nodes after 5 minutes
 - `--scale-down-utilization-threshold=0.5` - Scale down when below 50% utilization
+- **Automatic Tainting**: Autoscaler adds `DeletionCandidateOfClusterAutoscaler:PreferNoSchedule` taint to underutilized nodes
 
 ### **Pod Behavior**
 
 **Without Tolerations (Default):**
 Pods will prefer original worker nodes and avoid autoscaled nodes unless necessary.
 
-**With Explicit Tolerations (If Needed):**
-```yaml
-spec:
-  template:
-    spec:
-      tolerations:
-      - key: node.kubernetes.io/autoscaled
-        operator: Equal
-        value: "true"
-        effect: PreferNoSchedule
-```
+**Understanding the Taint:**
+The `DeletionCandidateOfClusterAutoscaler:PreferNoSchedule` taint is dynamically managed:
 
-Most workloads don't need explicit tolerations - Kubernetes will automatically schedule on tainted nodes when capacity is needed.
+- Added when a node is underutilized and becomes a deletion candidate
+- Removed if the node is needed again (e.g., sudden load increase)
+- Causes the scheduler to prefer other untainted nodes
+
+Most workloads don't need explicit tolerations - Kubernetes will automatically schedule on tainted nodes when capacity is needed (PreferNoSchedule is a soft preference, not a hard requirement).
 
 ### **Scale-Down Flow**
 
@@ -358,9 +355,9 @@ kubectl apply -f docs/k6-load-test.yaml
 # Watch for new autoscaled node
 watch kubectl get nodes
 
-# Verify new node has taint
+# Verify new node has deletion candidate taint (when underutilized)
 kubectl describe node <autoscaled-node-name> | grep Taints
-# Should show: node.kubernetes.io/autoscaled=true:PreferNoSchedule
+# Should show: DeletionCandidateOfClusterAutoscaler:PreferNoSchedule (when marked for scale-down)
 ```
 
 ### **Benefits**

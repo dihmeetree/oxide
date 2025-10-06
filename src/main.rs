@@ -1516,8 +1516,6 @@ spec:
               value: "{}-firewall"
             - name: HCLOUD_SSH_KEY
               value: "{}-oxide"
-            - name: HCLOUD_SERVER_TAINTS
-              value: "node.kubernetes.io/autoscaled=true:PreferNoSchedule"
           resources:
             limits:
               cpu: 100m
