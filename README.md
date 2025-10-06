@@ -114,7 +114,7 @@ cilium:
   enable_ipv6: false
 
 prometheus:
-  version: 65.8.1
+  version: 77.13.0
   enabled: true
   namespace: monitoring
   enable_grafana: true
@@ -268,6 +268,7 @@ kubectl port-forward -n monitoring svc/prometheus-grafana 3000:80 --kubeconfig=.
 ```
 
 Then open http://localhost:3000 in your browser:
+
 - Username: `admin`
 - Password: `admin` (change after first login)
 
