@@ -1513,7 +1513,7 @@ spec:
             - name: HCLOUD_FIREWALL
               value: "{}-firewall"
             - name: HCLOUD_SSH_KEY
-              value: "{}-ssh"
+              value: "{}-oxide"
           resources:
             limits:
               cpu: 100m
