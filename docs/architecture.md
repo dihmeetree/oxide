@@ -6,8 +6,8 @@ This document provides a comprehensive overview of Oxide's architecture, includi
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                     Oxide CLI                                │
-│                                                               │
+│                     Oxide CLI                               │
+│                                                             │
 │  Commands: create, destroy, scale, status, init             │
 └────────────┬────────────────────────────────────────────────┘
              │
@@ -21,22 +21,22 @@ This document provides a comprehensive overview of Oxide's architecture, includi
              ↓                ↓                ↓               ↓
     ┌────────────────────────────────────────────────────────────────┐
     │              Hetzner Cloud Infrastructure                      │
-    │                                                                 │
-    │  ┌──────────────────────────────────────────────────────────┐ │
-    │  │            Private Network (10.0.0.0/16)                 │ │
-    │  │                                                           │ │
-    │  │   ┌───────────────────┐      ┌───────────────────┐     │ │
-    │  │   │  Control Plane    │      │     Workers        │     │ │
-    │  │   │   - Talos OS      │      │    - Talos OS     │     │ │
-    │  │   │   - etcd          │      │    - Kubelet      │     │ │
-    │  │   │   - API Server    │      │    - Containerd   │     │ │
-    │  │   │   - Cilium        │      │    - Cilium       │     │ │
-    │  │   └───────────────────┘      └───────────────────┘     │ │
-    │  │                                                           │ │
-    │  └──────────────────────────────────────────────────────────┘ │
-    │                                                                 │
-    │  Firewall: Restricts access to Talos/K8s APIs (your IP only)  │
-    └─────────────────────────────────────────────────────────────────┘
+    │                                                                │
+    │  ┌──────────────────────────────────────────────────────────┐  │
+    │  │            Private Network (10.0.0.0/16)                 │  │
+    │  │                                                          │  │
+    │  │   ┌───────────────────┐      ┌───────────────────┐       │  │
+    │  │   │  Control Plane    │      │     Workers       │       │  │
+    │  │   │   - Talos OS      │      │    - Talos OS     │       │  │
+    │  │   │   - etcd          │      │    - Kubelet      │       │  │
+    │  │   │   - API Server    │      │    - Containerd   │       │  │
+    │  │   │   - Cilium        │      │    - Cilium       │       │  │
+    │  │   └───────────────────┘      └───────────────────┘       │  │
+    │  │                                                          │  │
+    │  └──────────────────────────────────────────────────────────┘  │
+    │                                                                │
+    │  Firewall: Restricts access to Talos/K8s APIs (your IP only)   │
+    └────────────────────────────────────────────────────────────────┘
 ```
 
 ## Component Architecture
