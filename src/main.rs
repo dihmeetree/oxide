@@ -24,6 +24,7 @@ use crate::hcloud::{FirewallManager, HetznerCloudClient, SSHKeyManager};
 use crate::k8s::{KubernetesClient, NodeManager, ResourceManager};
 use crate::prometheus::PrometheusManager;
 use crate::talos::{TalosClient, TalosConfigGenerator};
+use crate::utils::command::CommandBuilder;
 
 #[derive(Parser)]
 #[command(name = "oxide")]
@@ -110,6 +111,12 @@ enum Commands {
 
     /// Uninstall cluster autoscaler
     UninstallAutoscaler,
+
+    /// Install Kubernetes Metrics Server
+    InstallMetricsServer,
+
+    /// Uninstall Kubernetes Metrics Server
+    UninstallMetricsServer,
 }
 
 #[derive(Debug, Clone, clap::ValueEnum)]
@@ -155,6 +162,8 @@ async fn main() {
         Commands::UninstallPrometheus => uninstall_prometheus(&cli).await,
         Commands::DeployAutoscaler => deploy_autoscaler(&cli).await,
         Commands::UninstallAutoscaler => uninstall_autoscaler(&cli).await,
+        Commands::InstallMetricsServer => install_metrics_server(&cli).await,
+        Commands::UninstallMetricsServer => uninstall_metrics_server(&cli).await,
     };
 
     if let Err(e) = result {
@@ -1503,6 +1512,69 @@ spec:
     tokio::fs::write(&temp_file, deployment_yaml).await?;
     ResourceManager::apply_manifest(kubeconfig_path, &temp_file).await?;
     tokio::fs::remove_file(&temp_file).await?;
+
+    Ok(())
+}
+
+/// Install Kubernetes Metrics Server
+async fn install_metrics_server(cli: &Cli) -> Result<()> {
+    info!("Installing Kubernetes Metrics Server...");
+
+    let kubeconfig_path = cli.output.join("kubeconfig");
+    if !kubeconfig_path.exists() {
+        anyhow::bail!(
+            "Kubeconfig not found at {}. Please create the cluster first.",
+            kubeconfig_path.display()
+        );
+    }
+
+    // Apply the latest metrics-server manifest directly from GitHub
+    let metrics_server_url =
+        "https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml";
+
+    info!("Applying metrics-server manifest from GitHub...");
+    CommandBuilder::new("kubectl")
+        .args(["apply", "-f", metrics_server_url])
+        .kubeconfig(&kubeconfig_path)
+        .context("Failed to install metrics-server")
+        .run_silent()
+        .await?;
+
+    info!("✓ Kubernetes Metrics Server installed successfully!");
+    info!("");
+    info!("The metrics server will start collecting metrics in a few seconds.");
+    info!("You can verify it's working with:");
+    info!("  kubectl top nodes");
+    info!("  kubectl top pods");
+
+    Ok(())
+}
+
+/// Uninstall Kubernetes Metrics Server
+async fn uninstall_metrics_server(cli: &Cli) -> Result<()> {
+    info!("Uninstalling Kubernetes Metrics Server...");
+
+    let kubeconfig_path = cli.output.join("kubeconfig");
+    if !kubeconfig_path.exists() {
+        anyhow::bail!(
+            "Kubeconfig not found at {}. Please create the cluster first.",
+            kubeconfig_path.display()
+        );
+    }
+
+    // Delete resources directly from GitHub URL
+    let metrics_server_url =
+        "https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml";
+
+    info!("Deleting metrics-server resources...");
+    CommandBuilder::new("kubectl")
+        .args(["delete", "-f", metrics_server_url])
+        .kubeconfig(&kubeconfig_path)
+        .context("Failed to delete metrics-server resources")
+        .run_silent()
+        .await?;
+
+    info!("✓ Kubernetes Metrics Server uninstalled successfully!");
 
     Ok(())
 }
