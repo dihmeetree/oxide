@@ -359,6 +359,7 @@ oxide install-metrics-server
 ```
 
 The Metrics Server enables:
+
 - `kubectl top nodes` and `kubectl top pods` commands
 - HorizontalPodAutoscaler (HPA) to scale pods based on CPU/memory usage
 - Resource-based autoscaling decisions
@@ -424,9 +425,9 @@ oxide init --config my-cluster.yaml
 
 ### Metrics Server Configuration
 
-| Field     | Description                  | Default |
-| --------- | ---------------------------- | ------- |
-| `enabled` | Enable metrics server        | true    |
+| Field     | Description           | Default |
+| --------- | --------------------- | ------- |
+| `enabled` | Enable metrics server | true    |
 
 **Note**: Metrics Server is automatically installed during cluster creation when enabled.
 
