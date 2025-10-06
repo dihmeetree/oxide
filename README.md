@@ -37,41 +37,12 @@ Before using this tool, you need to install the following CLI tools:
 
 ### Pre-built Binaries
 
-Download the latest release from the [GitHub Releases page](https://github.com/dihmeetree/oxide/releases).
-
-#### Linux (x86_64)
+Download the latest release from the [GitHub Releases page](https://github.com/dihmeetree/oxide/releases):
 
 ```bash
-curl -LO https://github.com/dihmeetree/oxide/releases/latest/download/\
-oxide-linux-x86_64.tar.gz
-tar xzf oxide-linux-x86_64.tar.gz
-sudo mv oxide /usr/local/bin/
-```
-
-#### Linux (ARM64)
-
-```bash
-curl -LO https://github.com/dihmeetree/oxide/releases/latest/download/\
-oxide-linux-aarch64.tar.gz
-tar xzf oxide-linux-aarch64.tar.gz
-sudo mv oxide /usr/local/bin/
-```
-
-#### macOS (Intel)
-
-```bash
-curl -LO https://github.com/dihmeetree/oxide/releases/latest/download/\
-oxide-macos-x86_64.tar.gz
-tar xzf oxide-macos-x86_64.tar.gz
-sudo mv oxide /usr/local/bin/
-```
-
-#### macOS (Apple Silicon)
-
-```bash
-curl -LO https://github.com/dihmeetree/oxide/releases/latest/download/\
-oxide-macos-aarch64.tar.gz
-tar xzf oxide-macos-aarch64.tar.gz
+# Replace PLATFORM with: linux-x86_64, linux-aarch64, macos-x86_64, or macos-aarch64
+curl -LO https://github.com/dihmeetree/oxide/releases/latest/download/oxide-PLATFORM.tar.gz
+tar xzf oxide-PLATFORM.tar.gz
 sudo mv oxide /usr/local/bin/
 ```
 
