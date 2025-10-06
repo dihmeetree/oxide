@@ -50,6 +50,9 @@ impl CiliumManager {
         // Install Cilium
         self.install_cilium_chart().await?;
 
+        // Configure CoreDNS to use public DNS servers instead of Talos hostDNS
+        self.configure_coredns_public_dns().await?;
+
         info!("Cilium installed successfully");
 
         Ok(())
@@ -262,6 +265,102 @@ impl CiliumManager {
             .context("Failed to get Cilium status")
             .run()
             .await
+    }
+
+    /// Configure CoreDNS to use public DNS servers instead of Talos hostDNS
+    /// This prevents DNS timeout issues when CoreDNS tries to forward to Talos hostDNS (169.254.x.x)
+    async fn configure_coredns_public_dns(&self) -> Result<()> {
+        info!("Configuring CoreDNS to use public DNS servers...");
+
+        let coredns_config = r#"
+data:
+  Corefile: |
+    .:53 {
+        errors
+        health {
+            lameduck 5s
+        }
+        ready
+        log . {
+            class error
+        }
+        prometheus :9153
+
+        kubernetes cluster.local in-addr.arpa ip6.arpa {
+            pods insecure
+            fallthrough in-addr.arpa ip6.arpa
+            ttl 30
+        }
+        forward . 1.1.1.1 8.8.8.8 {
+           max_concurrent 1000
+        }
+        cache 30 {
+           disable success cluster.local
+           disable denial cluster.local
+        }
+        loop
+        reload
+        loadbalance
+    }
+"#;
+
+        // Write patch to temp file
+        let temp_file = std::env::temp_dir().join("coredns-patch.yaml");
+        tokio::fs::write(&temp_file, coredns_config).await?;
+
+        // Apply patch to CoreDNS ConfigMap
+        CommandBuilder::new("kubectl")
+            .args([
+                "patch",
+                "configmap",
+                "coredns",
+                "-n",
+                "kube-system",
+                "--patch-file",
+                temp_file.to_str().unwrap(),
+            ])
+            .kubeconfig(&self.kubeconfig_path)
+            .context("Failed to patch CoreDNS ConfigMap")
+            .run_silent()
+            .await?;
+
+        // Clean up temp file
+        tokio::fs::remove_file(&temp_file).await?;
+
+        // Restart CoreDNS to apply changes
+        info!("Restarting CoreDNS to apply configuration...");
+        CommandBuilder::new("kubectl")
+            .args([
+                "rollout",
+                "restart",
+                "deployment",
+                "coredns",
+                "-n",
+                "kube-system",
+            ])
+            .kubeconfig(&self.kubeconfig_path)
+            .context("Failed to restart CoreDNS")
+            .run_silent()
+            .await?;
+
+        // Wait for CoreDNS rollout to complete
+        CommandBuilder::new("kubectl")
+            .args([
+                "rollout",
+                "status",
+                "deployment",
+                "coredns",
+                "-n",
+                "kube-system",
+                "--timeout=60s",
+            ])
+            .kubeconfig(&self.kubeconfig_path)
+            .context("CoreDNS rollout timeout")
+            .run_silent()
+            .await?;
+
+        info!("CoreDNS configured successfully");
+        Ok(())
     }
 }
 

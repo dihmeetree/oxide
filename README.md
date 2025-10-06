@@ -15,6 +15,7 @@ A Rust-based tool for deploying Talos Linux Kubernetes clusters with Cilium CNI.
 - **Cilium CNI**: High-performance networking with eBPF
 - **LoadBalancer Support**: Cilium Node IPAM for LoadBalancer services using node IPs
 - **Prometheus Monitoring**: Built-in support for Prometheus stack (Prometheus, Grafana, AlertManager)
+- **Cluster Autoscaler**: Automatic worker node scaling based on pod resource demands (official Kubernetes autoscaler with Hetzner support)
 - **Private Networking**: Automatic setup of Hetzner Cloud private networks
 - **Security First**:
   - Firewall with Talos/Kubernetes API ports pre-configured
@@ -298,6 +299,52 @@ Then open http://localhost:9093 in your browser.
 oxide uninstall-prometheus
 ```
 
+### Deploy Cluster Autoscaler
+
+Deploy the Kubernetes Cluster Autoscaler with Hetzner support to automatically scale worker nodes based on pod resource requests:
+
+```bash
+oxide deploy-autoscaler
+```
+
+This deploys the official Kubernetes Cluster Autoscaler configured for Hetzner Cloud provider. The autoscaler will:
+
+- Automatically add worker nodes when pods cannot be scheduled due to insufficient resources
+- Remove underutilized worker nodes to save costs
+- Respect min/max node limits configured per worker pool
+
+**Configuration Example**:
+
+```yaml
+autoscaler:
+  enabled: true
+  worker_pools:
+    - name: worker-pool
+      server_type: cpx11 # Hetzner server type
+      location: fsn1 # Hetzner location
+      min_nodes: 1
+      max_nodes: 10
+```
+
+**Monitor Autoscaler Logs**:
+
+```bash
+kubectl logs -n oxide-system -l app=cluster-autoscaler -f --kubeconfig=./output/kubeconfig
+```
+
+**Important Notes**:
+
+- The autoscaler only scales worker nodes, not control plane nodes
+- Scaling decisions are based on pod resource requests (CPU/memory), not actual usage
+- Nodes are created with the same Talos configuration as your initial worker nodes
+- The autoscaler respects PodDisruptionBudgets when scaling down
+
+### Uninstall Cluster Autoscaler
+
+```bash
+oxide uninstall-autoscaler
+```
+
 ### Generate Example Config
 
 ```bash
@@ -315,6 +362,7 @@ oxide init --config my-cluster.yaml
 | `talos`          | Talos Linux configuration      | Yes      |
 | `cilium`         | Cilium CNI settings            | Yes      |
 | `prometheus`     | Prometheus monitoring settings | No       |
+| `autoscaler`     | Cluster autoscaler settings    | No       |
 | `control_planes` | Control plane node specs       | Yes      |
 | `workers`        | Worker node specs              | No       |
 
@@ -340,6 +388,23 @@ oxide init --config my-cluster.yaml
 | `retention`                 | Prometheus data retention period         | 30d        |
 | `storage_size`              | Prometheus persistent storage size       | 50Gi       |
 | `enable_persistent_storage` | Enable persistent storage for Prometheus | false      |
+
+### Cluster Autoscaler Configuration
+
+| Field          | Description                       | Required |
+| -------------- | --------------------------------- | -------- |
+| `enabled`      | Enable cluster autoscaler         | Yes      |
+| `worker_pools` | List of worker pools to autoscale | Yes      |
+
+**Worker Pool Configuration**:
+
+| Field         | Description                           | Required |
+| ------------- | ------------------------------------- | -------- |
+| `name`        | Worker pool name                      | Yes      |
+| `server_type` | Hetzner server type (cpx11, cpx21...) | Yes      |
+| `location`    | Hetzner location (fsn1, nbg1...)      | Yes      |
+| `min_nodes`   | Minimum number of nodes               | Yes      |
+| `max_nodes`   | Maximum number of nodes               | Yes      |
 
 ### Node Configuration
 

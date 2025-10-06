@@ -21,6 +21,10 @@ pub struct ClusterConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub prometheus: Option<PrometheusConfig>,
 
+    /// Cluster autoscaler configuration
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub autoscaler: Option<AutoscalerConfig>,
+
     /// Control plane nodes
     pub control_planes: Vec<NodeConfig>,
 
@@ -137,6 +141,42 @@ pub struct PrometheusConfig {
     pub helm_values: serde_yaml::Value,
 }
 
+/// Cluster autoscaler configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AutoscalerConfig {
+    /// Enable cluster autoscaler
+    #[serde(default)]
+    pub enabled: bool,
+
+    /// Cluster autoscaler version
+    #[serde(default = "default_autoscaler_version")]
+    pub version: String,
+
+    /// Worker pools to autoscale with min/max limits
+    #[serde(default)]
+    pub worker_pools: Vec<AutoscalePoolConfig>,
+}
+
+/// Autoscale configuration for a specific worker pool
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AutoscalePoolConfig {
+    /// Worker pool name (must match a pool in workers)
+    pub name: String,
+
+    /// Server type (e.g., "cpx11", "cpx21")
+    pub server_type: String,
+
+    /// Location (e.g., "fsn1", "nbg1", "hel1")
+    pub location: String,
+
+    /// Minimum number of nodes
+    #[serde(default = "default_one")]
+    pub min_nodes: u32,
+
+    /// Maximum number of nodes
+    pub max_nodes: u32,
+}
+
 /// Node configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NodeConfig {
@@ -177,6 +217,10 @@ fn default_prometheus_retention() -> String {
 
 fn default_prometheus_storage() -> String {
     "50Gi".to_string()
+}
+
+fn default_autoscaler_version() -> String {
+    "v1.31.0".to_string()
 }
 
 impl PrometheusConfig {
@@ -267,6 +311,7 @@ impl ClusterConfig {
                 helm_values: serde_yaml::Value::Null,
             },
             prometheus: Some(PrometheusConfig::default()),
+            autoscaler: None,
             control_planes: vec![NodeConfig {
                 name: "control-plane".to_string(),
                 server_type: "cpx21".to_string(),
