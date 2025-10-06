@@ -1483,6 +1483,11 @@ spec:
         runAsUser: 65534
         fsGroup: 65534
       serviceAccountName: oxide-autoscaler
+      tolerations:
+        - key: workload
+          operator: Equal
+          value: application
+          effect: NoSchedule
       containers:
         - name: cluster-autoscaler
           image: registry.k8s.io/autoscaling/cluster-autoscaler:{}
@@ -1496,6 +1501,7 @@ spec:
             - --expander=least-waste
             - --scale-down-utilization-threshold=0.5
             - --scale-down-unneeded-time=5m
+            - --scan-interval=5s
             - --v=4
           env:
             - name: HCLOUD_TOKEN
