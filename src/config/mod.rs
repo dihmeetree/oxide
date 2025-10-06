@@ -310,14 +310,14 @@ impl ClusterConfig {
                 },
             },
             talos: TalosConfig {
-                version: "v1.7.0".to_string(),
-                kubernetes_version: "1.30.0".to_string(),
+                version: "v1.11.2".to_string(),
+                kubernetes_version: "1.34.1".to_string(),
                 cluster_endpoint: None,
                 hcloud_snapshot_id: None,
                 config_patches: vec![],
             },
             cilium: CiliumConfig {
-                version: "1.15.0".to_string(),
+                version: "1.17.8".to_string(),
                 enable_hubble: true,
                 enable_ipv6: false,
                 helm_values: serde_yaml::Value::Null,
