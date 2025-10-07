@@ -15,7 +15,7 @@ pub struct CiliumManager {
 
 impl CiliumManager {
     /// Create a new Cilium manager
-    pub fn new(
+    pub const fn new(
         config: CiliumConfig,
         kubeconfig_path: std::path::PathBuf,
         control_plane_count: u32,
@@ -116,7 +116,7 @@ impl CiliumManager {
         } else {
             "1"
         };
-        let operator_replicas_arg = format!("operator.replicas={}", operator_replicas);
+        let operator_replicas_arg = format!("operator.replicas={operator_replicas}");
 
         let mut args = vec![
             "install",
@@ -289,7 +289,7 @@ impl CiliumManager {
 
         info!("Configuring CoreDNS to use public DNS servers...");
 
-        let coredns_config = r#"
+        let coredns_config = r"
 data:
   Corefile: |
     .:53 {
@@ -319,7 +319,7 @@ data:
         reload
         loadbalance
     }
-"#;
+";
 
         // Write patch to temp file
         let temp_file = std::env::temp_dir().join("coredns-patch.yaml");

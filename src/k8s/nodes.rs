@@ -238,9 +238,8 @@ impl NodeManager {
                 if pod_count == 0 {
                     info!("✓ All pods drained from node {}", node_name);
                     return Ok(());
-                } else {
-                    info!("  {} pods remaining on node {}", pod_count, node_name);
                 }
+                info!("  {} pods remaining on node {}", pod_count, node_name);
                 last_pod_count = pod_count;
             }
 
