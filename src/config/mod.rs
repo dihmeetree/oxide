@@ -278,11 +278,46 @@ impl ClusterConfig {
         Ok(())
     }
 
-    /// Validate CIDR notation
+    /// Validate CIDR notation with proper IP and prefix length parsing
     fn validate_cidr(&self, cidr: &str) -> anyhow::Result<()> {
-        if !cidr.contains('/') {
-            anyhow::bail!("Invalid CIDR notation: {}", cidr);
+        use anyhow::Context;
+        use std::net::IpAddr;
+
+        let parts: Vec<&str> = cidr.split('/').collect();
+        if parts.len() != 2 {
+            anyhow::bail!(
+                "Invalid CIDR notation '{}': must be in format IP/prefix (e.g., 10.0.0.0/16)",
+                cidr
+            );
         }
+
+        // Validate IP address part
+        let ip: IpAddr = parts[0].parse().context(format!(
+            "Invalid IP address '{}' in CIDR notation",
+            parts[0]
+        ))?;
+
+        // Validate prefix length
+        let prefix: u8 = parts[1].parse().context(format!(
+            "Invalid prefix length '{}' in CIDR notation",
+            parts[1]
+        ))?;
+
+        // Check prefix length is within valid range based on IP version
+        let max_prefix = match ip {
+            IpAddr::V4(_) => 32,
+            IpAddr::V6(_) => 128,
+        };
+
+        if prefix > max_prefix {
+            anyhow::bail!(
+                "Invalid CIDR prefix length: {} (must be 0-{} for {:?})",
+                prefix,
+                max_prefix,
+                ip
+            );
+        }
+
         Ok(())
     }
 
@@ -387,7 +422,27 @@ mod tests {
     #[test]
     fn test_cidr_validation() {
         let config = ClusterConfig::example();
+
+        // Valid IPv4 CIDRs
         assert!(config.validate_cidr("10.0.0.0/16").is_ok());
+        assert!(config.validate_cidr("192.168.1.0/24").is_ok());
+        assert!(config.validate_cidr("172.16.0.0/12").is_ok());
+        assert!(config.validate_cidr("10.0.0.0/32").is_ok());
+        assert!(config.validate_cidr("0.0.0.0/0").is_ok());
+
+        // Valid IPv6 CIDRs
+        assert!(config.validate_cidr("2001:db8::/32").is_ok());
+        assert!(config.validate_cidr("fe80::/10").is_ok());
+        assert!(config.validate_cidr("::1/128").is_ok());
+
+        // Invalid CIDRs
         assert!(config.validate_cidr("invalid").is_err());
+        assert!(config.validate_cidr("10.0.0.0").is_err()); // Missing prefix
+        assert!(config.validate_cidr("10.0.0.0/").is_err()); // Empty prefix
+        assert!(config.validate_cidr("10.0.0.0/33").is_err()); // Invalid prefix for IPv4
+        assert!(config.validate_cidr("10.0.0.0/abc").is_err()); // Non-numeric prefix
+        assert!(config.validate_cidr("999.0.0.0/16").is_err()); // Invalid IP
+        assert!(config.validate_cidr("10.0.0/16").is_err()); // Incomplete IP
+        assert!(config.validate_cidr("2001:db8::/129").is_err()); // Invalid prefix for IPv6
     }
 }

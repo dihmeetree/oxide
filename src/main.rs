@@ -79,16 +79,16 @@ async fn main() {
             wait,
             stage,
         } => {
-            Cluster::upgrade(
-                &cli.config,
-                &cli.output,
-                version.clone(),
+            Cluster::upgrade(crate::cluster::UpgradeParams {
+                config_path: cli.config.clone(),
+                output_dir: cli.output.clone(),
+                version: version.clone(),
                 preserve,
                 control_plane,
                 workers,
                 wait,
                 stage,
-            )
+            })
             .await
         }
         Commands::DeployNginx => Examples::deploy_nginx(&cli.output).await,

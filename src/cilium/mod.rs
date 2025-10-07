@@ -316,6 +316,11 @@ data:
         let temp_file = std::env::temp_dir().join("coredns-patch.yaml");
         tokio::fs::write(&temp_file, coredns_config).await?;
 
+        // Convert path to string with error handling
+        let temp_file_str = temp_file
+            .to_str()
+            .ok_or_else(|| anyhow::anyhow!("Temp file path contains invalid UTF-8"))?;
+
         // Apply patch to CoreDNS ConfigMap
         CommandBuilder::new("kubectl")
             .args([
@@ -325,7 +330,7 @@ data:
                 "-n",
                 "kube-system",
                 "--patch-file",
-                temp_file.to_str().unwrap(),
+                temp_file_str,
             ])
             .kubeconfig(&self.kubeconfig_path)
             .context("Failed to patch CoreDNS ConfigMap")

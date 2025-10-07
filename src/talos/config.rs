@@ -39,6 +39,11 @@ impl TalosConfigGenerator {
         let secrets_path = output_dir.join("secrets.yaml");
         let secrets_exists = secrets_path.exists();
 
+        // Convert paths to strings with proper error handling
+        let output_dir_str = output_dir
+            .to_str()
+            .context("Output directory path contains invalid UTF-8")?;
+
         // Generate base configuration using talosctl with patches
         let mut args = vec![
             "gen",
@@ -46,7 +51,7 @@ impl TalosConfigGenerator {
             &self.cluster_name,
             control_plane_endpoint,
             "--output-dir",
-            output_dir.to_str().unwrap(),
+            output_dir_str,
             "--kubernetes-version",
             &self.talos_config.kubernetes_version,
             "--force",               // Overwrite existing config files
@@ -61,10 +66,14 @@ impl TalosConfigGenerator {
         ];
 
         // Only use existing secrets if the file exists
+        let secrets_path_str;
         if secrets_exists {
             info!("Using existing secrets file");
+            secrets_path_str = secrets_path
+                .to_str()
+                .context("Secrets path contains invalid UTF-8")?;
             args.push("--with-secrets");
-            args.push(secrets_path.to_str().unwrap());
+            args.push(secrets_path_str);
         }
 
         let output = Command::new("talosctl")

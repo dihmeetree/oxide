@@ -27,6 +27,25 @@ pub struct Cluster {
     output_dir: PathBuf,
 }
 
+/// Parameters for scaling up nodes
+struct ScaleUpParams<'a> {
+    hcloud_client: &'a HetznerCloudClient,
+    pool_name: &'a str,
+    pool_config: &'a crate::config::NodeConfig,
+    role: crate::hcloud::server::NodeRole,
+    nodes_to_add: u32,
+    current_count: u32,
+}
+
+/// Parameters for scaling down nodes
+struct ScaleDownParams<'a> {
+    server_manager: &'a ServerManager,
+    pool_servers: Vec<ServerInfo>,
+    nodes_to_remove: u32,
+    force: bool,
+    timeout: u64,
+}
+
 impl Cluster {
     pub fn new(config: ClusterConfig, output_dir: PathBuf) -> Self {
         Self { config, output_dir }
@@ -503,14 +522,14 @@ impl Cluster {
             // Scale up
             let nodes_to_add = target_count - current_count;
             info!("Scaling up: adding {} nodes", nodes_to_add);
-            self.scale_up(
-                &hcloud_client,
-                &pool_config.name,
+            self.scale_up(ScaleUpParams {
+                hcloud_client: &hcloud_client,
+                pool_name: &pool_config.name,
                 pool_config,
                 role,
                 nodes_to_add,
                 current_count,
-            )
+            })
             .await?;
         } else {
             // Scale down
@@ -523,13 +542,13 @@ impl Cluster {
                 );
             }
 
-            self.scale_down(
-                &server_manager,
+            self.scale_down(ScaleDownParams {
+                server_manager: &server_manager,
                 pool_servers,
                 nodes_to_remove,
                 force,
                 timeout,
-            )
+            })
             .await?;
         }
 
@@ -539,16 +558,15 @@ impl Cluster {
     }
 
     /// Scale up by adding new nodes
-    #[allow(clippy::too_many_arguments)]
-    async fn scale_up(
-        &self,
-        hcloud_client: &HetznerCloudClient,
-        pool_name: &str,
-        pool_config: &crate::config::NodeConfig,
-        role: crate::hcloud::server::NodeRole,
-        nodes_to_add: u32,
-        current_count: u32,
-    ) -> Result<()> {
+    async fn scale_up(&self, params: ScaleUpParams<'_>) -> Result<()> {
+        let ScaleUpParams {
+            hcloud_client,
+            pool_name,
+            pool_config,
+            role,
+            nodes_to_add,
+            current_count,
+        } = params;
         // Get network
         let network_manager = NetworkManager::new(hcloud_client.clone());
         let network = network_manager
@@ -605,19 +623,19 @@ impl Cluster {
             let node_name = format!("{}-{}-{}", self.config.cluster_name, pool_name, node_index);
 
             let server_info = server_manager
-                .create_single_node(
-                    &self.config.cluster_name,
-                    &node_name,
-                    &pool_config.server_type,
-                    &self.config.hcloud.location,
-                    network.id,
+                .create_single_node(crate::hcloud::server::CreateSingleNodeParams {
+                    cluster_name: &self.config.cluster_name,
+                    node_name: &node_name,
+                    server_type: &pool_config.server_type,
+                    location: &self.config.hcloud.location,
+                    network_id: network.id,
                     role,
-                    &self.config.talos.version,
-                    self.config.talos.hcloud_snapshot_id.as_deref(),
-                    Some(ssh_key.id),
-                    Some(user_data.clone()),
-                    pool_config.labels.clone(),
-                )
+                    talos_version: &self.config.talos.version,
+                    snapshot_id: self.config.talos.hcloud_snapshot_id.as_deref(),
+                    ssh_key_id: Some(ssh_key.id),
+                    user_data: Some(user_data.clone()),
+                    labels: pool_config.labels.clone(),
+                })
                 .await?;
 
             new_server_ids.push(server_info.server.id);
@@ -647,14 +665,14 @@ impl Cluster {
     }
 
     /// Scale down by removing nodes with parallel reset and validation
-    async fn scale_down(
-        &self,
-        server_manager: &ServerManager,
-        mut pool_servers: Vec<ServerInfo>,
-        nodes_to_remove: u32,
-        force: bool,
-        timeout: u64,
-    ) -> Result<()> {
+    async fn scale_down(&self, params: ScaleDownParams<'_>) -> Result<()> {
+        let ScaleDownParams {
+            server_manager,
+            mut pool_servers,
+            nodes_to_remove,
+            force,
+            timeout,
+        } = params;
         // Sort servers by index (highest first) to remove newest nodes first
         pool_servers.sort_by(|a, b| b.server.name.cmp(&a.server.name));
 
@@ -991,26 +1009,27 @@ impl Cluster {
     }
 
     /// Upgrade cluster (CLI entry point)
-    #[allow(clippy::too_many_arguments)]
-    pub async fn upgrade(
-        config_path: &std::path::Path,
-        output_dir: &std::path::Path,
-        version: String,
-        preserve: bool,
-        control_plane: bool,
-        workers: bool,
-        wait: bool,
-        stage: bool,
-    ) -> Result<()> {
+    pub async fn upgrade(params: UpgradeParams) -> Result<()> {
         use crate::config::ClusterConfig;
+
+        let UpgradeParams {
+            config_path,
+            output_dir,
+            version,
+            preserve,
+            control_plane,
+            workers,
+            wait,
+            stage,
+        } = params;
 
         if !control_plane && !workers {
             anyhow::bail!("At least one of --control-plane or --workers must be specified");
         }
 
         let config =
-            ClusterConfig::from_file(config_path).context("Failed to load configuration")?;
-        let cluster = Self::new(config, output_dir.to_path_buf());
+            ClusterConfig::from_file(&config_path).context("Failed to load configuration")?;
+        let cluster = Self::new(config, output_dir);
 
         let options = UpgradeOptions {
             version: &version,
@@ -1033,4 +1052,90 @@ pub(crate) struct UpgradeOptions<'a> {
     workers: bool,
     wait: bool,
     stage: bool,
+}
+
+/// Parameters for Cluster::upgrade CLI entry point
+pub struct UpgradeParams {
+    pub config_path: std::path::PathBuf,
+    pub output_dir: std::path::PathBuf,
+    pub version: String,
+    pub preserve: bool,
+    pub control_plane: bool,
+    pub workers: bool,
+    pub wait: bool,
+    pub stage: bool,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::NodeConfig;
+    use crate::hcloud::server::NodeRole;
+
+    #[test]
+    fn test_scale_up_params_construction() {
+        use crate::hcloud::HetznerCloudClient;
+
+        let token = "test-token".to_string();
+        let client = HetznerCloudClient::new(token).unwrap();
+
+        let pool_config = NodeConfig {
+            name: "worker-pool".to_string(),
+            server_type: "cx21".to_string(),
+            count: 3,
+            labels: std::collections::HashMap::new(),
+        };
+
+        let params = ScaleUpParams {
+            hcloud_client: &client,
+            pool_name: "worker-pool",
+            pool_config: &pool_config,
+            role: NodeRole::Worker,
+            nodes_to_add: 2,
+            current_count: 3,
+        };
+
+        assert_eq!(params.pool_name, "worker-pool");
+        assert_eq!(params.nodes_to_add, 2);
+        assert_eq!(params.current_count, 3);
+        assert_eq!(params.role, NodeRole::Worker);
+    }
+
+    #[test]
+    fn test_upgrade_params_construction() {
+        let params = UpgradeParams {
+            config_path: std::path::PathBuf::from("/path/to/config.yaml"),
+            output_dir: std::path::PathBuf::from("/tmp/output"),
+            version: "v1.8.0".to_string(),
+            preserve: true,
+            control_plane: true,
+            workers: false,
+            wait: true,
+            stage: false,
+        };
+
+        assert_eq!(params.version, "v1.8.0");
+        assert!(params.preserve);
+        assert!(params.control_plane);
+        assert!(!params.workers);
+        assert!(params.wait);
+        assert!(!params.stage);
+    }
+
+    #[test]
+    fn test_upgrade_options_construction() {
+        let options = UpgradeOptions {
+            version: "v1.8.0",
+            preserve: true,
+            control_plane: true,
+            workers: false,
+            wait: true,
+            stage: false,
+        };
+
+        assert_eq!(options.version, "v1.8.0");
+        assert!(options.preserve);
+        assert!(options.control_plane);
+        assert!(!options.workers);
+    }
 }

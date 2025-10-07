@@ -51,10 +51,76 @@ struct CreateServerParams<'a> {
     user_data: Option<String>,
 }
 
+/// Parameters for creating multiple nodes
+struct CreateNodesParams<'a> {
+    cluster_name: &'a str,
+    configs: &'a [NodeConfig],
+    role: NodeRole,
+    location: &'a str,
+    network: &'a Network,
+    talos_version: &'a str,
+    snapshot_id: Option<&'a str>,
+    ssh_key_id: Option<u64>,
+    user_data: Option<String>,
+}
+
+/// Parameters for creating a single node
+pub struct CreateSingleNodeParams<'a> {
+    pub cluster_name: &'a str,
+    pub node_name: &'a str,
+    pub server_type: &'a str,
+    pub location: &'a str,
+    pub network_id: u64,
+    pub role: NodeRole,
+    pub talos_version: &'a str,
+    pub snapshot_id: Option<&'a str>,
+    pub ssh_key_id: Option<u64>,
+    pub user_data: Option<String>,
+    pub labels: std::collections::HashMap<String, String>,
+}
+
 impl ServerManager {
     /// Create a new server manager
     pub fn new(client: HetznerCloudClient) -> Self {
         Self { client }
+    }
+
+    /// Create servers with specified role (generic implementation)
+    async fn create_nodes(&self, params: CreateNodesParams<'_>) -> Result<Vec<ServerInfo>> {
+        let CreateNodesParams {
+            cluster_name,
+            configs,
+            role,
+            location,
+            network,
+            talos_version,
+            snapshot_id,
+            ssh_key_id,
+            user_data,
+        } = params;
+
+        let mut tasks = Vec::new();
+
+        for config in configs {
+            for i in 0..config.count {
+                let server_params = CreateServerParams {
+                    cluster_name,
+                    config,
+                    index: i,
+                    role,
+                    location,
+                    network_id: network.id,
+                    talos_version,
+                    snapshot_id,
+                    ssh_key_id,
+                    user_data: user_data.clone(),
+                };
+                tasks.push(self.create_server(server_params));
+            }
+        }
+
+        let results = join_all(tasks).await;
+        results.into_iter().collect()
     }
 
     /// Create control plane servers
@@ -70,33 +136,18 @@ impl ServerManager {
         ssh_key_id: Option<u64>,
         user_data: Option<String>,
     ) -> Result<Vec<ServerInfo>> {
-        let mut tasks = Vec::new();
-
-        for config in configs {
-            for i in 0..config.count {
-                let params = CreateServerParams {
-                    cluster_name,
-                    config,
-                    index: i,
-                    role: NodeRole::ControlPlane,
-                    location,
-                    network_id: network.id,
-                    talos_version,
-                    snapshot_id,
-                    ssh_key_id,
-                    user_data: user_data.clone(),
-                };
-                tasks.push(self.create_server(params));
-            }
-        }
-
-        let results = join_all(tasks).await;
-        let mut servers = Vec::new();
-        for result in results {
-            servers.push(result?);
-        }
-
-        Ok(servers)
+        self.create_nodes(CreateNodesParams {
+            cluster_name,
+            configs,
+            role: NodeRole::ControlPlane,
+            location,
+            network,
+            talos_version,
+            snapshot_id,
+            ssh_key_id,
+            user_data,
+        })
+        .await
     }
 
     /// Create worker servers
@@ -112,33 +163,18 @@ impl ServerManager {
         ssh_key_id: Option<u64>,
         user_data: Option<String>,
     ) -> Result<Vec<ServerInfo>> {
-        let mut tasks = Vec::new();
-
-        for config in configs {
-            for i in 0..config.count {
-                let params = CreateServerParams {
-                    cluster_name,
-                    config,
-                    index: i,
-                    role: NodeRole::Worker,
-                    location,
-                    network_id: network.id,
-                    talos_version,
-                    snapshot_id,
-                    ssh_key_id,
-                    user_data: user_data.clone(),
-                };
-                tasks.push(self.create_server(params));
-            }
-        }
-
-        let results = join_all(tasks).await;
-        let mut servers = Vec::new();
-        for result in results {
-            servers.push(result?);
-        }
-
-        Ok(servers)
+        self.create_nodes(CreateNodesParams {
+            cluster_name,
+            configs,
+            role: NodeRole::Worker,
+            location,
+            network,
+            talos_version,
+            snapshot_id,
+            ssh_key_id,
+            user_data,
+        })
+        .await
     }
 
     /// Create a single server
@@ -362,21 +398,24 @@ impl ServerManager {
     }
 
     /// Create a single node with specific configuration
-    #[allow(clippy::too_many_arguments)]
     pub async fn create_single_node(
         &self,
-        cluster_name: &str,
-        node_name: &str,
-        server_type: &str,
-        location: &str,
-        network_id: u64,
-        role: NodeRole,
-        talos_version: &str,
-        snapshot_id: Option<&str>,
-        ssh_key_id: Option<u64>,
-        user_data: Option<String>,
-        labels: std::collections::HashMap<String, String>,
+        params: CreateSingleNodeParams<'_>,
     ) -> Result<ServerInfo> {
+        let CreateSingleNodeParams {
+            cluster_name,
+            node_name,
+            server_type,
+            location,
+            network_id,
+            role,
+            talos_version,
+            snapshot_id,
+            ssh_key_id,
+            user_data,
+            labels,
+        } = params;
+
         info!(
             "Creating {} server: {} (type: {})",
             role, node_name, server_type
@@ -442,10 +481,203 @@ impl ServerManager {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::hcloud::models::*;
+
+    fn create_test_server(id: u64, name: &str, ip: &str) -> Server {
+        Server {
+            id,
+            name: name.to_string(),
+            status: "running".to_string(),
+            server_type: ServerType {
+                id: 1,
+                name: "cx21".to_string(),
+                description: "CX21".to_string(),
+                cores: 2,
+                memory: 4.0,
+                disk: 40,
+            },
+            datacenter: Datacenter {
+                id: 1,
+                name: "fsn1-dc14".to_string(),
+                description: "Falkenstein 1 DC14".to_string(),
+                location: Location {
+                    id: 1,
+                    name: "fsn1".to_string(),
+                    description: "Falkenstein DC Park 1".to_string(),
+                    country: "DE".to_string(),
+                    city: "Falkenstein".to_string(),
+                    latitude: 50.47612,
+                    longitude: 12.370071,
+                },
+            },
+            public_net: PublicNetwork {
+                ipv4: Some(IPv4 {
+                    ip: ip.to_string(),
+                    blocked: false,
+                }),
+                ipv6: Some(IPv6 {
+                    ip: "2001:db8::1".to_string(),
+                    blocked: false,
+                }),
+                floating_ips: vec![],
+            },
+            private_net: vec![],
+            created: "2024-01-01T00:00:00+00:00".to_string(),
+            labels: std::collections::HashMap::new(),
+        }
+    }
 
     #[test]
     fn test_node_role_display() {
         assert_eq!(NodeRole::ControlPlane.to_string(), "control-plane");
         assert_eq!(NodeRole::Worker.to_string(), "worker");
+    }
+
+    #[test]
+    fn test_node_role_equality() {
+        assert_eq!(NodeRole::ControlPlane, NodeRole::ControlPlane);
+        assert_eq!(NodeRole::Worker, NodeRole::Worker);
+        assert_ne!(NodeRole::ControlPlane, NodeRole::Worker);
+    }
+
+    #[test]
+    fn test_get_server_ip() {
+        let server_with_ip = create_test_server(1, "test-server", "192.168.1.1");
+        assert_eq!(
+            ServerManager::get_server_ip(&server_with_ip),
+            Some("192.168.1.1".to_string())
+        );
+    }
+
+    #[test]
+    fn test_get_server_private_ip() {
+        // Server with private IP
+        let mut server_with_private = create_test_server(1, "test-server", "192.168.1.1");
+        server_with_private.private_net.push(PrivateNetwork {
+            network: 123,
+            ip: "10.0.1.5".to_string(),
+            alias_ips: vec![],
+            mac_address: "aa:bb:cc:dd:ee:ff".to_string(),
+        });
+
+        assert_eq!(
+            ServerManager::get_server_private_ip(&server_with_private),
+            Some("10.0.1.5".to_string())
+        );
+
+        // Server without private IP
+        let server_without_private = create_test_server(2, "test-server-2", "192.168.1.2");
+        assert_eq!(
+            ServerManager::get_server_private_ip(&server_without_private),
+            None
+        );
+    }
+
+    #[test]
+    fn test_filter_by_role_and_pool() {
+        let servers = vec![
+            ServerInfo {
+                server: create_test_server(1, "cluster-control-plane-1", "192.168.1.1"),
+                role: NodeRole::ControlPlane,
+                index: 1,
+            },
+            ServerInfo {
+                server: create_test_server(2, "cluster-worker-1", "192.168.1.2"),
+                role: NodeRole::Worker,
+                index: 1,
+            },
+        ];
+
+        // Filter control planes
+        let control_planes =
+            ServerManager::filter_by_role_and_pool(&servers, NodeRole::ControlPlane, None);
+        assert_eq!(control_planes.len(), 1);
+        assert_eq!(control_planes[0].server.name, "cluster-control-plane-1");
+
+        // Filter workers
+        let workers = ServerManager::filter_by_role_and_pool(&servers, NodeRole::Worker, None);
+        assert_eq!(workers.len(), 1);
+        assert_eq!(workers[0].server.name, "cluster-worker-1");
+
+        // Filter by pool name (extracts second-to-last component from "cluster-control-plane-1")
+        let pool_servers = ServerManager::filter_by_role_and_pool(
+            &servers,
+            NodeRole::ControlPlane,
+            Some("control"),
+        );
+        // Should match "cluster-control-plane-1" where second-to-last is "control"
+        // Actually server name is "cluster-control-plane-1", parts are ["cluster", "control", "plane", "1"]
+        // Second-to-last is "plane", not "control"
+        assert_eq!(pool_servers.len(), 0);
+
+        // Test with correct pool name "plane"
+        let pool_servers2 =
+            ServerManager::filter_by_role_and_pool(&servers, NodeRole::ControlPlane, Some("plane"));
+        assert_eq!(pool_servers2.len(), 1);
+    }
+
+    #[test]
+    fn test_create_nodes_params_construction() {
+        use crate::config::NodeConfig;
+
+        let network = Network {
+            id: 123,
+            name: "test-network".to_string(),
+            ip_range: "10.0.0.0/16".to_string(),
+            subnets: vec![],
+            routes: vec![],
+            servers: vec![],
+            created: "2024-01-01T00:00:00+00:00".to_string(),
+        };
+
+        let configs = vec![NodeConfig {
+            name: "test-pool".to_string(),
+            server_type: "cx21".to_string(),
+            count: 3,
+            labels: std::collections::HashMap::new(),
+        }];
+
+        let params = CreateNodesParams {
+            cluster_name: "test-cluster",
+            configs: &configs,
+            role: NodeRole::ControlPlane,
+            location: "fsn1",
+            network: &network,
+            talos_version: "v1.7.0",
+            snapshot_id: Some("12345"),
+            ssh_key_id: Some(678),
+            user_data: Some("test-data".to_string()),
+        };
+
+        assert_eq!(params.cluster_name, "test-cluster");
+        assert_eq!(params.configs.len(), 1);
+        assert_eq!(params.role, NodeRole::ControlPlane);
+        assert_eq!(params.network.id, 123);
+    }
+
+    #[test]
+    fn test_create_single_node_params_construction() {
+        let mut labels = std::collections::HashMap::new();
+        labels.insert("env".to_string(), "test".to_string());
+
+        let params = CreateSingleNodeParams {
+            cluster_name: "test-cluster",
+            node_name: "test-node-1",
+            server_type: "cx21",
+            location: "fsn1",
+            network_id: 123,
+            role: NodeRole::Worker,
+            talos_version: "v1.7.0",
+            snapshot_id: Some("12345"),
+            ssh_key_id: Some(678),
+            user_data: Some("test-data".to_string()),
+            labels: labels.clone(),
+        };
+
+        assert_eq!(params.cluster_name, "test-cluster");
+        assert_eq!(params.node_name, "test-node-1");
+        assert_eq!(params.role, NodeRole::Worker);
+        assert_eq!(params.network_id, 123);
+        assert_eq!(params.labels.get("env"), Some(&"test".to_string()));
     }
 }

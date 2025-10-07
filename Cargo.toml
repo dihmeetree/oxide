@@ -16,7 +16,6 @@ serde_json = "1.0"
 serde_yaml = "0.9"
 # Error handling
 anyhow = "1.0"
-thiserror = "1.0"
 # Logging
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
@@ -30,18 +29,31 @@ base64 = "0.22"
 rand = "0.8"
 # ED25519 SSH key generation
 ed25519-dalek = { version = "2.1", features = ["rand_core"] }
-# Process execution for kubectl/talosctl
-tokio-process = "0.2"
 # URL handling
 url = "2.5"
-# Templating for Talos/Cilium configs
-handlebars = "5.0"
 
 [dev-dependencies]
 tokio-test = "0.4"
 
+# Performance-optimized build profiles
 [profile.release]
-opt-level = 3
+# Link-time optimization for better performance
 lto = true
+# Enable all optimizations
+opt-level = 3
+# Reduce binary size by removing debug info
+debug = false
+# Panic strategy for smaller binaries
+panic = "abort"
+# Optimize for performance over compile time
 codegen-units = 1
+# Strip symbols for smaller binary
 strip = true
+
+[profile.dev]
+# Faster incremental builds in development
+opt-level = 1
+# Keep debug info for better debugging
+debug = true
+# Faster linking in dev
+lto = false

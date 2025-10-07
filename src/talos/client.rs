@@ -20,6 +20,13 @@ impl TalosClient {
         Self { talosconfig_path }
     }
 
+    /// Convert talosconfig path to string with proper error handling
+    fn talosconfig_str(&self) -> Result<&str> {
+        self.talosconfig_path
+            .to_str()
+            .context("Talosconfig path contains invalid UTF-8")
+    }
+
     /// Bootstrap the Kubernetes cluster on the first control plane node
     pub async fn bootstrap(&self, control_plane: &ServerInfo) -> Result<()> {
         let server_ip = crate::hcloud::server::ServerManager::get_server_ip(&control_plane.server)
@@ -27,13 +34,15 @@ impl TalosClient {
 
         info!("Bootstrapping Kubernetes cluster on {}", server_ip);
 
+        let talosconfig = self.talosconfig_str()?;
+
         let output = Command::new("talosctl")
             .args([
                 "bootstrap",
                 "--nodes",
                 &server_ip,
                 "--talosconfig",
-                self.talosconfig_path.to_str().unwrap(),
+                talosconfig,
             ])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -104,14 +113,19 @@ impl TalosClient {
     ) -> Result<()> {
         info!("Generating kubeconfig file...");
 
+        let output_path_str = output_path
+            .to_str()
+            .context("Output path contains invalid UTF-8")?;
+        let talosconfig = self.talosconfig_str()?;
+
         let output = Command::new("talosctl")
             .args([
                 "kubeconfig",
-                output_path.to_str().unwrap(),
+                output_path_str,
                 "--nodes",
                 control_plane_ip,
                 "--talosconfig",
-                self.talosconfig_path.to_str().unwrap(),
+                talosconfig,
                 "--force",
             ])
             .stdout(Stdio::piped())
@@ -133,14 +147,10 @@ impl TalosClient {
     /// Get cluster information
     #[allow(dead_code)]
     pub async fn get_cluster_info(&self, node_ip: &str) -> Result<String> {
+        let talosconfig = self.talosconfig_str()?;
+
         let output = Command::new("talosctl")
-            .args([
-                "version",
-                "--nodes",
-                node_ip,
-                "--talosconfig",
-                self.talosconfig_path.to_str().unwrap(),
-            ])
+            .args(["version", "--nodes", node_ip, "--talosconfig", talosconfig])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .output()
@@ -189,6 +199,11 @@ impl TalosClient {
             let talosconfig_path = self.talosconfig_path.clone();
 
             let task = tokio::spawn(async move {
+                // Convert path to string once
+                let talosconfig_str = talosconfig_path
+                    .to_str()
+                    .ok_or_else(|| anyhow::anyhow!("Talosconfig path contains invalid UTF-8"))?;
+
                 // Wait for Talos API to be ready
                 let start = std::time::Instant::now();
                 let timeout = std::time::Duration::from_secs(300);
@@ -205,7 +220,7 @@ impl TalosClient {
                             "--nodes",
                             &server_ip,
                             "--talosconfig",
-                            talosconfig_path.to_str().unwrap(),
+                            talosconfig_str,
                         ])
                         .stdout(Stdio::piped())
                         .stderr(Stdio::piped())
@@ -240,7 +255,7 @@ impl TalosClient {
                         "--nodes",
                         &server_ip,
                         "--talosconfig",
-                        talosconfig_path.to_str().unwrap(),
+                        talosconfig_str,
                         "--patch",
                         &patch_clone,
                     ])
@@ -276,12 +291,14 @@ impl TalosClient {
     pub async fn configure_endpoints(&self, control_plane_ips: &[String]) -> Result<()> {
         info!("Configuring talosconfig with control plane endpoints");
 
+        let talosconfig = self.talosconfig_str()?;
+
         // Set endpoints
         let endpoints = control_plane_ips.join(",");
         let output = Command::new("talosctl")
             .args([
                 "--talosconfig",
-                self.talosconfig_path.to_str().unwrap(),
+                talosconfig,
                 "config",
                 "endpoint",
                 &endpoints,
@@ -300,13 +317,7 @@ impl TalosClient {
         // Set nodes (use first control plane as default)
         if let Some(first_ip) = control_plane_ips.first() {
             let output = Command::new("talosctl")
-                .args([
-                    "--talosconfig",
-                    self.talosconfig_path.to_str().unwrap(),
-                    "config",
-                    "node",
-                    first_ip,
-                ])
+                .args(["--talosconfig", talosconfig, "config", "node", first_ip])
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped())
                 .output()
@@ -366,6 +377,8 @@ impl TalosClient {
         let mut attempts = 0;
         let max_attempts = max_retries + 1;
 
+        let talosconfig = self.talosconfig_str()?.to_string();
+
         loop {
             attempts += 1;
             if attempts > 1 {
@@ -379,7 +392,7 @@ impl TalosClient {
 
             let mut args = vec![
                 "--talosconfig".to_string(),
-                self.talosconfig_path.to_str().unwrap().to_string(),
+                talosconfig.clone(),
                 "reset".to_string(),
                 "--nodes".to_string(),
                 node_ip.to_string(),
