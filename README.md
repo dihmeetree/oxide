@@ -2,7 +2,7 @@
   <img src="https://i.imgur.com/sUo78EC.png" alt="Oxide" width="850">
 </p>
 
-A Rust-based tool for deploying Talos Linux Kubernetes clusters with Cilium CNI. Currently supports Hetzner Cloud, with more cloud providers coming soon. Similar to [terraform-hcloud-talos](https://github.com/hcloud-talos/terraform-hcloud-talos) but built entirely in Rust without Terraform dependencies.
+A Rust-based tool for deploying Talos Linux Kubernetes clusters with the Cilium CNI. Currently supports Hetzner Cloud, with more cloud providers coming soon. Similar to [terraform-hcloud-talos](https://github.com/hcloud-talos/terraform-hcloud-talos) but built entirely in Rust without Terraform dependencies.
 
 > [!WARNING]
 > This project is under active development and is considered experimental. Features may change, and not all functionality is production-ready yet.
@@ -13,6 +13,7 @@ A Rust-based tool for deploying Talos Linux Kubernetes clusters with Cilium CNI.
 - **Automated Cluster Deployment**: Create production-ready Kubernetes clusters on Hetzner Cloud
 - **Talos Linux**: Immutable, minimal, and secure Kubernetes operating system
 - **Cilium CNI**: High-performance networking with eBPF
+- **Web Dashboard**: Modern web UI for cluster management, monitoring, and operations
 - **LoadBalancer Support**: Cilium Node IPAM for LoadBalancer services using node IPs
 - **Prometheus Monitoring**: Built-in support for Prometheus stack (Prometheus, Grafana, AlertManager)
 - **Metrics Server**: Kubernetes resource metrics for HPA and kubectl top commands
@@ -189,6 +190,43 @@ The process typically takes 5-10 minutes.
 export KUBECONFIG=./output/kubeconfig
 kubectl get nodes
 ```
+
+## Web Dashboard
+
+Oxide includes a built-in web dashboard for managing your clusters through a modern UI:
+
+```bash
+# Start the dashboard server (default port: 3000)
+oxide dashboard
+
+# Use a custom port
+oxide dashboard --port 8080
+
+# Use a custom configuration file
+oxide --config my-cluster.yaml dashboard
+```
+
+The dashboard provides:
+
+- **Cluster Overview**: View all your clusters and their status at a glance
+- **Node Management**: Monitor nodes, view resource usage, and see running pods
+- **Cluster Operations**: Scale, upgrade, and delete clusters from the UI
+- **Real-time Updates**: Automatic cache refresh every 30 seconds
+- **Pod Metrics**: View CPU and memory usage for pods on each node
+
+Once started, open your browser to `http://localhost:3000` to access the dashboard.
+
+**Dashboard Features**:
+
+- **Home Page**: Summary of total clusters, nodes, and system status
+- **Cluster List**: View all clusters with their current status and node count
+- **Cluster Details**: Detailed view of nodes, Talos version, and API endpoint
+- **Node Details**: View all pods running on a specific node with resource metrics
+- **Cluster Actions**:
+  - Scale worker or control plane nodes
+  - Upgrade Talos version
+  - Delete clusters with confirmation
+- **Create Cluster**: Web form to deploy new clusters without CLI
 
 ## Commands
 

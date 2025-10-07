@@ -1,12 +1,13 @@
 /// Oxide - Talos Kubernetes with Cilium
 ///
-/// A Rust-based tool for deploying Talos Linux Kubernetes clusters with Cilium CNI.
+/// A Rust-based tool for deploying Talos Linux Kubernetes clusters with the Cilium CNI.
 /// Currently supports Hetzner Cloud, with more providers coming soon.
 mod autoscaler;
 mod cilium;
 mod cli;
 mod cluster;
 mod config;
+mod dashboard;
 mod examples;
 mod hcloud;
 mod helm;
@@ -24,6 +25,7 @@ use crate::autoscaler::Autoscaler;
 use crate::cli::{Cli, Commands, NodeType};
 use crate::cluster::Cluster;
 use crate::config::ClusterConfig;
+use crate::dashboard::DashboardServer;
 use crate::examples::Examples;
 use crate::hcloud::server::NodeRole;
 use crate::metrics_server::MetricsServer;
@@ -99,6 +101,10 @@ async fn main() {
         Commands::UninstallAutoscaler => Autoscaler::uninstall(&cli.output).await,
         Commands::InstallMetricsServer => MetricsServer::install(&cli.output).await,
         Commands::UninstallMetricsServer => MetricsServer::uninstall(&cli.output).await,
+        Commands::Dashboard { port } => {
+            let server = DashboardServer::new(cli.config.clone(), cli.output.clone(), port);
+            server.serve().await
+        }
     };
 
     if let Err(e) = result {

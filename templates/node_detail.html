@@ -1,0 +1,134 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<div class="space-y-6">
+    <!-- Header -->
+    <div class="flex items-center justify-between">
+        <div>
+            <div class="mb-3">
+                <a href="/clusters/{{ node.cluster_name }}" class="inline-flex items-center px-3 py-1.5 rounded-lg text-sm font-medium transition bg-dark-hover hover:bg-dark-hoverAlt text-text-primaryAlt">
+                    <svg class="w-4 h-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path>
+                    </svg>
+                    Back to Cluster
+                </a>
+            </div>
+            <h2 class="text-3xl font-semibold text-text-primary">{{ node.name }}</h2>
+            <p class="mt-1 text-base text-text-secondary">{{ node.role }} • {{ node.server_type }}</p>
+        </div>
+        <div class="flex items-center space-x-3">
+            {% if node.status == "running" %}
+            <span class="inline-flex items-center px-4 py-2 rounded-md text-sm font-medium bg-accent-green/15 text-accent-green border border-accent-green/30">
+                <span class="w-2 h-2 rounded-full mr-2 animate-pulse bg-accent-green"></span>
+                Running
+            </span>
+            {% else %}
+            <span class="inline-flex items-center px-4 py-2 rounded-md text-sm font-medium bg-text-muted/15 text-text-muted border border-text-muted/30">
+                {{ node.status }}
+            </span>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Node Info Cards -->
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div class="rounded-lg p-6 bg-[#242424] border border-dark-border">
+            <p class="text-sm font-medium mb-2 text-text-secondary">Public IP</p>
+            <p class="text-lg font-mono text-text-primary">{{ node.ip }}</p>
+        </div>
+
+        <div class="rounded-lg p-6 bg-[#242424] border border-dark-border">
+            <p class="text-sm font-medium mb-2 text-text-secondary">Private IP</p>
+            <p class="text-lg font-mono text-text-primary">{{ node.private_ip }}</p>
+        </div>
+
+        <div class="rounded-lg p-6 bg-[#242424] border border-dark-border">
+            <p class="text-sm font-medium mb-2 text-text-secondary">Created</p>
+            <p class="text-lg text-text-primary">{{ node.created }}</p>
+        </div>
+    </div>
+
+    <!-- Pods List -->
+    <div class="rounded-lg bg-[#242424] border border-dark-border">
+        <div class="p-6 border-b border-dark-border flex items-center justify-between">
+            <h3 class="text-xl font-semibold text-text-primary">Pods ({{ node.pods.len() }})</h3>
+            <button onclick="window.location.reload()" class="p-2 rounded-lg text-text-muted hover:text-text-primary bg-dark-hover hover:bg-dark-hoverAlt transition" title="Refresh">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+                </svg>
+            </button>
+        </div>
+        {% if node.pods.len() == 0 %}
+        <div class="p-12 text-center">
+            <svg class="w-16 h-16 mx-auto mb-4 stroke-text-muted" fill="none" viewBox="0 0 24 24" stroke-width="1.5">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 002.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 00-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 00.75-.75 2.25 2.25 0 00-.1-.664m-5.8 0A2.251 2.251 0 0113.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25zM6.75 12h.008v.008H6.75V12zm0 3h.008v.008H6.75V15zm0 3h.008v.008H6.75V18z"></path>
+            </svg>
+            <h3 class="text-xl font-semibold mb-2 text-text-primaryAlt">No pods found</h3>
+            <p class="text-text-muted">No pods are currently running on this node</p>
+        </div>
+        {% else %}
+        <div class="overflow-x-auto">
+            <table class="w-full">
+                <thead>
+                    <tr class="border-b border-dark-border">
+                        <th class="px-6 py-3 text-left text-sm font-medium text-text-secondary">Name</th>
+                        <th class="px-6 py-3 text-left text-sm font-medium text-text-secondary">Namespace</th>
+                        <th class="px-6 py-3 text-left text-sm font-medium text-text-secondary">Status</th>
+                        <th class="px-6 py-3 text-left text-sm font-medium text-text-secondary">Restarts</th>
+                        <th class="px-6 py-3 text-left text-sm font-medium text-text-secondary">CPU</th>
+                        <th class="px-6 py-3 text-left text-sm font-medium text-text-secondary">Memory</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for pod in node.pods %}
+                    <tr class="border-b border-dark-border hover:bg-dark-hover transition">
+                        <td class="px-6 py-4">
+                            <span class="text-base font-medium font-mono text-text-primary">{{ pod.name }}</span>
+                        </td>
+                        <td class="px-6 py-4">
+                            <span class="inline-flex items-center px-2.5 py-1 rounded-md text-sm font-medium bg-accent-blue/15 text-accent-blue">
+                                {{ pod.namespace }}
+                            </span>
+                        </td>
+                        <td class="px-6 py-4">
+                            {% if pod.status == "Running" %}
+                            <span class="inline-flex items-center px-2.5 py-1 rounded-md text-sm font-medium bg-accent-green/15 text-accent-green">
+                                <span class="w-1.5 h-1.5 rounded-full mr-1.5 bg-accent-green"></span>
+                                Running
+                            </span>
+                            {% else if pod.status == "Pending" %}
+                            <span class="inline-flex items-center px-2.5 py-1 rounded-md text-sm font-medium bg-[#F59E0B]/15 text-[#F59E0B]">
+                                Pending
+                            </span>
+                            {% else if pod.status == "Failed" || pod.status == "CrashLoopBackOff" %}
+                            <span class="inline-flex items-center px-2.5 py-1 rounded-md text-sm font-medium bg-[#FF4D4D]/15 text-[#FF4D4D]">
+                                {{ pod.status }}
+                            </span>
+                            {% else %}
+                            <span class="inline-flex items-center px-2.5 py-1 rounded-md text-sm font-medium bg-text-muted/15 text-text-muted">
+                                {{ pod.status }}
+                            </span>
+                            {% endif %}
+                        </td>
+                        <td class="px-6 py-4">
+                            {% if pod.restarts > 0 %}
+                            <span class="text-base font-medium text-[#F59E0B]">{{ pod.restarts }}</span>
+                            {% else %}
+                            <span class="text-base text-text-secondary">{{ pod.restarts }}</span>
+                            {% endif %}
+                        </td>
+                        <td class="px-6 py-4">
+                            <span class="text-base font-mono text-text-primaryAlt">{{ pod.cpu }}</span>
+                        </td>
+                        <td class="px-6 py-4">
+                            <span class="text-base font-mono text-text-primaryAlt">{{ pod.memory }}</span>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

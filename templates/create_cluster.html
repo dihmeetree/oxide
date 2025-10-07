@@ -1,0 +1,184 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<div class="space-y-6">
+    <!-- Header -->
+    <div>
+        <div class="mb-3">
+            <a href="/clusters" class="inline-flex items-center px-3 py-1.5 rounded-lg text-sm font-medium transition bg-dark-hover hover:bg-dark-hoverAlt text-text-primaryAlt">
+                <svg class="w-4 h-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path>
+                </svg>
+                Back to Clusters
+            </a>
+        </div>
+        <h2 class="text-3xl font-semibold text-text-primary">Create New Cluster</h2>
+        <p class="mt-1 text-base text-text-secondary">Deploy a new Talos Kubernetes cluster on Hetzner Cloud</p>
+    </div>
+
+    <!-- Form -->
+    <form method="POST" action="/clusters/create" onsubmit="showToast('Creating Cluster', 'Cluster creation started in the background. This will take several minutes.', 'info');" class="rounded-lg p-6 space-y-8 bg-[#242424] border border-dark-border">
+        <!-- Cluster Name -->
+        <div>
+            <label for="cluster_name" class="block text-sm font-medium mb-2 text-text-primaryAlt">
+                Cluster Name <span class="text-[#FF4D4D]">*</span>
+            </label>
+            <input
+                type="text"
+                id="cluster_name"
+                name="cluster_name"
+                required
+                autofocus
+                placeholder="my-cluster"
+                class="w-full px-4 py-2.5 rounded-lg transition focus:outline-none focus:ring-2 focus:ring-offset-0 bg-dark-hover border border-dark-border text-text-primary focus:ring-accent-blue"
+            >
+            <p class="mt-1.5 text-sm text-text-muted">Lowercase letters, numbers, and hyphens only</p>
+        </div>
+
+        <!-- Hetzner Cloud Token -->
+        <div>
+            <label for="hcloud_token" class="block text-sm font-medium mb-2 text-text-primaryAlt">
+                Hetzner Cloud API Token <span class="text-[#FF4D4D]">*</span>
+            </label>
+            <input
+                type="password"
+                id="hcloud_token"
+                name="hcloud_token"
+                required
+                placeholder="Enter your Hetzner Cloud API token"
+                class="w-full px-4 py-2.5 rounded-lg transition focus:outline-none focus:ring-2 focus:ring-offset-0 bg-dark-hover border border-dark-border text-text-primary focus:ring-accent-blue"
+            >
+            <p class="mt-1.5 text-sm text-text-muted">Get your token from <a href="https://console.hetzner.cloud/" target="_blank" class="text-accent-blue hover:text-accent-blueHover">Hetzner Cloud Console</a></p>
+        </div>
+
+        <!-- Talos Version -->
+        <div>
+            <label for="talos_version" class="block text-sm font-medium mb-2 text-text-primaryAlt">
+                Talos Version <span class="text-[#FF4D4D]">*</span>
+            </label>
+            <input
+                type="text"
+                id="talos_version"
+                name="talos_version"
+                required
+                value="v1.11.0"
+                placeholder="v1.11.0"
+                class="w-full px-4 py-2.5 rounded-lg transition focus:outline-none focus:ring-2 focus:ring-offset-0 bg-dark-hover border border-dark-border text-text-primary focus:ring-accent-blue"
+            >
+        </div>
+
+        <!-- Section: Cluster Configuration -->
+        <div class="pt-4 border-t border-dark-border">
+            <h3 class="text-lg font-semibold mb-4 text-text-primary">Cluster Configuration</h3>
+
+            <!-- Node Configuration -->
+            <div class="grid grid-cols-2 gap-4">
+                <div>
+                    <label for="control_plane_count" class="block text-sm font-medium mb-2 text-text-primaryAlt">
+                        Control Plane Nodes <span class="text-[#FF4D4D]">*</span>
+                    </label>
+                    <input
+                        type="number"
+                        id="control_plane_count"
+                        name="control_plane_count"
+                        required
+                        min="1"
+                        max="5"
+                        value="3"
+                        class="w-full px-4 py-2.5 rounded-lg transition focus:outline-none focus:ring-2 focus:ring-offset-0 bg-dark-hover border border-dark-border text-text-primary focus:ring-accent-blue [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                    >
+                    <p class="mt-1.5 text-sm text-text-muted">Recommended: 3 (odd number)</p>
+                </div>
+
+                <div>
+                    <label for="worker_count" class="block text-sm font-medium mb-2 text-text-primaryAlt">
+                        Worker Nodes <span class="text-[#FF4D4D]">*</span>
+                    </label>
+                    <input
+                        type="number"
+                        id="worker_count"
+                        name="worker_count"
+                        required
+                        min="0"
+                        max="20"
+                        value="2"
+                        class="w-full px-4 py-2.5 rounded-lg transition focus:outline-none focus:ring-2 focus:ring-offset-0 bg-dark-hover border border-dark-border text-text-primary focus:ring-accent-blue [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                    >
+                    <p class="mt-1.5 text-sm text-text-muted">Can be scaled later</p>
+                </div>
+            </div>
+
+            <!-- Server Type -->
+            <div class="mt-4">
+                <label for="server_type" class="block text-sm font-medium mb-2 text-text-primaryAlt">
+                    Server Type <span class="text-[#FF4D4D]">*</span>
+                </label>
+                <select
+                    id="server_type"
+                    name="server_type"
+                    required
+                    class="w-full px-4 py-2.5 rounded-lg transition focus:outline-none focus:ring-2 focus:ring-offset-0 bg-dark-hover border border-dark-border text-text-primary focus:ring-accent-blue"
+                >
+                    <option value="cx22">CX22 - 2 vCPU, 4 GB RAM (~€5.83/month)</option>
+                    <option value="cx32" selected>CX32 - 4 vCPU, 8 GB RAM (~€11.90/month)</option>
+                    <option value="cx42">CX42 - 8 vCPU, 16 GB RAM (~€23.79/month)</option>
+                    <option value="cx52">CX52 - 16 vCPU, 32 GB RAM (~€47.58/month)</option>
+                </select>
+            </div>
+
+            <!-- Location -->
+            <div class="mt-4">
+                <label for="location" class="block text-sm font-medium mb-2 text-text-primaryAlt">
+                    Location <span class="text-[#FF4D4D]">*</span>
+                </label>
+                <select
+                    id="location"
+                    name="location"
+                    required
+                    class="w-full px-4 py-2.5 rounded-lg transition focus:outline-none focus:ring-2 focus:ring-offset-0 bg-dark-hover border border-dark-border text-text-primary focus:ring-accent-blue"
+                >
+                    <option value="fsn1" selected>Falkenstein, Germany (fsn1)</option>
+                    <option value="nbg1">Nuremberg, Germany (nbg1)</option>
+                    <option value="hel1">Helsinki, Finland (hel1)</option>
+                    <option value="ash">Ashburn, USA (ash)</option>
+                    <option value="hil">Hillsboro, USA (hil)</option>
+                </select>
+            </div>
+        </div>
+
+        <!-- Actions -->
+        <div class="flex items-center justify-end space-x-3 pt-4 border-t border-dark-border">
+            <a href="/clusters" class="px-5 py-2.5 rounded-lg font-medium transition bg-dark-hover hover:bg-dark-hoverAlt text-text-primaryAlt">
+                Cancel
+            </a>
+            <button
+                type="submit"
+                class="inline-flex items-center px-5 py-2.5 rounded-lg font-medium transition bg-accent-blue hover:bg-accent-blueHover text-text-primary"
+            >
+                <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"></path>
+                </svg>
+                Create Cluster
+            </button>
+        </div>
+    </form>
+
+    <!-- Info Box -->
+    <div class="rounded-lg p-4 bg-accent-blue/10 border border-accent-blue/30">
+        <div class="flex items-start space-x-3">
+            <svg class="w-6 h-6 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+                <path class="stroke-accent-blue" stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+            </svg>
+            <div class="text-sm">
+                <p class="font-medium mb-1 text-accent-blue">Cluster Creation Info</p>
+                <ul class="list-disc list-inside space-y-1 text-text-secondary">
+                    <li>The cluster will be created with the Cilium CNI and Gateway API support</li>
+                    <li>All nodes will be provisioned in a private network</li>
+                    <li>Estimated deployment time: 5-10 minutes</li>
+                    <li>Kubeconfig will be saved to ./output/kubeconfig</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

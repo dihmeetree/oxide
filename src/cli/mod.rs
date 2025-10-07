@@ -109,6 +109,13 @@ pub enum Commands {
 
     /// Uninstall Kubernetes Metrics Server
     UninstallMetricsServer,
+
+    /// Start web dashboard for cluster management
+    Dashboard {
+        /// Port to listen on
+        #[arg(short, long, default_value = "3000")]
+        port: u16,
+    },
 }
 
 #[derive(Debug, Clone, clap::ValueEnum)]
