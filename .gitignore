@@ -6,6 +6,7 @@ Cargo.lock
 /output/
 *.yaml
 !cluster.example.yaml
+!manifests/**/*.yaml
 
 # IDE
 .idea/
