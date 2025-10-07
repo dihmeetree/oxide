@@ -444,6 +444,28 @@ impl TalosClient {
         }
     }
 
+    /// Upgrade a Talos node to a new version
+    pub async fn upgrade(&self, node_ip: &str, image: &str, preserve: bool) -> Result<()> {
+        use crate::utils::command::CommandBuilder;
+
+        info!("Upgrading node {} to {}...", node_ip, image);
+
+        let mut args = vec!["upgrade", "--nodes", node_ip, "--image", image];
+
+        if preserve {
+            args.push("--preserve");
+        }
+
+        CommandBuilder::new("talosctl")
+            .args(&args)
+            .env("TALOSCONFIG", &self.talosconfig_path)
+            .context(format!("Failed to upgrade node {}", node_ip))
+            .run_silent()
+            .await?;
+
+        Ok(())
+    }
+
     /// Check if talosctl is installed
     pub async fn check_talosctl_installed() -> Result<()> {
         crate::utils::command::check_tool_installed(

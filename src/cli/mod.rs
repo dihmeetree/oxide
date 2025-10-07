@@ -61,13 +61,21 @@ pub enum Commands {
 
     /// Upgrade cluster
     Upgrade {
-        /// New Talos version
+        /// Talos version (e.g., v1.11.0)
         #[arg(long)]
-        talos_version: Option<String>,
+        version: String,
 
-        /// New Kubernetes version
+        /// Preserve node data during upgrade
+        #[arg(long, default_value = "true")]
+        preserve: bool,
+
+        /// Upgrade control plane nodes
         #[arg(long)]
-        kubernetes_version: Option<String>,
+        control_plane: bool,
+
+        /// Upgrade worker nodes
+        #[arg(long)]
+        workers: bool,
     },
 
     /// Deploy nginx with Gateway API

@@ -844,6 +844,84 @@ impl Cluster {
         Ok(())
     }
 
+    /// Upgrade cluster nodes to a new Talos version
+    pub async fn upgrade_cluster(
+        &self,
+        version: &str,
+        preserve: bool,
+        control_plane: bool,
+        workers: bool,
+    ) -> Result<()> {
+        use crate::talos::client::TalosClient;
+
+        info!("Starting cluster upgrade to Talos {}...", version);
+        info!("Cluster name: {}", self.config.cluster_name);
+
+        let hcloud_token = self.config.get_hcloud_token()?;
+        let hcloud_client = crate::hcloud::client::HetznerCloudClient::new(hcloud_token)?;
+
+        let talosconfig_path = self.output_dir.join("talosconfig");
+        let talos_client = TalosClient::new(talosconfig_path);
+
+        // Build the installer image from version
+        let image = format!("ghcr.io/siderolabs/installer:{}", version);
+
+        // Upgrade control plane nodes
+        if control_plane {
+            info!("Upgrading control plane nodes...");
+
+            let all_servers = hcloud_client.list_servers().await?;
+            let cp_prefix = format!("{}-control-plane", self.config.cluster_name);
+            let servers: Vec<_> = all_servers
+                .into_iter()
+                .filter(|s| s.name.starts_with(&cp_prefix))
+                .collect();
+
+            for server in &servers {
+                if let Some(private_ip) = &server.private_net.first().map(|net| &net.ip) {
+                    info!(
+                        "Upgrading control plane node: {} ({})",
+                        server.name, private_ip
+                    );
+
+                    talos_client.upgrade(private_ip, &image, preserve).await?;
+
+                    info!("✓ Upgraded {}", server.name);
+                }
+            }
+
+            info!("✓ Control plane nodes upgraded successfully");
+        }
+
+        // Upgrade worker nodes
+        if workers {
+            info!("Upgrading worker nodes...");
+
+            let all_servers = hcloud_client.list_servers().await?;
+            let worker_prefix = format!("{}-worker", self.config.cluster_name);
+            let servers: Vec<_> = all_servers
+                .into_iter()
+                .filter(|s| s.name.starts_with(&worker_prefix))
+                .collect();
+
+            for server in &servers {
+                if let Some(private_ip) = &server.private_net.first().map(|net| &net.ip) {
+                    info!("Upgrading worker node: {} ({})", server.name, private_ip);
+
+                    talos_client.upgrade(private_ip, &image, preserve).await?;
+
+                    info!("✓ Upgraded {}", server.name);
+                }
+            }
+
+            info!("✓ Worker nodes upgraded successfully");
+        }
+
+        info!("✓ Cluster upgrade completed successfully!");
+
+        Ok(())
+    }
+
     /// Create cluster (CLI entry point)
     pub async fn create(config_path: &std::path::Path, output_dir: &std::path::Path) -> Result<()> {
         use crate::config::ClusterConfig;
@@ -895,11 +973,24 @@ impl Cluster {
 
     /// Upgrade cluster (CLI entry point)
     pub async fn upgrade(
-        _config_path: &std::path::Path,
-        _output_dir: &std::path::Path,
-        _talos_version: Option<String>,
-        _kubernetes_version: Option<String>,
+        config_path: &std::path::Path,
+        output_dir: &std::path::Path,
+        version: String,
+        preserve: bool,
+        control_plane: bool,
+        workers: bool,
     ) -> Result<()> {
-        anyhow::bail!("Cluster upgrade is not yet implemented");
+        use crate::config::ClusterConfig;
+
+        if !control_plane && !workers {
+            anyhow::bail!("At least one of --control-plane or --workers must be specified");
+        }
+
+        let config =
+            ClusterConfig::from_file(config_path).context("Failed to load configuration")?;
+        let cluster = Self::new(config, output_dir.to_path_buf());
+        cluster
+            .upgrade_cluster(&version, preserve, control_plane, workers)
+            .await
     }
 }

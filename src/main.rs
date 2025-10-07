@@ -72,14 +72,18 @@ async fn main() {
             .await
         }
         Commands::Upgrade {
-            ref talos_version,
-            ref kubernetes_version,
+            ref version,
+            preserve,
+            control_plane,
+            workers,
         } => {
             Cluster::upgrade(
                 &cli.config,
                 &cli.output,
-                talos_version.clone(),
-                kubernetes_version.clone(),
+                version.clone(),
+                preserve,
+                control_plane,
+                workers,
             )
             .await
         }
