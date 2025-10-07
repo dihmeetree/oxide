@@ -124,10 +124,15 @@
         }
     </style>
     <script>
-        // Disable automatic scroll restoration to prevent flash
+        // Enable smooth scroll restoration
         if ('scrollRestoration' in history) {
-            history.scrollRestoration = 'manual';
+            history.scrollRestoration = 'auto';
         }
+        // Hide content until fully loaded to prevent flash
+        document.documentElement.style.visibility = 'hidden';
+        window.addEventListener('DOMContentLoaded', function() {
+            document.documentElement.style.visibility = 'visible';
+        });
     </script>
 </head>
 <body class="min-h-screen text-text-primary flex flex-col">
