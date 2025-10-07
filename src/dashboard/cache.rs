@@ -21,6 +21,7 @@ struct CacheData {
     clusters: Vec<ClusterInfo>,
     servers: Vec<Server>,
     node_details: std::collections::HashMap<String, NodeDetail>,
+    node_metrics_history: std::collections::HashMap<String, crate::prometheus::NodeMetricsHistory>,
     last_update: Instant,
     is_ready: bool,
 }
@@ -33,6 +34,7 @@ impl ClusterCache {
                 clusters: Vec::new(),
                 servers: Vec::new(),
                 node_details: std::collections::HashMap::new(),
+                node_metrics_history: std::collections::HashMap::new(),
                 last_update: Instant::now(),
                 is_ready: false,
             })),
@@ -81,6 +83,20 @@ impl ClusterCache {
         data.node_details.get(node_name).cloned()
     }
 
+    /// Get all node metrics history from cache
+    pub async fn get_node_metrics_history(
+        &self,
+    ) -> std::collections::HashMap<String, crate::prometheus::NodeMetricsHistory> {
+        let data = self.inner.read().await;
+        data.node_metrics_history.clone()
+    }
+
+    /// Get all node details map from cache
+    pub async fn get_node_details_map(&self) -> std::collections::HashMap<String, NodeDetail> {
+        let data = self.inner.read().await;
+        data.node_details.clone()
+    }
+
     /// Get cache age
     #[allow(dead_code)]
     pub async fn cache_age(&self) -> Duration {
@@ -113,11 +129,15 @@ impl ClusterCache {
         // Fetch node details with pods for all nodes
         let node_details = fetch_all_node_details(&servers, config_path).await;
 
+        // Fetch historical metrics for all nodes
+        let node_metrics_history = fetch_all_node_metrics_history(&servers, config_path).await;
+
         // Update cache
         let mut data = self.inner.write().await;
         data.clusters = clusters;
         data.servers = servers;
         data.node_details = node_details;
+        data.node_metrics_history = node_metrics_history;
         data.last_update = Instant::now();
         data.is_ready = true;
 
@@ -125,9 +145,32 @@ impl ClusterCache {
         Ok(())
     }
 
+    /// Refresh only metrics history (faster update)
+    async fn refresh_metrics_only(&self, config_path: &std::path::Path) -> Result<()> {
+        let data = self.inner.read().await;
+        let servers = data.servers.clone();
+        drop(data); // Release read lock
+
+        if servers.is_empty() {
+            return Ok(());
+        }
+
+        // Fetch historical metrics for all nodes
+        let node_metrics_history = fetch_all_node_metrics_history(&servers, config_path).await;
+
+        // Update only metrics in cache
+        let mut data = self.inner.write().await;
+        data.node_metrics_history = node_metrics_history;
+
+        Ok(())
+    }
+
     /// Start background refresh task
     pub fn start_background_refresh(&self, config_path: std::path::PathBuf, interval_secs: u64) {
         let cache = self.clone();
+        let config_path_clone = config_path.clone();
+
+        // Start cluster data refresh (every 30s by default)
         tokio::spawn(async move {
             // Do initial refresh immediately
             if let Err(e) = cache.refresh(&config_path).await {
@@ -145,6 +188,21 @@ impl ClusterCache {
                 interval.tick().await;
                 if let Err(e) = cache.refresh(&config_path).await {
                     error!("Failed to refresh cache: {}", e);
+                }
+            }
+        });
+
+        // Start metrics-only refresh (every 10s)
+        let cache_metrics = self.clone();
+        tokio::spawn(async move {
+            // Wait for first cluster refresh to complete
+            tokio::time::sleep(Duration::from_secs(5)).await;
+
+            let mut interval = tokio::time::interval(Duration::from_secs(10));
+            loop {
+                interval.tick().await;
+                if let Err(e) = cache_metrics.refresh_metrics_only(&config_path_clone).await {
+                    error!("Failed to refresh metrics: {}", e);
                 }
             }
         });
@@ -337,6 +395,65 @@ async fn fetch_all_node_details(
     }
 
     node_details
+}
+
+/// Fetch historical metrics for all nodes
+async fn fetch_all_node_metrics_history(
+    servers: &[Server],
+    config_path: &std::path::Path,
+) -> std::collections::HashMap<String, crate::prometheus::NodeMetricsHistory> {
+    let mut metrics_history = std::collections::HashMap::new();
+
+    let output_dir = config_path
+        .parent()
+        .and_then(|p| p.parent())
+        .map(|p| p.join("output"))
+        .unwrap_or_else(|| std::path::PathBuf::from("output"));
+
+    let kubeconfig = output_dir.join("kubeconfig");
+
+    // Check if kubeconfig exists
+    if !kubeconfig.exists() {
+        info!("Kubeconfig not found, skipping metrics history fetch");
+        return metrics_history;
+    }
+
+    // Fetch metrics history for all nodes in parallel
+    let fetch_tasks: Vec<_> = servers
+        .iter()
+        .map(|server| {
+            let kubeconfig = kubeconfig.clone();
+            let server = server.clone();
+            async move {
+                let private_ip = server
+                    .private_net
+                    .first()
+                    .map(|net| net.ip.clone())
+                    .unwrap_or_else(|| "N/A".to_string());
+
+                let history = crate::prometheus::query_node_metrics_range(
+                    &private_ip,
+                    &kubeconfig,
+                    "1h",
+                    "1m",
+                )
+                .await
+                .unwrap_or_default();
+
+                (server.name.clone(), history)
+            }
+        })
+        .collect();
+
+    // Execute all fetch tasks in parallel
+    let results = futures::future::join_all(fetch_tasks).await;
+
+    // Collect results into HashMap
+    for (name, history) in results {
+        metrics_history.insert(name, history);
+    }
+
+    metrics_history
 }
 
 /// Build detailed cluster info

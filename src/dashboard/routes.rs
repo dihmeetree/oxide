@@ -11,7 +11,7 @@ use tracing::{error, info};
 
 use super::server::AppState;
 use super::templates::{
-    ClusterDetailTemplate, ClustersTemplate, CreateClusterTemplate, IndexTemplate,
+    ClusterDetailTemplate, ClustersTemplate, CreateClusterTemplate, IndexTemplate, MetricsTemplate,
     NodeDetailTemplate,
 };
 use crate::config::ClusterConfig;
@@ -361,4 +361,144 @@ pub struct UpgradeClusterForm {
 
 fn default_true() -> bool {
     true
+}
+
+/// Metrics page
+pub async fn metrics(State(state): State<AppState>) -> impl IntoResponse {
+    // Get metrics history from cache
+    let metrics_history = state.cache.get_node_metrics_history().await;
+    let has_data = !metrics_history.is_empty();
+
+    // Build metrics response
+    let metrics_json = if has_data {
+        let results: Vec<(String, crate::prometheus::NodeMetricsHistory)> =
+            metrics_history.into_iter().collect();
+
+        // Collect all unique timestamps
+        let mut all_timestamps = std::collections::BTreeSet::new();
+        for (_, history) in &results {
+            for (ts, _) in &history.cpu_history {
+                all_timestamps.insert(*ts);
+            }
+        }
+
+        // Send raw timestamps (will be formatted on client side for local timezone)
+        let timestamps: Vec<i64> = all_timestamps.iter().copied().collect();
+
+        let nodes: Vec<MetricsNode> = results
+            .into_iter()
+            .map(|(name, history)| {
+                let cpu_history: Vec<f64> =
+                    history.cpu_history.iter().map(|(_, val)| *val).collect();
+                let memory_history: Vec<f64> =
+                    history.memory_history.iter().map(|(_, val)| *val).collect();
+
+                MetricsNode {
+                    name,
+                    cpu_history,
+                    memory_history,
+                }
+            })
+            .collect();
+
+        let response = MetricsResponse { timestamps, nodes };
+        serde_json::to_string(&response).unwrap_or_else(|_| "{}".to_string())
+    } else {
+        "{}".to_string()
+    };
+
+    let template = MetricsTemplate {
+        active_page: "metrics".to_string(),
+        version: env!("CARGO_PKG_VERSION").to_string(),
+        has_data,
+        metrics_json,
+    };
+    Html(template.render().unwrap())
+}
+
+/// API: Get metrics data for graphs
+pub async fn api_metrics(
+    State(state): State<AppState>,
+    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> impl IntoResponse {
+    // Get time range from query params (default to 1h)
+    let time_range = params.get("range").map(|s| s.as_str()).unwrap_or("1h");
+
+    // For ranges other than 1h, fetch fresh data from Prometheus
+    let results: Vec<(String, crate::prometheus::NodeMetricsHistory)> = if time_range != "1h" {
+        let node_details = state.cache.get_node_details_map().await;
+        let kubeconfig = state.output_dir.join("kubeconfig");
+
+        let fetch_tasks: Vec<_> = node_details
+            .iter()
+            .map(|(name, detail)| {
+                let private_ip = detail.private_ip.clone();
+                let name = name.clone();
+                let kubeconfig = kubeconfig.clone();
+                let time_range = time_range.to_string();
+                async move {
+                    let history = crate::prometheus::query_node_metrics_range(
+                        &private_ip,
+                        &kubeconfig,
+                        &time_range,
+                        "1m",
+                    )
+                    .await
+                    .unwrap_or_default();
+
+                    (name, history)
+                }
+            })
+            .collect();
+
+        futures::future::join_all(fetch_tasks).await
+    } else {
+        // Use cached 1h data
+        let metrics_history = state.cache.get_node_metrics_history().await;
+        metrics_history.into_iter().collect()
+    };
+
+    // Collect all unique timestamps
+    let mut all_timestamps = std::collections::BTreeSet::new();
+    for (_, history) in &results {
+        for (ts, _) in &history.cpu_history {
+            all_timestamps.insert(*ts);
+        }
+    }
+
+    // Send raw timestamps (will be formatted on client side for local timezone)
+    let timestamps: Vec<i64> = all_timestamps.iter().copied().collect();
+
+    // Build nodes data
+    let nodes: Vec<MetricsNode> = results
+        .into_iter()
+        .map(|(name, history)| {
+            let cpu_history: Vec<f64> = history.cpu_history.iter().map(|(_, val)| *val).collect();
+            let memory_history: Vec<f64> =
+                history.memory_history.iter().map(|(_, val)| *val).collect();
+
+            MetricsNode {
+                name,
+                cpu_history,
+                memory_history,
+            }
+        })
+        .collect();
+
+    let response = MetricsResponse { timestamps, nodes };
+
+    Json(response)
+}
+
+#[derive(Debug, Serialize)]
+struct MetricsResponse {
+    timestamps: Vec<i64>,
+    nodes: Vec<MetricsNode>,
+}
+
+#[derive(Debug, Serialize)]
+struct MetricsNode {
+    name: String,
+    cpu_history: Vec<f64>,
+    memory_history: Vec<f64>,
 }

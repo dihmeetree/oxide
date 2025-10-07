@@ -68,7 +68,9 @@ impl DashboardServer {
                 "/clusters/{name}/delete",
                 axum::routing::post(routes::cluster_delete),
             )
+            .route("/metrics", get(routes::metrics))
             .route("/api/clusters", get(routes::api_clusters_list))
+            .route("/api/metrics", get(routes::api_metrics))
             .nest_service("/static", ServeDir::new("static"))
             .with_state(AppState {
                 config_path: self.config_path,

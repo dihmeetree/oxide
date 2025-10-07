@@ -103,3 +103,13 @@ pub struct NodeDetail {
     pub memory_used_gb: String,
     pub memory_total_gb: String,
 }
+
+/// Metrics page
+#[derive(Template)]
+#[template(path = "metrics.html")]
+pub struct MetricsTemplate {
+    pub active_page: String,
+    pub version: String,
+    pub has_data: bool,
+    pub metrics_json: String,
+}

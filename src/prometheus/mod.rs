@@ -654,6 +654,177 @@ async fn query_prometheus(
     Ok(Some(value))
 }
 
+/// Query Prometheus for historical metrics (range query)
+pub async fn query_node_metrics_range(
+    node_private_ip: &str,
+    kubeconfig_path: &std::path::Path,
+    duration: &str, // e.g., "1h"
+    step: &str,     // e.g., "1m"
+) -> Result<NodeMetricsHistory> {
+    // Get the Prometheus pod name
+    let output = CommandBuilder::new("kubectl")
+        .args([
+            "get",
+            "pods",
+            "-n",
+            "monitoring",
+            "-l",
+            "app.kubernetes.io/name=prometheus",
+            "-o",
+            "jsonpath={.items[0].metadata.name}",
+        ])
+        .kubeconfig(kubeconfig_path)
+        .context("Failed to get Prometheus pod name")
+        .output()
+        .await?;
+
+    if !output.success || output.stdout.is_empty() {
+        return Ok(NodeMetricsHistory::default());
+    }
+
+    let pod_name = output.stdout.trim();
+
+    // Query CPU usage history
+    let cpu_query = format!(
+        "100 * (1 - avg(rate(node_cpu_seconds_total{{mode=\"idle\",instance=~\"{}:.*\"}}[5m])))",
+        node_private_ip
+    );
+
+    let cpu_history =
+        query_prometheus_range(pod_name, &cpu_query, duration, step, kubeconfig_path).await?;
+
+    // Query memory usage history
+    let mem_query = format!(
+        "100 * (1 - (node_memory_MemAvailable_bytes{{instance=~\"{}:.*\"}} / node_memory_MemTotal_bytes{{instance=~\"{}:.*\"}}))",
+        node_private_ip, node_private_ip
+    );
+
+    let memory_history =
+        query_prometheus_range(pod_name, &mem_query, duration, step, kubeconfig_path).await?;
+
+    Ok(NodeMetricsHistory {
+        cpu_history,
+        memory_history,
+    })
+}
+
+/// Node metrics history
+#[derive(Debug, Clone, Default)]
+pub struct NodeMetricsHistory {
+    pub cpu_history: Vec<(i64, f64)>,    // (timestamp, value)
+    pub memory_history: Vec<(i64, f64)>, // (timestamp, value)
+}
+
+/// Prometheus range query response
+#[derive(Debug, Deserialize)]
+pub struct PrometheusRangeResponse {
+    pub status: String,
+    pub data: PrometheusRangeData,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PrometheusRangeData {
+    #[serde(rename = "resultType")]
+    #[allow(dead_code)]
+    pub result_type: String,
+    pub result: Vec<PrometheusRangeResult>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PrometheusRangeResult {
+    #[allow(dead_code)]
+    pub metric: std::collections::HashMap<String, String>,
+    pub values: Vec<(f64, String)>,
+}
+
+/// Execute a Prometheus range query
+async fn query_prometheus_range(
+    pod_name: &str,
+    query: &str,
+    duration: &str,
+    step: &str,
+    kubeconfig_path: &std::path::Path,
+) -> Result<Vec<(i64, f64)>> {
+    // Calculate start and end times (end=now, start=now-duration)
+    let end = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+
+    let duration_secs = parse_duration(duration)?;
+    let start = end - duration_secs;
+
+    let url = format!(
+        "http://localhost:9090/api/v1/query_range?query={}&start={}&end={}&step={}",
+        urlencoding::encode(query),
+        start,
+        end,
+        step
+    );
+
+    let output = CommandBuilder::new("kubectl")
+        .args([
+            "exec",
+            "-n",
+            "monitoring",
+            pod_name,
+            "-c",
+            "prometheus",
+            "--",
+            "wget",
+            "-qO-",
+            &url,
+        ])
+        .kubeconfig(kubeconfig_path)
+        .context("Failed to query Prometheus range")
+        .output()
+        .await?;
+
+    if !output.success {
+        return Ok(vec![]);
+    }
+
+    let response: PrometheusRangeResponse = serde_json::from_str(&output.stdout)
+        .context("Failed to parse Prometheus range response")?;
+
+    if response.status != "success" || response.data.result.is_empty() {
+        return Ok(vec![]);
+    }
+
+    let values: Vec<(i64, f64)> = response.data.result[0]
+        .values
+        .iter()
+        .map(|(timestamp, value)| {
+            let ts = *timestamp as i64;
+            let val = value.parse::<f64>().unwrap_or(0.0);
+            (ts, val)
+        })
+        .collect();
+
+    Ok(values)
+}
+
+/// Parse duration string like "1h", "30m", "1d" to seconds
+fn parse_duration(duration: &str) -> Result<u64> {
+    let duration = duration.trim();
+    if duration.is_empty() {
+        anyhow::bail!("Empty duration string");
+    }
+
+    let (num_str, unit) = duration.split_at(duration.len() - 1);
+    let num: u64 = num_str.parse().context("Invalid duration number")?;
+
+    let multiplier = match unit {
+        "s" => 1,
+        "m" => 60,
+        "h" => 3600,
+        "d" => 86400,
+        _ => anyhow::bail!("Invalid duration unit: {}", unit),
+    };
+
+    Ok(num * multiplier)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
