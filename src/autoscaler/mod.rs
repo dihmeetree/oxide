@@ -71,7 +71,7 @@ impl Autoscaler {
         info!("Deploying autoscaler...");
         self.create_deployment(config, autoscaler_config).await?;
 
-        info!("✓ Kubernetes Cluster Autoscaler deployed successfully!");
+        info!("[OK] Kubernetes Cluster Autoscaler deployed successfully!");
         info!("Worker pools:");
         for pool in &autoscaler_config.worker_pools {
             info!(
@@ -207,7 +207,7 @@ impl Autoscaler {
             .run()
             .await;
 
-        info!("✓ Cluster autoscaler uninstalled successfully!");
+        info!("[OK] Cluster autoscaler uninstalled successfully!");
 
         Ok(())
     }

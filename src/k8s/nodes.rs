@@ -155,7 +155,7 @@ impl NodeManager {
                                     && ready_status.eq_ignore_ascii_case("false")
                                 {
                                     info!(
-                                        "✓ Node {} is cordoned and NotReady (NotReady,SchedulingDisabled)",
+                                        "[OK] Node {} is cordoned and NotReady (NotReady,SchedulingDisabled)",
                                         node_name
                                     );
                                     return Ok(true);
@@ -236,7 +236,7 @@ impl NodeManager {
             // Show progress if pod count changed
             if pod_count != last_pod_count {
                 if pod_count == 0 {
-                    info!("✓ All pods drained from node {}", node_name);
+                    info!("[OK] All pods drained from node {}", node_name);
                     return Ok(());
                 }
                 info!("  {} pods remaining on node {}", pod_count, node_name);
@@ -314,7 +314,7 @@ impl NodeManager {
         // Warn if remaining count is even (not recommended for etcd)
         if remaining_count.is_multiple_of(2) {
             info!(
-                "⚠️  Warning: Remaining control plane count ({}) is even. Etcd recommends odd numbers (1, 3, 5).",
+                "WARNING:  Warning: Remaining control plane count ({}) is even. Etcd recommends odd numbers (1, 3, 5).",
                 remaining_count
             );
             info!("   This will reduce fault tolerance.");

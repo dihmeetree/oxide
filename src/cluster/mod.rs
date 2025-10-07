@@ -223,7 +223,7 @@ impl Cluster {
         cilium.install().await?;
         cilium.wait_for_ready(300).await?;
 
-        info!("✓ Cluster creation completed successfully!");
+        info!("[OK] Cluster creation completed successfully!");
         info!("Cluster details:");
         info!("  Name: {}", self.config.cluster_name);
         info!("  Endpoint: {}", cluster_endpoint);
@@ -346,7 +346,7 @@ impl Cluster {
             .delete_network(&self.config.cluster_name)
             .await?;
 
-        info!("✓ Cluster destroyed successfully!");
+        info!("[OK] Cluster destroyed successfully!");
 
         Ok(())
     }
@@ -538,7 +538,7 @@ impl Cluster {
 
             if force {
                 info!(
-                    "⚠️  FORCE mode enabled: nodes will be removed immediately without graceful drain"
+                    "WARNING:  FORCE mode enabled: nodes will be removed immediately without graceful drain"
                 );
             }
 
@@ -552,7 +552,7 @@ impl Cluster {
             .await?;
         }
 
-        info!("✓ Cluster scaling completed successfully!");
+        info!("[OK] Cluster scaling completed successfully!");
 
         Ok(())
     }
@@ -639,7 +639,7 @@ impl Cluster {
                 .await?;
 
             new_server_ids.push(server_info.server.id);
-            info!("✓ Node {} created successfully", node_name);
+            info!("[OK] Node {} created successfully", node_name);
         }
 
         // Wait for new nodes to become Ready
@@ -716,7 +716,7 @@ impl Cluster {
         // Validate etcd quorum won't be broken
         NodeManager::validate_etcd_quorum(&kubeconfig_path, &node_names).await?;
 
-        info!("✓ Pre-flight validation passed");
+        info!("[OK] Pre-flight validation passed");
 
         // PHASE 1: PARALLEL NODE RESET
         info!("Phase 1/3: Resetting nodes in parallel...");
@@ -739,7 +739,7 @@ impl Cluster {
 
                     match reset_result {
                         Ok(_) => {
-                            info!("✓ Node {} reset completed", node_name);
+                            info!("[OK] Node {} reset completed", node_name);
                         }
                         Err(e) => {
                             let err_msg = e.to_string();
@@ -747,7 +747,10 @@ impl Cluster {
                                 || err_msg.contains("broken pipe")
                                 || err_msg.contains("reset by peer")
                             {
-                                info!("✓ Node {} powered down during reset (expected)", node_name);
+                                info!(
+                                    "[OK] Node {} powered down during reset (expected)",
+                                    node_name
+                                );
                             } else {
                                 return Err(e);
                             }
@@ -774,7 +777,7 @@ impl Cluster {
                     Ok::<String, anyhow::Error>(node_name)
                 } else {
                     info!(
-                        "⚠️  Warning: Node {} has no public IP, skipping reset",
+                        "WARNING:  Warning: Node {} has no public IP, skipping reset",
                         node_name
                     );
                     Ok::<String, anyhow::Error>(node_name)
@@ -816,7 +819,7 @@ impl Cluster {
         }
 
         info!(
-            "✓ Phase 1 complete: {} nodes reset successfully",
+            "[OK] Phase 1 complete: {} nodes reset successfully",
             successfully_reset.len()
         );
 
@@ -828,25 +831,25 @@ impl Cluster {
                 NodeManager::wait_for_node_cordoned(&kubeconfig_path, node_name, 120).await
             {
                 info!(
-                    "⚠️  Warning: Could not verify node {} cordon status: {}. Proceeding with deletion...",
+                    "WARNING:  Warning: Could not verify node {} cordon status: {}. Proceeding with deletion...",
                     node_name, e
                 );
             }
 
             match NodeManager::delete_node(&kubeconfig_path, node_name).await {
                 Ok(_) => {
-                    info!("✓ Node {} removed from Kubernetes", node_name);
+                    info!("[OK] Node {} removed from Kubernetes", node_name);
                 }
                 Err(e) => {
                     info!(
-                        "⚠️  Warning: Failed to delete node {} from Kubernetes: {}",
+                        "WARNING:  Warning: Failed to delete node {} from Kubernetes: {}",
                         node_name, e
                     );
                 }
             }
         }
 
-        info!("✓ Phase 2 complete");
+        info!("[OK] Phase 2 complete");
 
         // PHASE 3: DELETE FROM HETZNER CLOUD
         info!("Phase 3/3: Deleting servers from Hetzner Cloud...");
@@ -856,9 +859,9 @@ impl Cluster {
 
         server_manager.delete_servers(server_ids_to_delete).await?;
 
-        info!("✓ Phase 3 complete");
+        info!("[OK] Phase 3 complete");
         info!(
-            "✓ All {} nodes removed successfully",
+            "[OK] All {} nodes removed successfully",
             servers_to_remove.len()
         );
 
@@ -872,10 +875,10 @@ impl Cluster {
         info!("Starting cluster upgrade to Talos {}...", options.version);
         info!("Cluster name: {}", self.config.cluster_name);
         info!(
-            "⚠️  Important: Nodes will be upgraded one at a time to maintain cluster availability"
+            "WARNING:  Important: Nodes will be upgraded one at a time to maintain cluster availability"
         );
         if options.control_plane {
-            info!("⚠️  Control plane upgrades are protected - Talos will refuse upgrades that would break etcd quorum");
+            info!("WARNING:  Control plane upgrades are protected - Talos will refuse upgrades that would break etcd quorum");
         }
 
         let hcloud_token = self.config.get_hcloud_token()?;
@@ -915,11 +918,11 @@ impl Cluster {
                         )
                         .await?;
 
-                    info!("✓ Upgraded {}", server.name);
+                    info!("[OK] Upgraded {}", server.name);
                 }
             }
 
-            info!("✓ Control plane nodes upgraded successfully");
+            info!("[OK] Control plane nodes upgraded successfully");
         }
 
         // Upgrade worker nodes
@@ -947,14 +950,14 @@ impl Cluster {
                         )
                         .await?;
 
-                    info!("✓ Upgraded {}", server.name);
+                    info!("[OK] Upgraded {}", server.name);
                 }
             }
 
-            info!("✓ Worker nodes upgraded successfully");
+            info!("[OK] Worker nodes upgraded successfully");
         }
 
-        info!("✓ Cluster upgrade completed successfully!");
+        info!("[OK] Cluster upgrade completed successfully!");
 
         Ok(())
     }

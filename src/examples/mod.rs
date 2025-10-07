@@ -34,7 +34,7 @@ impl Examples {
         }
         Resources::apply_manifest(&kubeconfig_path, nginx_gateway_path).await?;
 
-        info!("✓ nginx deployed successfully with Gateway API!");
+        info!("[OK] nginx deployed successfully with Gateway API!");
         info!("To check the status:");
         info!("  kubectl get pods");
         info!("  kubectl get gateway");

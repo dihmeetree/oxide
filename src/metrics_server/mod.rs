@@ -37,7 +37,7 @@ impl MetricsServer {
             .run_silent()
             .await?;
 
-        info!("✓ Kubernetes Metrics Server installed successfully!");
+        info!("[OK] Kubernetes Metrics Server installed successfully!");
         info!("The metrics server will start collecting metrics in a few seconds.");
         info!("You can verify it's working with:");
         info!("  kubectl top nodes");
@@ -66,7 +66,7 @@ impl MetricsServer {
             .run_silent()
             .await?;
 
-        info!("✓ Kubernetes Metrics Server uninstalled successfully!");
+        info!("[OK] Kubernetes Metrics Server uninstalled successfully!");
 
         Ok(())
     }

@@ -40,7 +40,7 @@ impl PollingConfig {
             // Check condition
             match condition().await {
                 Ok(Some(value)) => {
-                    info!("✓ {}", self.description);
+                    info!("{} - completed", self.description);
                     return Ok(value);
                 }
                 Ok(None) => {

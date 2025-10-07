@@ -414,7 +414,7 @@ impl Prometheus {
         prometheus.install_stack().await?;
         prometheus.wait_for_ready(600).await?;
 
-        info!("✓ Prometheus monitoring stack installed successfully!");
+        info!("[OK] Prometheus monitoring stack installed successfully!");
 
         if prometheus_config.enable_grafana {
             let grafana_info = prometheus.get_grafana_info().await?;
@@ -487,7 +487,7 @@ impl Prometheus {
         let prometheus = Self::new(prometheus_config, kubeconfig_path);
         prometheus.uninstall_stack().await?;
 
-        info!("✓ Prometheus monitoring stack uninstalled successfully!");
+        info!("[OK] Prometheus monitoring stack uninstalled successfully!");
 
         Ok(())
     }
