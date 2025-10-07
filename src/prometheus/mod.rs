@@ -415,7 +415,6 @@ impl Prometheus {
         prometheus.wait_for_ready(600).await?;
 
         info!("✓ Prometheus monitoring stack installed successfully!");
-        info!("");
 
         if prometheus_config.enable_grafana {
             let grafana_info = prometheus.get_grafana_info().await?;
@@ -454,7 +453,6 @@ impl Prometheus {
         info!("{}", status);
 
         if prometheus_config.enable_grafana {
-            info!("");
             let grafana_info = prometheus.get_grafana_info().await?;
             info!("{}", grafana_info);
         }

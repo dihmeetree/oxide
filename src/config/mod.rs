@@ -360,7 +360,6 @@ impl ClusterConfig {
             .context("Failed to write configuration file")?;
 
         info!("Example configuration created: {}", config_path.display());
-        info!("");
         info!("Next steps:");
         info!("  1. Edit the configuration file to match your requirements");
         info!("  2. Set your Hetzner Cloud API token:");

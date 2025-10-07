@@ -38,7 +38,6 @@ impl MetricsServer {
             .await?;
 
         info!("✓ Kubernetes Metrics Server installed successfully!");
-        info!("");
         info!("The metrics server will start collecting metrics in a few seconds.");
         info!("You can verify it's working with:");
         info!("  kubectl top nodes");

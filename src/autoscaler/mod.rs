@@ -72,7 +72,6 @@ impl Autoscaler {
         self.create_deployment(config, autoscaler_config).await?;
 
         info!("✓ Kubernetes Cluster Autoscaler deployed successfully!");
-        info!("");
         info!("Worker pools:");
         for pool in &autoscaler_config.worker_pools {
             info!(
@@ -80,7 +79,6 @@ impl Autoscaler {
                 pool.name, pool.min_nodes, pool.max_nodes, pool.server_type, pool.location
             );
         }
-        info!("");
         info!("Monitor autoscaler logs with:");
         info!(
             "  kubectl logs -n oxide-system -l app=cluster-autoscaler -f --kubeconfig={}",

@@ -205,17 +205,14 @@ impl Cluster {
         cilium.wait_for_ready(300).await?;
 
         info!("✓ Cluster creation completed successfully!");
-        info!("");
         info!("Cluster details:");
         info!("  Name: {}", self.config.cluster_name);
         info!("  Endpoint: {}", cluster_endpoint);
         info!("  Control planes: {}", control_planes.len());
         info!("  Workers: {}", workers.len());
-        info!("");
         info!("Configuration files:");
         info!("  Talosconfig: {}", configs.talosconfig.display());
         info!("  Kubeconfig: {}", kubeconfig_path.display());
-        info!("");
 
         // Install optional components
         self.install_optional_components().await?;
@@ -255,7 +252,6 @@ impl Cluster {
     /// Install optional components based on configuration
     async fn install_optional_components(&self) -> Result<()> {
         info!("Installing optional cluster components...");
-        info!("");
 
         let kubeconfig_path = self.output_dir.join("kubeconfig");
 
@@ -344,7 +340,6 @@ impl Cluster {
         }
 
         info!("Cluster: {}", self.config.cluster_name);
-        info!("");
 
         // Display control plane node pools
         info!("Control Plane Pools:");
@@ -376,7 +371,6 @@ impl Cluster {
             }
         }
 
-        info!("");
         info!("Worker Pools:");
         for pool in &self.config.workers {
             let pool_servers = ServerManager::filter_by_role_and_pool(
@@ -409,7 +403,6 @@ impl Cluster {
         // Try to show Cilium status if kubeconfig exists
         let kubeconfig_path = self.output_dir.join("kubeconfig");
         if kubeconfig_path.exists() {
-            info!("");
             info!("Cilium Status:");
             let control_plane_count = self.config.control_planes.iter().map(|cp| cp.count).sum();
             let cilium = Cilium::new(
@@ -850,14 +843,12 @@ impl Cluster {
 
         info!("Starting cluster upgrade to Talos {}...", options.version);
         info!("Cluster name: {}", self.config.cluster_name);
-        info!("");
         info!(
             "⚠️  Important: Nodes will be upgraded one at a time to maintain cluster availability"
         );
         if options.control_plane {
             info!("⚠️  Control plane upgrades are protected - Talos will refuse upgrades that would break etcd quorum");
         }
-        info!("");
 
         let hcloud_token = self.config.get_hcloud_token()?;
         let hcloud_client = crate::hcloud::client::HetznerCloudClient::new(hcloud_token)?;
@@ -897,7 +888,6 @@ impl Cluster {
                         .await?;
 
                     info!("✓ Upgraded {}", server.name);
-                    info!("");
                 }
             }
 
@@ -930,7 +920,6 @@ impl Cluster {
                         .await?;
 
                     info!("✓ Upgraded {}", server.name);
-                    info!("");
                 }
             }
 
