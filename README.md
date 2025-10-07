@@ -311,28 +311,28 @@ Upgrade your cluster nodes to a new Talos version:
 
 ```bash
 # Upgrade control plane nodes only
-oxide upgrade --version v1.11.0 --control-plane
+oxide upgrade --version v1.11.2 --control-plane
 
 # Upgrade worker nodes only
-oxide upgrade --version v1.11.0 --workers
+oxide upgrade --version v1.11.2 --workers
 
 # Upgrade both control plane and worker nodes
-oxide upgrade --version v1.11.0 --control-plane --workers
+oxide upgrade --version v1.11.2 --control-plane --workers
 
 # Upgrade without preserving node data (default is to preserve)
-oxide upgrade --version v1.11.0 --control-plane --workers --preserve false
+oxide upgrade --version v1.11.2 --control-plane --workers --preserve false
 
 # Wait and observe each node upgrade (shows live progress)
-oxide upgrade --version v1.11.0 --control-plane --wait
+oxide upgrade --version v1.11.2 --control-plane --wait
 
 # Stage the upgrade (applies on next reboot, useful if upgrade fails due to open files)
-oxide upgrade --version v1.11.0 --workers --stage
+oxide upgrade --version v1.11.2 --workers --stage
 ```
 
 **Upgrade Behavior**:
 
 - **Sequential Upgrade**: Nodes are upgraded one at a time to maintain cluster availability
-- **Automatic Image Selection**: Installer image is automatically constructed from version (e.g., `ghcr.io/siderolabs/installer:v1.11.0`)
+- **Automatic Image Selection**: Installer image is automatically constructed from version (e.g., `ghcr.io/siderolabs/installer:v1.11.2`)
 - **Data Preservation**: By default, node data is preserved during upgrade (`--preserve true`)
 - **Granular Control**: Can upgrade control plane and workers independently
 - **Progress Logging**: Shows detailed progress for each node upgrade
@@ -351,13 +351,13 @@ oxide upgrade --version v1.11.0 --workers --stage
 
 ```bash
 # 1. Upgrade control plane nodes first
-oxide upgrade --version v1.11.0 --control-plane
+oxide upgrade --version v1.11.2 --control-plane
 
 # 2. Wait for control plane to stabilize
 kubectl get nodes
 
 # 3. Upgrade worker nodes
-oxide upgrade --version v1.11.0 --workers
+oxide upgrade --version v1.11.2 --workers
 ```
 
 **Important Notes**:

@@ -61,7 +61,7 @@ pub enum Commands {
 
     /// Upgrade cluster
     Upgrade {
-        /// Talos version (e.g., v1.11.0)
+        /// Talos version (e.g., v1.11.2)
         #[arg(long)]
         version: String,
 
