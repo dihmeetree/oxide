@@ -96,4 +96,8 @@ pub struct NodeDetail {
     pub server_type: String,
     pub created: String,
     pub pods: Vec<crate::k8s::client::PodInfo>,
+    pub cpu_usage_percent: String,
+    pub memory_usage_percent: String,
+    pub memory_used_gb: String,
+    pub memory_total_gb: String,
 }

@@ -262,6 +262,41 @@ async fn fetch_all_node_details(
                         Vec::new()
                     });
 
+                // Get metrics from Prometheus using private IP
+                let metrics = crate::prometheus::query_node_metrics(&private_ip, &kubeconfig)
+                    .await
+                    .unwrap_or_default();
+
+                let cpu_usage_percent = if metrics.cpu_usage_percent > 0.0 {
+                    format!("{:.1}%", metrics.cpu_usage_percent)
+                } else {
+                    "N/A".to_string()
+                };
+
+                let memory_usage_percent = if metrics.memory_usage_percent > 0.0 {
+                    format!("{:.1}%", metrics.memory_usage_percent)
+                } else {
+                    "N/A".to_string()
+                };
+
+                let memory_used_gb = if metrics.memory_used_bytes > 0 {
+                    format!(
+                        "{:.2}",
+                        metrics.memory_used_bytes as f64 / 1024.0 / 1024.0 / 1024.0
+                    )
+                } else {
+                    "N/A".to_string()
+                };
+
+                let memory_total_gb = if metrics.memory_total_bytes > 0 {
+                    format!(
+                        "{:.2}",
+                        metrics.memory_total_bytes as f64 / 1024.0 / 1024.0 / 1024.0
+                    )
+                } else {
+                    "N/A".to_string()
+                };
+
                 (
                     server.name.clone(),
                     NodeDetail {
@@ -279,6 +314,10 @@ async fn fetch_all_node_details(
                             .unwrap_or("Unknown")
                             .to_string(),
                         pods,
+                        cpu_usage_percent,
+                        memory_usage_percent,
+                        memory_used_gb,
+                        memory_total_gb,
                     },
                 )
             }

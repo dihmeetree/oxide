@@ -283,8 +283,8 @@
         const btnLoading = document.getElementById('deleteButtonLoading');
 
         // Check confirmation text
-        if (confirmText !== 'yes delete this cluster') {
-            showToast('Confirmation Required', 'Please type "yes delete this cluster" to confirm deletion', 'error');
+        if (confirmText !== 'delete this cluster') {
+            showToast('Confirmation Required', 'Please type "delete this cluster" to confirm deletion', 'error');
             return;
         }
 
@@ -321,7 +321,7 @@
     function validateDeleteInput() {
         const confirmText = document.getElementById('deleteConfirmText').value;
         const deleteBtn = document.getElementById('deleteSubmitBtn');
-        deleteBtn.disabled = confirmText !== 'yes delete this cluster';
+        deleteBtn.disabled = confirmText !== 'delete this cluster';
     }
 </script>
 
@@ -466,14 +466,14 @@
             <div class="space-y-4">
                 <div>
                     <label class="block text-sm font-medium mb-2 text-text-primaryAlt">
-                        Type <span class="font-mono px-2 py-0.5 rounded bg-[#FF4D4D]/15 text-[#FF4D4D]">yes delete this cluster</span> to confirm:
+                        Type <span class="font-mono px-2 py-0.5 rounded bg-[#FF4D4D]/15 text-[#FF4D4D]">delete this cluster</span> to confirm:
                     </label>
                     <input
                         type="text"
                         id="deleteConfirmText"
                         autocomplete="off"
                         class="w-full px-4 py-2 rounded-lg bg-dark-hover border border-dark-border text-text-primary focus:!border-[#FF4D4D] focus:![--tw-ring-color:rgb(255_77_77)]"
-                        placeholder="yes delete this cluster"
+                        placeholder="delete this cluster"
                         oninput="validateDeleteInput()"
                     >
                 </div>

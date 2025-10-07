@@ -1,5 +1,6 @@
 /// Prometheus monitoring stack deployment and management
 use anyhow::{Context, Result};
+use serde::Deserialize;
 use tracing::info;
 
 use crate::config::PrometheusConfig;
@@ -491,6 +492,166 @@ impl Prometheus {
 
         Ok(())
     }
+}
+
+/// Prometheus API response for instant queries
+#[derive(Debug, Deserialize)]
+pub struct PrometheusResponse {
+    pub status: String,
+    pub data: PrometheusData,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PrometheusData {
+    #[serde(rename = "resultType")]
+    #[allow(dead_code)]
+    pub result_type: String,
+    pub result: Vec<PrometheusResult>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PrometheusResult {
+    #[allow(dead_code)]
+    pub metric: std::collections::HashMap<String, String>,
+    pub value: (f64, String),
+}
+
+/// Node metrics from Prometheus
+#[derive(Debug, Clone)]
+pub struct NodeMetrics {
+    pub cpu_usage_percent: f64,
+    pub memory_usage_percent: f64,
+    pub memory_used_bytes: u64,
+    pub memory_total_bytes: u64,
+}
+
+impl Default for NodeMetrics {
+    fn default() -> Self {
+        Self {
+            cpu_usage_percent: 0.0,
+            memory_usage_percent: 0.0,
+            memory_used_bytes: 0,
+            memory_total_bytes: 0,
+        }
+    }
+}
+
+/// Query Prometheus for node metrics using the node's private IP
+pub async fn query_node_metrics(
+    node_private_ip: &str,
+    kubeconfig_path: &std::path::Path,
+) -> Result<NodeMetrics> {
+    // Get the Prometheus pod name
+    let output = CommandBuilder::new("kubectl")
+        .args([
+            "get",
+            "pods",
+            "-n",
+            "monitoring",
+            "-l",
+            "app.kubernetes.io/name=prometheus",
+            "-o",
+            "jsonpath={.items[0].metadata.name}",
+        ])
+        .kubeconfig(kubeconfig_path)
+        .context("Failed to get Prometheus pod name")
+        .output()
+        .await?;
+
+    if !output.success || output.stdout.is_empty() {
+        return Ok(NodeMetrics::default());
+    }
+
+    let pod_name = output.stdout.trim();
+
+    // Query CPU usage (percentage of allocatable CPU)
+    let cpu_query = format!(
+        "100 * (1 - avg(rate(node_cpu_seconds_total{{mode=\"idle\",instance=~\"{}:.*\"}}[5m])))",
+        node_private_ip
+    );
+
+    let cpu_result = query_prometheus(pod_name, &cpu_query, kubeconfig_path).await?;
+    let cpu_usage = cpu_result.unwrap_or(0.0);
+
+    // Query memory usage
+    let mem_used_query = format!(
+        "node_memory_MemTotal_bytes{{instance=~\"{}:.*\"}} - node_memory_MemAvailable_bytes{{instance=~\"{}:.*\"}}",
+        node_private_ip, node_private_ip
+    );
+
+    let mem_used_result = query_prometheus(pod_name, &mem_used_query, kubeconfig_path).await?;
+    let memory_used_bytes = mem_used_result.unwrap_or(0.0) as u64;
+
+    // Query total memory
+    let mem_total_query = format!(
+        "node_memory_MemTotal_bytes{{instance=~\"{}:.*\"}}",
+        node_private_ip
+    );
+
+    let mem_total_result = query_prometheus(pod_name, &mem_total_query, kubeconfig_path).await?;
+    let memory_total_bytes = mem_total_result.unwrap_or(0.0) as u64;
+
+    let memory_usage_percent = if memory_total_bytes > 0 {
+        (memory_used_bytes as f64 / memory_total_bytes as f64) * 100.0
+    } else {
+        0.0
+    };
+
+    Ok(NodeMetrics {
+        cpu_usage_percent: cpu_usage,
+        memory_usage_percent,
+        memory_used_bytes,
+        memory_total_bytes,
+    })
+}
+
+/// Execute a Prometheus query
+async fn query_prometheus(
+    pod_name: &str,
+    query: &str,
+    kubeconfig_path: &std::path::Path,
+) -> Result<Option<f64>> {
+    let url = format!(
+        "http://localhost:9090/api/v1/query?query={}",
+        urlencoding::encode(query)
+    );
+
+    let output = CommandBuilder::new("kubectl")
+        .args([
+            "exec",
+            "-n",
+            "monitoring",
+            pod_name,
+            "-c",
+            "prometheus",
+            "--",
+            "wget",
+            "-qO-",
+            &url,
+        ])
+        .kubeconfig(kubeconfig_path)
+        .context("Failed to query Prometheus")
+        .output()
+        .await?;
+
+    if !output.success {
+        return Ok(None);
+    }
+
+    let response: PrometheusResponse =
+        serde_json::from_str(&output.stdout).context("Failed to parse Prometheus response")?;
+
+    if response.status != "success" || response.data.result.is_empty() {
+        return Ok(None);
+    }
+
+    let value = response.data.result[0]
+        .value
+        .1
+        .parse::<f64>()
+        .unwrap_or(0.0);
+
+    Ok(Some(value))
 }
 
 #[cfg(test)]

@@ -31,6 +31,7 @@ rand = "0.8"
 ed25519-dalek = { version = "2.1", features = ["rand_core"] }
 # URL handling
 url = "2.5"
+urlencoding = "2.1"
 # Web framework for dashboard
 axum = "0.8.6"
 # HTML templating
