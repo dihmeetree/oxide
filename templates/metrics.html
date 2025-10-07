@@ -1,0 +1,620 @@
+{% extends "layout.html" %} {% block content %}
+<div class="space-y-6">
+  <!-- Header -->
+  <div>
+    <div class="flex items-center justify-between">
+      <div>
+        <h2 class="text-3xl font-semibold text-text-primary">
+          Cluster Metrics
+        </h2>
+        <p class="mt-1 text-base text-text-secondary">
+          Real-time resource usage across all nodes
+        </p>
+      </div>
+      <div class="flex items-center gap-3">
+        <!-- Refresh Status -->
+        <span
+          id="refreshIndicator"
+          class="text-sm text-accent-blue opacity-0 transition-opacity"
+        >
+          Refreshing...
+        </span>
+        <!-- Live Indicator -->
+        <div class="flex items-center gap-2 text-sm text-text-muted">
+          <span class="relative flex h-3 w-3">
+            <span
+              class="animate-ping absolute inline-flex h-full w-full rounded-full bg-accent-green opacity-75"
+            ></span>
+            <span
+              class="relative inline-flex rounded-full h-3 w-3 bg-accent-green"
+            ></span>
+          </span>
+          <span>Live</span>
+        </div>
+        <!-- Time Range Selector -->
+        <select
+          id="timeRange"
+          class="px-3 py-1.5 rounded-lg bg-dark-hover border border-dark-border text-text-primary text-sm focus:outline-none focus:border-accent-blue"
+        >
+          <option value="15m">15 minutes</option>
+          <option value="1h" selected>1 hour</option>
+          <option value="6h">6 hours</option>
+          <option value="24h">24 hours</option>
+        </select>
+        <!-- Stacked View Toggle -->
+        <button
+          id="stackedToggle"
+          onclick="toggleStacked()"
+          class="px-3 py-1.5 rounded-lg bg-accent-blue border border-dark-border text-text-primary text-sm hover:bg-accent-blueHover transition"
+        >
+          Stacked
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Loading State (only show if no cached data) -->
+  {% if !has_data %}
+  <div
+    id="loadingState"
+    class="rounded-lg p-12 text-center bg-[#242424] border border-dark-border"
+  >
+    <svg
+      class="w-16 h-16 mx-auto mb-4 animate-spin-slow stroke-accent-blue"
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke-width="2"
+    >
+      <path
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+      ></path>
+    </svg>
+    <h3 class="text-xl font-semibold mb-2 text-text-primaryAlt">
+      Loading metrics data...
+    </h3>
+    <p class="text-text-muted">Fetching historical data from Prometheus</p>
+  </div>
+  {% endif %}
+
+  <!-- Metrics Grid -->
+  <div
+    id="metricsGrid"
+    class="grid grid-cols-1 gap-6"
+    {%
+    if
+    !has_data
+    %}
+    style="display: none"
+    {%
+    endif
+    %}
+  >
+    <!-- CPU Usage Graph -->
+    <div class="rounded-lg p-6 bg-[#242424] border border-dark-border">
+      <div class="flex items-center justify-between mb-4">
+        <h3 class="text-xl font-semibold text-text-primary">CPU Usage</h3>
+        <button
+          onclick="refreshMetrics()"
+          class="p-2 rounded-lg text-text-muted hover:text-text-primary bg-dark-hover hover:bg-dark-hoverAlt transition"
+          title="Refresh"
+          id="refreshBtn"
+        >
+          <svg
+            class="w-5 h-5"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+            stroke-width="2"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+            ></path>
+          </svg>
+        </button>
+      </div>
+      <div class="relative h-80">
+        <canvas id="cpuChart"></canvas>
+      </div>
+    </div>
+
+    <!-- Memory Usage Graph -->
+    <div class="rounded-lg p-6 bg-[#242424] border border-dark-border">
+      <div class="flex items-center justify-between mb-4">
+        <h3 class="text-xl font-semibold text-text-primary">Memory Usage</h3>
+        <button
+          onclick="refreshMetrics()"
+          class="p-2 rounded-lg text-text-muted hover:text-text-primary bg-dark-hover hover:bg-dark-hoverAlt transition"
+          title="Refresh"
+        >
+          <svg
+            class="w-5 h-5"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+            stroke-width="2"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+            ></path>
+          </svg>
+        </button>
+      </div>
+      <div class="relative h-80">
+        <canvas id="memoryChart"></canvas>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script>
+  // Override scroll restoration hiding immediately for metrics page
+  document.documentElement.style.visibility = "visible";
+
+  // Color palette
+  const colors = [
+    "#2776F3", // accent-blue
+    "#10B981", // accent-green
+    "#F59E0B", // orange
+    "#8B5CF6", // purple
+    "#EC4899", // pink
+    "#14B8A6", // teal
+    "#F97316", // orange-alt
+    "#6366F1", // indigo
+  ];
+
+  let cpuChart;
+  let memoryChart;
+  let isStacked = true;
+  let currentTimeRange = "1h";
+  let nodeColorMap = {}; // Store consistent colors for each node
+
+  // Initialize charts
+  async function initCharts(initialData) {
+    try {
+      let data;
+      if (initialData) {
+        // Use server-provided data
+        data = initialData;
+      } else {
+        // Fetch from API with time range
+        const response = await fetch(`/api/metrics?range=${currentTimeRange}`);
+        data = await response.json();
+      }
+
+      // Check if we have data, if not retry in 2 seconds
+      if (
+        !data.nodes ||
+        data.nodes.length === 0 ||
+        !data.timestamps ||
+        data.timestamps.length === 0
+      ) {
+        setTimeout(() => initCharts(null), 2000);
+        return;
+      }
+
+      // Show charts grid, hide loading (only if we're not using initial data)
+      if (!initialData) {
+        const loadingEl = document.getElementById("loadingState");
+        if (loadingEl) loadingEl.style.display = "none";
+        document.getElementById("metricsGrid").style.display = "grid";
+      }
+
+      // Sort nodes by name for consistent ordering
+      data.nodes.sort((a, b) => a.name.localeCompare(b.name));
+
+      // Assign consistent colors to nodes (only if not already assigned)
+      data.nodes.forEach((node) => {
+        if (!nodeColorMap[node.name]) {
+          nodeColorMap[node.name] =
+            colors[Object.keys(nodeColorMap).length % colors.length];
+        }
+      });
+
+      // Format timestamps to local time (HH:MM)
+      const formattedTimestamps = data.timestamps.map((ts) => {
+        const date = new Date(ts * 1000);
+        return date.toLocaleTimeString([], {
+          hour: "2-digit",
+          minute: "2-digit",
+        });
+      });
+
+      // CPU Chart - only create if we don't already have one
+      const cpuCtx = document.getElementById("cpuChart").getContext("2d");
+      if (cpuChart) {
+        cpuChart.destroy();
+      }
+      cpuChart = new Chart(cpuCtx, {
+        type: "line",
+        data: {
+          labels: formattedTimestamps,
+          datasets: data.nodes.map((node) => ({
+            label: node.name,
+            data: node.cpu_history,
+            borderColor: nodeColorMap[node.name],
+            backgroundColor:
+              nodeColorMap[node.name] + (isStacked ? "80" : "20"),
+            borderWidth: 2,
+            fill: isStacked,
+            tension: 0.4,
+            pointRadius: 0,
+            pointHoverRadius: 5,
+          })),
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          animation: false,
+          plugins: {
+            legend: {
+              display: true,
+              position: "bottom",
+              labels: {
+                color: "#F2F2F2",
+                padding: 20,
+                font: {
+                  size: 13,
+                  weight: "500",
+                  family: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+                },
+                usePointStyle: true,
+                pointStyle: "circle",
+                boxWidth: 8,
+                boxHeight: 8,
+              },
+            },
+            tooltip: {
+              enabled: true,
+              mode: "index",
+              intersect: false,
+              backgroundColor: "#1A1A1A",
+              titleColor: "#FFFFFF",
+              titleFont: {
+                size: 14,
+                weight: "600",
+                family: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+              },
+              bodyColor: "#E5E5E5",
+              bodyFont: {
+                size: 13,
+                weight: "500",
+              },
+              borderColor: "#404040",
+              borderWidth: 1,
+              padding: 16,
+              displayColors: true,
+              boxWidth: 10,
+              boxHeight: 10,
+              boxPadding: 6,
+              cornerRadius: 8,
+              caretSize: 6,
+              caretPadding: 12,
+              callbacks: {
+                title: function (context) {
+                  return "Time: " + context[0].label;
+                },
+                label: function (context) {
+                  const value = context.parsed.y.toFixed(1);
+                  return " " + context.dataset.label + ": " + value + "%";
+                },
+                labelTextColor: function (context) {
+                  return context.dataset.borderColor;
+                },
+              },
+            },
+          },
+          scales: {
+            x: {
+              display: true,
+              stacked: isStacked,
+              grid: {
+                color: "#313131",
+              },
+              ticks: {
+                color: "#AAAAAA",
+              },
+            },
+            y: {
+              display: true,
+              stacked: isStacked,
+              min: 0,
+              max: isStacked ? null : 100,
+              grid: {
+                color: "#313131",
+              },
+              ticks: {
+                color: "#AAAAAA",
+                callback: function (value) {
+                  return value + "%";
+                },
+              },
+            },
+          },
+          interaction: {
+            mode: "nearest",
+            axis: "x",
+            intersect: false,
+          },
+        },
+      });
+
+      // Memory Chart - only create if we don't already have one
+      const memoryCtx = document.getElementById("memoryChart").getContext("2d");
+      if (memoryChart) {
+        memoryChart.destroy();
+      }
+      memoryChart = new Chart(memoryCtx, {
+        type: "line",
+        data: {
+          labels: formattedTimestamps,
+          datasets: data.nodes.map((node) => ({
+            label: node.name,
+            data: node.memory_history,
+            borderColor: nodeColorMap[node.name],
+            backgroundColor:
+              nodeColorMap[node.name] + (isStacked ? "80" : "20"),
+            borderWidth: 2,
+            fill: isStacked,
+            tension: 0.4,
+            pointRadius: 0,
+            pointHoverRadius: 5,
+          })),
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          animation: false,
+          plugins: {
+            legend: {
+              display: true,
+              position: "bottom",
+              labels: {
+                color: "#F2F2F2",
+                padding: 20,
+                font: {
+                  size: 13,
+                  weight: "500",
+                  family: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+                },
+                usePointStyle: true,
+                pointStyle: "circle",
+                boxWidth: 8,
+                boxHeight: 8,
+              },
+            },
+            tooltip: {
+              enabled: true,
+              mode: "index",
+              intersect: false,
+              backgroundColor: "#1A1A1A",
+              titleColor: "#FFFFFF",
+              titleFont: {
+                size: 14,
+                weight: "600",
+                family: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+              },
+              bodyColor: "#E5E5E5",
+              bodyFont: {
+                size: 13,
+                weight: "500",
+              },
+              borderColor: "#404040",
+              borderWidth: 1,
+              padding: 16,
+              displayColors: true,
+              boxWidth: 10,
+              boxHeight: 10,
+              boxPadding: 6,
+              cornerRadius: 8,
+              caretSize: 6,
+              caretPadding: 12,
+              callbacks: {
+                title: function (context) {
+                  return "Time: " + context[0].label;
+                },
+                label: function (context) {
+                  const value = context.parsed.y.toFixed(1);
+                  return " " + context.dataset.label + ": " + value + "%";
+                },
+                labelTextColor: function (context) {
+                  return context.dataset.borderColor;
+                },
+              },
+            },
+          },
+          scales: {
+            x: {
+              display: true,
+              stacked: isStacked,
+              grid: {
+                color: "#313131",
+              },
+              ticks: {
+                color: "#AAAAAA",
+              },
+            },
+            y: {
+              display: true,
+              stacked: isStacked,
+              min: 0,
+              max: isStacked ? null : 100,
+              grid: {
+                color: "#313131",
+              },
+              ticks: {
+                color: "#AAAAAA",
+                callback: function (value) {
+                  return value + "%";
+                },
+              },
+            },
+          },
+          interaction: {
+            mode: "nearest",
+            axis: "x",
+            intersect: false,
+          },
+        },
+      });
+    } catch (error) {
+      console.error("Failed to load metrics:", error);
+      document.getElementById("loadingState").innerHTML = `
+          <svg class="w-16 h-16 mx-auto mb-4 stroke-[#FF4D4D]" fill="none" viewBox="0 0 24 24" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z"></path>
+          </svg>
+          <h3 class="text-xl font-semibold mb-2 text-[#FF4D4D]">Failed to load metrics</h3>
+          <p class="text-text-muted">Error loading data from Prometheus</p>
+          <button onclick="location.reload()" class="mt-4 px-4 py-2 rounded-lg bg-accent-blue hover:bg-accent-blueHover text-text-primary transition">
+              Retry
+          </button>
+      `;
+    }
+  }
+
+  async function refreshMetrics() {
+    // Show refresh indicator
+    const indicator = document.getElementById("refreshIndicator");
+    if (indicator) {
+      indicator.style.opacity = "1";
+    }
+
+    const response = await fetch(`/api/metrics?range=${currentTimeRange}`);
+    const data = await response.json();
+
+    // Sort nodes by name for consistent ordering
+    data.nodes.sort((a, b) => a.name.localeCompare(b.name));
+
+    // Assign colors to any new nodes (preserve existing mappings)
+    data.nodes.forEach((node) => {
+      if (!nodeColorMap[node.name]) {
+        nodeColorMap[node.name] =
+          colors[Object.keys(nodeColorMap).length % colors.length];
+      }
+    });
+
+    // Format timestamps to local time
+    const formattedTimestamps = data.timestamps.map((ts) => {
+      const date = new Date(ts * 1000);
+      return date.toLocaleTimeString([], {
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+    });
+
+    // Update CPU chart
+    cpuChart.data.labels = formattedTimestamps;
+    cpuChart.data.datasets = data.nodes.map((node) => ({
+      label: node.name,
+      data: node.cpu_history,
+      borderColor: nodeColorMap[node.name],
+      backgroundColor: nodeColorMap[node.name] + (isStacked ? "80" : "20"),
+      borderWidth: 2,
+      fill: isStacked,
+      tension: 0.4,
+      pointRadius: 0,
+      pointHoverRadius: 5,
+    }));
+    cpuChart.update();
+
+    // Update memory chart
+    memoryChart.data.labels = formattedTimestamps;
+    memoryChart.data.datasets = data.nodes.map((node) => ({
+      label: node.name,
+      data: node.memory_history,
+      borderColor: nodeColorMap[node.name],
+      backgroundColor: nodeColorMap[node.name] + (isStacked ? "80" : "20"),
+      borderWidth: 2,
+      fill: isStacked,
+      tension: 0.4,
+      pointRadius: 0,
+      pointHoverRadius: 5,
+    }));
+    memoryChart.update();
+
+    // Hide refresh indicator after update
+    if (indicator) {
+      setTimeout(() => {
+        indicator.style.opacity = "0";
+      }, 500);
+    }
+  }
+
+  // Toggle stacked view
+  function toggleStacked() {
+    isStacked = !isStacked;
+    const toggleBtn = document.getElementById("stackedToggle");
+    toggleBtn.textContent = isStacked ? "Stacked" : "Lines";
+    toggleBtn.classList.toggle("bg-accent-blue", isStacked);
+    toggleBtn.classList.toggle("bg-dark-hover", !isStacked);
+
+    // Update chart options
+    cpuChart.options.scales.x.stacked = isStacked;
+    cpuChart.options.scales.y.stacked = isStacked;
+    cpuChart.options.scales.y.max = isStacked ? null : 100;
+
+    memoryChart.options.scales.x.stacked = isStacked;
+    memoryChart.options.scales.y.stacked = isStacked;
+    memoryChart.options.scales.y.max = isStacked ? null : 100;
+
+    // Update datasets
+    cpuChart.data.datasets.forEach((dataset) => {
+      dataset.fill = isStacked;
+      dataset.backgroundColor =
+        nodeColorMap[dataset.label] + (isStacked ? "80" : "20");
+    });
+
+    memoryChart.data.datasets.forEach((dataset) => {
+      dataset.fill = isStacked;
+      dataset.backgroundColor =
+        nodeColorMap[dataset.label] + (isStacked ? "80" : "20");
+    });
+
+    cpuChart.update();
+    memoryChart.update();
+  }
+
+  // Initialize on page load
+  document.addEventListener("DOMContentLoaded", function () {
+    // Check if we have server-side data
+    const serverData = {{ metrics_json|safe }};
+    if (serverData && serverData.nodes && serverData.nodes.length > 0) {
+      initCharts(serverData);
+    } else {
+      initCharts(null);
+    }
+
+    // Add time range change listener
+    document
+      .getElementById("timeRange")
+      .addEventListener("change", async function (e) {
+        currentTimeRange = e.target.value;
+        await refreshMetrics();
+      });
+  });
+
+  // Auto-refresh every 10 seconds
+  setInterval(async function () {
+    if (cpuChart && memoryChart) {
+      try {
+        await refreshMetrics();
+      } catch (e) {
+        console.error("Failed to refresh metrics:", e);
+      }
+    } else {
+      // Still initializing, try again
+      try {
+        await initCharts(null);
+      } catch (e) {
+        console.error("Failed to initialize charts:", e);
+      }
+    }
+  }, 10000);
+</script>
+{% endblock %}
