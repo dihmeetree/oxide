@@ -76,6 +76,8 @@ async fn main() {
             preserve,
             control_plane,
             workers,
+            wait,
+            stage,
         } => {
             Cluster::upgrade(
                 &cli.config,
@@ -84,6 +86,8 @@ async fn main() {
                 preserve,
                 control_plane,
                 workers,
+                wait,
+                stage,
             )
             .await
         }

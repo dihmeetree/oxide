@@ -445,7 +445,14 @@ impl TalosClient {
     }
 
     /// Upgrade a Talos node to a new version
-    pub async fn upgrade(&self, node_ip: &str, image: &str, preserve: bool) -> Result<()> {
+    pub async fn upgrade(
+        &self,
+        node_ip: &str,
+        image: &str,
+        preserve: bool,
+        wait: bool,
+        stage: bool,
+    ) -> Result<()> {
         use crate::utils::command::CommandBuilder;
 
         info!("Upgrading node {} to {}...", node_ip, image);
@@ -456,12 +463,32 @@ impl TalosClient {
             args.push("--preserve");
         }
 
-        CommandBuilder::new("talosctl")
-            .args(&args)
-            .env("TALOSCONFIG", &self.talosconfig_path)
-            .context(format!("Failed to upgrade node {}", node_ip))
-            .run_silent()
-            .await?;
+        if wait {
+            args.push("--wait");
+            info!("Waiting for upgrade to complete (this may take several minutes)...");
+        }
+
+        if stage {
+            args.push("--stage");
+            info!("Staging upgrade (will apply on next reboot)...");
+        }
+
+        if wait {
+            // If waiting, show output so user can see progress
+            CommandBuilder::new("talosctl")
+                .args(&args)
+                .env("TALOSCONFIG", &self.talosconfig_path)
+                .context(format!("Failed to upgrade node {}", node_ip))
+                .run()
+                .await?;
+        } else {
+            CommandBuilder::new("talosctl")
+                .args(&args)
+                .env("TALOSCONFIG", &self.talosconfig_path)
+                .context(format!("Failed to upgrade node {}", node_ip))
+                .run_silent()
+                .await?;
+        }
 
         Ok(())
     }

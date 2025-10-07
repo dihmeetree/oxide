@@ -76,6 +76,14 @@ pub enum Commands {
         /// Upgrade worker nodes
         #[arg(long)]
         workers: bool,
+
+        /// Wait and observe the upgrade process for each node
+        #[arg(long)]
+        wait: bool,
+
+        /// Stage the upgrade (useful if upgrade fails due to open files)
+        #[arg(long)]
+        stage: bool,
     },
 
     /// Deploy nginx with Gateway API

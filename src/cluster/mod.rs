@@ -845,17 +845,19 @@ impl Cluster {
     }
 
     /// Upgrade cluster nodes to a new Talos version
-    pub async fn upgrade_cluster(
-        &self,
-        version: &str,
-        preserve: bool,
-        control_plane: bool,
-        workers: bool,
-    ) -> Result<()> {
+    pub async fn upgrade_cluster(&self, options: &UpgradeOptions<'_>) -> Result<()> {
         use crate::talos::client::TalosClient;
 
-        info!("Starting cluster upgrade to Talos {}...", version);
+        info!("Starting cluster upgrade to Talos {}...", options.version);
         info!("Cluster name: {}", self.config.cluster_name);
+        info!("");
+        info!(
+            "⚠️  Important: Nodes will be upgraded one at a time to maintain cluster availability"
+        );
+        if options.control_plane {
+            info!("⚠️  Control plane upgrades are protected - Talos will refuse upgrades that would break etcd quorum");
+        }
+        info!("");
 
         let hcloud_token = self.config.get_hcloud_token()?;
         let hcloud_client = crate::hcloud::client::HetznerCloudClient::new(hcloud_token)?;
@@ -864,10 +866,10 @@ impl Cluster {
         let talos_client = TalosClient::new(talosconfig_path);
 
         // Build the installer image from version
-        let image = format!("ghcr.io/siderolabs/installer:{}", version);
+        let image = format!("ghcr.io/siderolabs/installer:{}", options.version);
 
         // Upgrade control plane nodes
-        if control_plane {
+        if options.control_plane {
             info!("Upgrading control plane nodes...");
 
             let all_servers = hcloud_client.list_servers().await?;
@@ -884,9 +886,18 @@ impl Cluster {
                         server.name, private_ip
                     );
 
-                    talos_client.upgrade(private_ip, &image, preserve).await?;
+                    talos_client
+                        .upgrade(
+                            private_ip,
+                            &image,
+                            options.preserve,
+                            options.wait,
+                            options.stage,
+                        )
+                        .await?;
 
                     info!("✓ Upgraded {}", server.name);
+                    info!("");
                 }
             }
 
@@ -894,7 +905,7 @@ impl Cluster {
         }
 
         // Upgrade worker nodes
-        if workers {
+        if options.workers {
             info!("Upgrading worker nodes...");
 
             let all_servers = hcloud_client.list_servers().await?;
@@ -908,9 +919,18 @@ impl Cluster {
                 if let Some(private_ip) = &server.private_net.first().map(|net| &net.ip) {
                     info!("Upgrading worker node: {} ({})", server.name, private_ip);
 
-                    talos_client.upgrade(private_ip, &image, preserve).await?;
+                    talos_client
+                        .upgrade(
+                            private_ip,
+                            &image,
+                            options.preserve,
+                            options.wait,
+                            options.stage,
+                        )
+                        .await?;
 
                     info!("✓ Upgraded {}", server.name);
+                    info!("");
                 }
             }
 
@@ -972,6 +992,7 @@ impl Cluster {
     }
 
     /// Upgrade cluster (CLI entry point)
+    #[allow(clippy::too_many_arguments)]
     pub async fn upgrade(
         config_path: &std::path::Path,
         output_dir: &std::path::Path,
@@ -979,6 +1000,8 @@ impl Cluster {
         preserve: bool,
         control_plane: bool,
         workers: bool,
+        wait: bool,
+        stage: bool,
     ) -> Result<()> {
         use crate::config::ClusterConfig;
 
@@ -989,8 +1012,26 @@ impl Cluster {
         let config =
             ClusterConfig::from_file(config_path).context("Failed to load configuration")?;
         let cluster = Self::new(config, output_dir.to_path_buf());
-        cluster
-            .upgrade_cluster(&version, preserve, control_plane, workers)
-            .await
+
+        let options = UpgradeOptions {
+            version: &version,
+            preserve,
+            control_plane,
+            workers,
+            wait,
+            stage,
+        };
+
+        cluster.upgrade_cluster(&options).await
     }
+}
+
+/// Options for cluster upgrade
+pub(crate) struct UpgradeOptions<'a> {
+    version: &'a str,
+    preserve: bool,
+    control_plane: bool,
+    workers: bool,
+    wait: bool,
+    stage: bool,
 }

@@ -283,15 +283,31 @@ oxide upgrade --version v1.11.0 --control-plane --workers
 
 # Upgrade without preserving node data (default is to preserve)
 oxide upgrade --version v1.11.0 --control-plane --workers --preserve false
+
+# Wait and observe each node upgrade (shows live progress)
+oxide upgrade --version v1.11.0 --control-plane --wait
+
+# Stage the upgrade (applies on next reboot, useful if upgrade fails due to open files)
+oxide upgrade --version v1.11.0 --workers --stage
 ```
 
 **Upgrade Behavior**:
 
-- **Sequential Upgrade**: Nodes are upgraded one at a time
+- **Sequential Upgrade**: Nodes are upgraded one at a time to maintain cluster availability
 - **Automatic Image Selection**: Installer image is automatically constructed from version (e.g., `ghcr.io/siderolabs/installer:v1.11.0`)
 - **Data Preservation**: By default, node data is preserved during upgrade (`--preserve true`)
 - **Granular Control**: Can upgrade control plane and workers independently
 - **Progress Logging**: Shows detailed progress for each node upgrade
+- **etcd Quorum Protection**: Talos automatically refuses control plane upgrades that would break etcd quorum
+
+**Upgrade Options**:
+
+- `--version`: Talos version to upgrade to (required)
+- `--control-plane`: Upgrade control plane nodes
+- `--workers`: Upgrade worker nodes
+- `--preserve`: Preserve node data (default: true)
+- `--wait`: Wait and observe the upgrade process for each node (shows live output)
+- `--stage`: Stage the upgrade to apply on next reboot (useful if upgrade fails due to open files)
 
 **Example Upgrade Workflow**:
 
@@ -309,9 +325,12 @@ oxide upgrade --version v1.11.0 --workers
 **Important Notes**:
 
 - At least one of `--control-plane` or `--workers` must be specified
-- Upgrading control plane first is recommended
-- Talos will automatically handle rolling upgrades and maintain cluster availability
-- Check [Talos upgrade documentation](https://www.talos.dev/latest/talos-guides/upgrading-talos/) for version compatibility
+- **Upgrade Path**: Always upgrade through adjacent minor releases sequentially (e.g., 1.10 → 1.11 → 1.12)
+- **Control Plane First**: Recommended to upgrade control plane nodes before worker nodes
+- **One at a Time**: Nodes are upgraded sequentially to maintain cluster availability - avoid upgrading all nodes simultaneously
+- **Kubernetes Version**: Talos upgrade does NOT automatically upgrade Kubernetes version
+- **Automatic Rollback**: If new version fails to boot, Talos will automatically rollback
+- **Version Compatibility**: Check [Talos upgrade documentation](https://www.talos.dev/latest/talos-guides/upgrading-talos/) for version compatibility
 
 ### Install Prometheus Monitoring
 
