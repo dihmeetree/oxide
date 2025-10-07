@@ -235,27 +235,34 @@ impl ServerManager {
         let cluster_servers: Vec<ServerInfo> = servers
             .into_iter()
             .filter_map(|server| {
-                // Check if server belongs to this cluster
-                if let Some(cluster) = server.labels.get("cluster") {
-                    if cluster == cluster_name {
-                        let role = server
-                            .labels
-                            .get("role")
-                            .and_then(|r| match r.as_str() {
-                                "control-plane" => Some(NodeRole::ControlPlane),
-                                "worker" => Some(NodeRole::Worker),
-                                _ => None,
-                            })
-                            .unwrap_or(NodeRole::Worker);
+                // Check if server belongs to this cluster by:
+                // 1. Cluster label (for original servers)
+                // 2. Server name starts with cluster name (for autoscaled servers)
+                let belongs_to_cluster = server
+                    .labels
+                    .get("cluster")
+                    .is_some_and(|c| c == cluster_name)
+                    || server.name.starts_with(&format!("{}-", cluster_name));
 
-                        return Some(ServerInfo {
-                            server,
-                            role,
-                            index: 0,
-                        });
-                    }
+                if belongs_to_cluster {
+                    let role = server
+                        .labels
+                        .get("role")
+                        .and_then(|r| match r.as_str() {
+                            "control-plane" => Some(NodeRole::ControlPlane),
+                            "worker" => Some(NodeRole::Worker),
+                            _ => None,
+                        })
+                        .unwrap_or(NodeRole::Worker);
+
+                    Some(ServerInfo {
+                        server,
+                        role,
+                        index: 0,
+                    })
+                } else {
+                    None
                 }
-                None
             })
             .collect();
 
