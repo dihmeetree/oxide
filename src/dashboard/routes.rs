@@ -365,6 +365,16 @@ fn default_true() -> bool {
 
 /// Metrics page
 pub async fn metrics(State(state): State<AppState>) -> impl IntoResponse {
+    // Check if cache is ready and has clusters
+    let cache_ready = state.cache.is_ready().await;
+    if cache_ready {
+        let clusters = state.cache.get_clusters().await;
+        if clusters.is_empty() {
+            // No clusters found, redirect to clusters page
+            return Redirect::to("/clusters").into_response();
+        }
+    }
+
     // Get metrics history from cache
     let metrics_history = state.cache.get_node_metrics_history().await;
     let has_data = !metrics_history.is_empty();
@@ -413,7 +423,7 @@ pub async fn metrics(State(state): State<AppState>) -> impl IntoResponse {
         has_data,
         metrics_json,
     };
-    Html(template.render().unwrap())
+    Html(template.render().unwrap()).into_response()
 }
 
 /// API: Get metrics data for graphs
