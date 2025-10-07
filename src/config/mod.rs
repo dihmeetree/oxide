@@ -339,6 +339,37 @@ impl ClusterConfig {
             }],
         }
     }
+
+    /// Initialize example configuration file
+    pub async fn init(config_path: &Path) -> anyhow::Result<()> {
+        use anyhow::Context;
+        use tracing::info;
+
+        if config_path.exists() {
+            anyhow::bail!(
+                "Configuration file already exists: {}",
+                config_path.display()
+            );
+        }
+
+        let example_config = Self::example();
+        let yaml = serde_yaml::to_string(&example_config)?;
+
+        tokio::fs::write(config_path, yaml)
+            .await
+            .context("Failed to write configuration file")?;
+
+        info!("Example configuration created: {}", config_path.display());
+        info!("");
+        info!("Next steps:");
+        info!("  1. Edit the configuration file to match your requirements");
+        info!("  2. Set your Hetzner Cloud API token:");
+        info!("     export HCLOUD_TOKEN=your-token-here");
+        info!("  3. Create the cluster:");
+        info!("     oxide create");
+
+        Ok(())
+    }
 }
 
 #[cfg(test)]

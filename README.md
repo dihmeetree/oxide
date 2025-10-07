@@ -329,15 +329,15 @@ Then open http://localhost:9093 in your browser.
 oxide uninstall-prometheus
 ```
 
-### Deploy Cluster Autoscaler
+### Install Cluster Autoscaler
 
-Deploy the Kubernetes Cluster Autoscaler with Hetzner support to automatically scale worker nodes based on pod resource requests:
+Install the Kubernetes Cluster Autoscaler with Hetzner support to automatically scale worker nodes based on pod resource requests:
 
 ```bash
-oxide deploy-autoscaler
+oxide install-autoscaler
 ```
 
-This deploys the official Kubernetes Cluster Autoscaler configured for Hetzner Cloud provider. The autoscaler will:
+This installs the official Kubernetes Cluster Autoscaler configured for Hetzner Cloud provider. The autoscaler will:
 
 - Automatically add worker nodes when pods cannot be scheduled due to insufficient resources
 - Remove underutilized worker nodes to save costs

@@ -17,14 +17,14 @@ impl Autoscaler {
         Self { kubeconfig_path }
     }
 
-    /// Deploy Kubernetes Cluster Autoscaler
-    pub async fn deploy(
+    /// Install Kubernetes Cluster Autoscaler
+    pub async fn install_autoscaler(
         &self,
         config: &ClusterConfig,
         autoscaler_config: &AutoscalerConfig,
         worker_config_path: &Path,
     ) -> Result<()> {
-        info!("Deploying Kubernetes Cluster Autoscaler with Hetzner support...");
+        info!("Installing Kubernetes Cluster Autoscaler with Hetzner support...");
 
         if !autoscaler_config.enabled {
             anyhow::bail!("Autoscaler is disabled in configuration. Set autoscaler.enabled = true");
@@ -91,7 +91,7 @@ impl Autoscaler {
     }
 
     /// Uninstall cluster autoscaler
-    pub async fn uninstall(&self) -> Result<()> {
+    pub async fn uninstall_autoscaler(&self) -> Result<()> {
         info!("Uninstalling Kubernetes Cluster Autoscaler...");
 
         if !self.kubeconfig_path.exists() {
@@ -380,5 +380,33 @@ spec:
         tokio::fs::remove_file(&temp_file).await?;
 
         Ok(())
+    }
+
+    /// Install autoscaler
+    pub async fn install(config_path: &Path, output_dir: &Path) -> Result<()> {
+        use anyhow::Context;
+
+        let config = crate::config::ClusterConfig::from_file(config_path)
+            .context("Failed to load configuration")?;
+
+        let autoscaler_config = config
+            .autoscaler
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("Autoscaler not configured in cluster.yaml"))?;
+
+        let kubeconfig_path = output_dir.join("kubeconfig");
+        let worker_config_path = output_dir.join("worker.yaml");
+
+        let autoscaler = Self::new(kubeconfig_path);
+        autoscaler
+            .install_autoscaler(&config, autoscaler_config, &worker_config_path)
+            .await
+    }
+
+    /// Uninstall autoscaler
+    pub async fn uninstall(output_dir: &Path) -> Result<()> {
+        let kubeconfig_path = output_dir.join("kubeconfig");
+        let autoscaler = Self::new(kubeconfig_path);
+        autoscaler.uninstall_autoscaler().await
     }
 }

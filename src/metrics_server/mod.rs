@@ -17,8 +17,8 @@ impl MetricsServer {
         Self { kubeconfig_path }
     }
 
-    /// Install Kubernetes Metrics Server
-    pub async fn install(&self) -> Result<()> {
+    /// Install Kubernetes Metrics Server (instance method)
+    pub async fn install_metrics_server(&self) -> Result<()> {
         info!("Installing Kubernetes Metrics Server...");
 
         if !self.kubeconfig_path.exists() {
@@ -47,8 +47,8 @@ impl MetricsServer {
         Ok(())
     }
 
-    /// Uninstall Kubernetes Metrics Server
-    pub async fn uninstall(&self) -> Result<()> {
+    /// Uninstall Kubernetes Metrics Server (instance method)
+    pub async fn uninstall_metrics_server(&self) -> Result<()> {
         info!("Uninstalling Kubernetes Metrics Server...");
 
         if !self.kubeconfig_path.exists() {
@@ -70,5 +70,19 @@ impl MetricsServer {
         info!("✓ Kubernetes Metrics Server uninstalled successfully!");
 
         Ok(())
+    }
+
+    /// Install metrics server
+    pub async fn install(output_dir: &std::path::Path) -> Result<()> {
+        let kubeconfig_path = output_dir.join("kubeconfig");
+        let metrics_server = Self::new(kubeconfig_path);
+        metrics_server.install_metrics_server().await
+    }
+
+    /// Uninstall metrics server
+    pub async fn uninstall(output_dir: &std::path::Path) -> Result<()> {
+        let kubeconfig_path = output_dir.join("kubeconfig");
+        let metrics_server = Self::new(kubeconfig_path);
+        metrics_server.uninstall_metrics_server().await
     }
 }

@@ -33,7 +33,7 @@ impl Cluster {
     }
 
     /// Create a new cluster
-    pub async fn create(&self) -> Result<()> {
+    pub async fn create_cluster(&self) -> Result<()> {
         info!("Starting cluster creation...");
 
         // Check prerequisites
@@ -263,7 +263,7 @@ impl Cluster {
         if let Some(metrics_config) = &self.config.metrics_server {
             if metrics_config.enabled {
                 let metrics_server = MetricsServer::new(kubeconfig_path.clone());
-                metrics_server.install().await?;
+                metrics_server.install_metrics_server().await?;
             }
         }
 
@@ -272,17 +272,17 @@ impl Cluster {
             if prometheus_config.enabled {
                 let prometheus =
                     Prometheus::new(prometheus_config.clone(), kubeconfig_path.clone());
-                prometheus.install().await?;
+                prometheus.install_stack().await?;
             }
         }
 
-        // Deploy Cluster Autoscaler if enabled
+        // Install Cluster Autoscaler if enabled
         if let Some(autoscaler_config) = &self.config.autoscaler {
             if autoscaler_config.enabled {
                 let worker_config_path = self.output_dir.join("worker.yaml");
                 let autoscaler = Autoscaler::new(kubeconfig_path);
                 autoscaler
-                    .deploy(&self.config, autoscaler_config, &worker_config_path)
+                    .install_autoscaler(&self.config, autoscaler_config, &worker_config_path)
                     .await?;
             }
         }
@@ -291,7 +291,7 @@ impl Cluster {
     }
 
     /// Destroy the cluster
-    pub async fn destroy(&self) -> Result<()> {
+    pub async fn destroy_cluster(&self) -> Result<()> {
         info!("Destroying cluster: {}", self.config.cluster_name);
 
         let hcloud_token = self.config.get_hcloud_token()?;
@@ -327,7 +327,7 @@ impl Cluster {
     }
 
     /// Display cluster status
-    pub async fn status(&self) -> Result<()> {
+    pub async fn show_status(&self) -> Result<()> {
         info!("Fetching cluster status for: {}", self.config.cluster_name);
 
         let hcloud_token = self.config.get_hcloud_token()?;
@@ -427,7 +427,7 @@ impl Cluster {
     }
 
     /// Scale a node pool to a target count
-    pub async fn scale(
+    pub async fn scale_cluster(
         &self,
         role: crate::hcloud::server::NodeRole,
         pool_name: Option<&str>,
@@ -842,5 +842,64 @@ impl Cluster {
         );
 
         Ok(())
+    }
+
+    /// Create cluster (CLI entry point)
+    pub async fn create(config_path: &std::path::Path, output_dir: &std::path::Path) -> Result<()> {
+        use crate::config::ClusterConfig;
+        let config =
+            ClusterConfig::from_file(config_path).context("Failed to load configuration")?;
+        let cluster = Self::new(config, output_dir.to_path_buf());
+        cluster.create_cluster().await
+    }
+
+    /// Destroy cluster (CLI entry point)
+    pub async fn destroy(
+        config_path: &std::path::Path,
+        output_dir: &std::path::Path,
+    ) -> Result<()> {
+        use crate::config::ClusterConfig;
+        let config =
+            ClusterConfig::from_file(config_path).context("Failed to load configuration")?;
+        let cluster = Self::new(config, output_dir.to_path_buf());
+        cluster.destroy_cluster().await
+    }
+
+    /// Show cluster status (CLI entry point)
+    pub async fn status(config_path: &std::path::Path, output_dir: &std::path::Path) -> Result<()> {
+        use crate::config::ClusterConfig;
+        let config =
+            ClusterConfig::from_file(config_path).context("Failed to load configuration")?;
+        let cluster = Self::new(config, output_dir.to_path_buf());
+        cluster.show_status().await
+    }
+
+    /// Scale cluster (CLI entry point)
+    pub async fn scale(
+        config_path: &std::path::Path,
+        output_dir: &std::path::Path,
+        node_type: crate::hcloud::server::NodeRole,
+        pool_name: Option<&str>,
+        target_count: u32,
+        force: bool,
+        timeout: u64,
+    ) -> Result<()> {
+        use crate::config::ClusterConfig;
+        let config =
+            ClusterConfig::from_file(config_path).context("Failed to load configuration")?;
+        let cluster = Self::new(config, output_dir.to_path_buf());
+        cluster
+            .scale_cluster(node_type, pool_name, target_count, force, timeout)
+            .await
+    }
+
+    /// Upgrade cluster (CLI entry point)
+    pub async fn upgrade(
+        _config_path: &std::path::Path,
+        _output_dir: &std::path::Path,
+        _talos_version: Option<String>,
+        _kubernetes_version: Option<String>,
+    ) -> Result<()> {
+        anyhow::bail!("Cluster upgrade is not yet implemented");
     }
 }
