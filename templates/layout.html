@@ -123,6 +123,12 @@
             opacity: 1;
         }
     </style>
+    <script>
+        // Disable automatic scroll restoration to prevent flash
+        if ('scrollRestoration' in history) {
+            history.scrollRestoration = 'manual';
+        }
+    </script>
 </head>
 <body class="min-h-screen text-text-primary flex flex-col">
     <nav class="bg-dark-sidebar border-b border-dark-border">
