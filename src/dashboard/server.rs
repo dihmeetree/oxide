@@ -54,18 +54,18 @@ impl DashboardServer {
                 "/clusters/create",
                 axum::routing::post(routes::clusters_create),
             )
-            .route("/clusters/:name", get(routes::cluster_detail))
-            .route("/clusters/:cluster/nodes/:node", get(routes::node_detail))
+            .route("/clusters/{name}", get(routes::cluster_detail))
+            .route("/clusters/{cluster}/nodes/{node}", get(routes::node_detail))
             .route(
-                "/clusters/:name/scale",
+                "/clusters/{name}/scale",
                 axum::routing::post(routes::cluster_scale),
             )
             .route(
-                "/clusters/:name/upgrade",
+                "/clusters/{name}/upgrade",
                 axum::routing::post(routes::cluster_upgrade),
             )
             .route(
-                "/clusters/:name/delete",
+                "/clusters/{name}/delete",
                 axum::routing::post(routes::cluster_delete),
             )
             .route("/api/clusters", get(routes::api_clusters_list))

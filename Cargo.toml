@@ -32,7 +32,7 @@ ed25519-dalek = { version = "2.1", features = ["rand_core"] }
 # URL handling
 url = "2.5"
 # Web framework for dashboard
-axum = "0.7"
+axum = "0.8.6"
 # HTML templating
 askama = "0.14.0"
 # Tower middleware for serving static files
