@@ -270,6 +270,23 @@ impl CiliumManager {
     /// Configure CoreDNS to use public DNS servers instead of Talos hostDNS
     /// This prevents DNS timeout issues when CoreDNS tries to forward to Talos hostDNS (169.254.x.x)
     async fn configure_coredns_public_dns(&self) -> Result<()> {
+        info!("Waiting for CoreDNS to be deployed...");
+
+        // Wait for CoreDNS ConfigMap to exist (up to 5 minutes)
+        let config = PollingConfig::new(300, 5, "Waiting for CoreDNS ConfigMap");
+        config
+            .poll_until(|| async {
+                let result = CommandBuilder::new("kubectl")
+                    .args(["get", "configmap", "coredns", "-n", "kube-system"])
+                    .kubeconfig(&self.kubeconfig_path)
+                    .run_silent()
+                    .await;
+
+                // Return true if ConfigMap exists, false if not found (keep polling)
+                Ok(result.is_ok())
+            })
+            .await?;
+
         info!("Configuring CoreDNS to use public DNS servers...");
 
         let coredns_config = r#"
