@@ -7,13 +7,13 @@ use crate::utils::command::CommandBuilder;
 use crate::utils::polling::PollingConfig;
 
 /// Cilium deployment manager
-pub struct CiliumManager {
+pub struct Cilium {
     config: CiliumConfig,
     kubeconfig_path: std::path::PathBuf,
     control_plane_count: u32,
 }
 
-impl CiliumManager {
+impl Cilium {
     /// Create a new Cilium manager
     pub const fn new(
         config: CiliumConfig,
@@ -25,16 +25,6 @@ impl CiliumManager {
             kubeconfig_path,
             control_plane_count,
         }
-    }
-
-    /// Check if helm is installed
-    pub async fn check_helm_installed() -> Result<()> {
-        crate::utils::command::check_tool_installed(
-            "helm",
-            &["version"],
-            "https://helm.sh/docs/intro/install/",
-        )
-        .await
     }
 
     /// Install Cilium CNI using Helm
@@ -383,12 +373,12 @@ data:
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use crate::helm::Helm;
 
     #[tokio::test]
     async fn test_check_tools() {
         // These tests check if helm is installed
         // They may fail in CI/test environments without these tools
-        let _ = CiliumManager::check_helm_installed().await;
+        let _ = Helm::check_installed().await;
     }
 }

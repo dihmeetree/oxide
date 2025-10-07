@@ -5,14 +5,14 @@ use std::path::{Path, PathBuf};
 use tracing::info;
 
 use crate::config::{AutoscalerConfig, ClusterConfig};
-use crate::k8s::ResourceManager;
+use crate::k8s::Resources;
 use crate::utils::command::CommandBuilder;
 
-pub struct AutoscalerManager {
+pub struct Autoscaler {
     kubeconfig_path: PathBuf,
 }
 
-impl AutoscalerManager {
+impl Autoscaler {
     pub const fn new(kubeconfig_path: PathBuf) -> Self {
         Self { kubeconfig_path }
     }
@@ -39,7 +39,7 @@ impl AutoscalerManager {
 
         // 1. Apply namespace
         info!("Creating oxide-system namespace...");
-        ResourceManager::apply_manifest(
+        Resources::apply_manifest(
             &self.kubeconfig_path,
             Path::new("manifests/autoscaler/01-namespace.yaml"),
         )
@@ -56,12 +56,12 @@ impl AutoscalerManager {
 
         // 4. Apply ServiceAccount and RBAC
         info!("Creating ServiceAccount and RBAC...");
-        ResourceManager::apply_manifest(
+        Resources::apply_manifest(
             &self.kubeconfig_path,
             Path::new("manifests/autoscaler/02-serviceaccount.yaml"),
         )
         .await?;
-        ResourceManager::apply_manifest(
+        Resources::apply_manifest(
             &self.kubeconfig_path,
             Path::new("manifests/autoscaler/03-rbac.yaml"),
         )
@@ -237,7 +237,7 @@ impl AutoscalerManager {
         // Write to temp file and apply
         let temp_file = std::env::temp_dir().join("hcloud-secret.yaml");
         tokio::fs::write(&temp_file, secret_yaml).await?;
-        ResourceManager::apply_manifest(&self.kubeconfig_path, &temp_file).await?;
+        Resources::apply_manifest(&self.kubeconfig_path, &temp_file).await?;
         tokio::fs::remove_file(&temp_file).await?;
 
         Ok(())
@@ -267,7 +267,7 @@ data:
 
         let temp_file = std::env::temp_dir().join("talos-config.yaml");
         tokio::fs::write(&temp_file, configmap_yaml).await?;
-        ResourceManager::apply_manifest(&self.kubeconfig_path, &temp_file).await?;
+        Resources::apply_manifest(&self.kubeconfig_path, &temp_file).await?;
         tokio::fs::remove_file(&temp_file).await?;
 
         Ok(())
@@ -376,7 +376,7 @@ spec:
 
         let temp_file = std::env::temp_dir().join("autoscaler-deployment.yaml");
         tokio::fs::write(&temp_file, deployment_yaml).await?;
-        ResourceManager::apply_manifest(&self.kubeconfig_path, &temp_file).await?;
+        Resources::apply_manifest(&self.kubeconfig_path, &temp_file).await?;
         tokio::fs::remove_file(&temp_file).await?;
 
         Ok(())

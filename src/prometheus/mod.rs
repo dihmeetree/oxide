@@ -7,12 +7,12 @@ use crate::utils::command::CommandBuilder;
 use crate::utils::polling::PollingConfig;
 
 /// Prometheus deployment manager
-pub struct PrometheusManager {
+pub struct Prometheus {
     config: PrometheusConfig,
     kubeconfig_path: std::path::PathBuf,
 }
 
-impl PrometheusManager {
+impl Prometheus {
     /// Create a new Prometheus manager
     pub fn new(config: PrometheusConfig, kubeconfig_path: std::path::PathBuf) -> Self {
         Self {
@@ -404,7 +404,7 @@ mod tests {
             helm_values: serde_yaml::Value::Null,
         };
 
-        let manager = PrometheusManager::new(config, std::path::PathBuf::from("test"));
-        assert_eq!(manager.calculate_retention_size(), "45GB");
+        let prometheus = Prometheus::new(config, std::path::PathBuf::from("test"));
+        assert_eq!(prometheus.calculate_retention_size(), "45GB");
     }
 }

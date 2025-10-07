@@ -5,4 +5,4 @@ pub mod resources;
 
 pub use client::KubernetesClient;
 pub use nodes::NodeManager;
-pub use resources::ResourceManager;
+pub use resources::Resources;

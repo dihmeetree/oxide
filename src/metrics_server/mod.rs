@@ -8,11 +8,11 @@ use crate::utils::command::CommandBuilder;
 const METRICS_SERVER_URL: &str =
     "https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml";
 
-pub struct MetricsServerManager {
+pub struct MetricsServer {
     kubeconfig_path: PathBuf,
 }
 
-impl MetricsServerManager {
+impl MetricsServer {
     pub const fn new(kubeconfig_path: PathBuf) -> Self {
         Self { kubeconfig_path }
     }

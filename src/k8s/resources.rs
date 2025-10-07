@@ -6,9 +6,9 @@ use tracing::info;
 use crate::utils::command::CommandBuilder;
 
 /// Generic Kubernetes resource management
-pub struct ResourceManager;
+pub struct Resources;
 
-impl ResourceManager {
+impl Resources {
     /// Apply a Kubernetes manifest file
     pub async fn apply_manifest(kubeconfig_path: &Path, manifest_path: &Path) -> Result<()> {
         info!("Applying Kubernetes manifest: {}", manifest_path.display());

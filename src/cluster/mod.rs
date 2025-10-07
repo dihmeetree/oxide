@@ -10,15 +10,16 @@ use anyhow::{Context, Result};
 use std::path::PathBuf;
 use tracing::info;
 
-use crate::autoscaler::AutoscalerManager;
-use crate::cilium::CiliumManager;
+use crate::autoscaler::Autoscaler;
+use crate::cilium::Cilium;
 use crate::config::ClusterConfig;
 use crate::hcloud::network::NetworkManager;
 use crate::hcloud::server::{ServerInfo, ServerManager};
 use crate::hcloud::{FirewallManager, HetznerCloudClient, SSHKeyManager};
+use crate::helm::Helm;
 use crate::k8s::{KubernetesClient, NodeManager};
-use crate::metrics_server::MetricsServerManager;
-use crate::prometheus::PrometheusManager;
+use crate::metrics_server::MetricsServer;
+use crate::prometheus::Prometheus;
 use crate::talos::{TalosClient, TalosConfigGenerator};
 
 pub struct Cluster {
@@ -42,9 +43,7 @@ impl Cluster {
         KubernetesClient::check_kubectl_installed()
             .await
             .context("kubectl is required")?;
-        CiliumManager::check_helm_installed()
-            .await
-            .context("helm is required")?;
+        Helm::check_installed().await.context("helm is required")?;
 
         info!("Cluster name: {}", self.config.cluster_name);
 
@@ -197,13 +196,13 @@ impl Cluster {
         // Install Cilium
         info!("Installing Cilium CNI...");
         let control_plane_count = self.config.control_planes.iter().map(|cp| cp.count).sum();
-        let cilium_manager = CiliumManager::new(
+        let cilium = Cilium::new(
             self.config.cilium.clone(),
             kubeconfig_path.clone(),
             control_plane_count,
         );
-        cilium_manager.install().await?;
-        cilium_manager.wait_for_ready(300).await?;
+        cilium.install().await?;
+        cilium.wait_for_ready(300).await?;
 
         info!("✓ Cluster creation completed successfully!");
         info!("");
@@ -263,17 +262,17 @@ impl Cluster {
         // Install Metrics Server if enabled
         if let Some(metrics_config) = &self.config.metrics_server {
             if metrics_config.enabled {
-                let manager = MetricsServerManager::new(kubeconfig_path.clone());
-                manager.install().await?;
+                let metrics_server = MetricsServer::new(kubeconfig_path.clone());
+                metrics_server.install().await?;
             }
         }
 
         // Install Prometheus if enabled
         if let Some(prometheus_config) = &self.config.prometheus {
             if prometheus_config.enabled {
-                let manager =
-                    PrometheusManager::new(prometheus_config.clone(), kubeconfig_path.clone());
-                manager.install().await?;
+                let prometheus =
+                    Prometheus::new(prometheus_config.clone(), kubeconfig_path.clone());
+                prometheus.install().await?;
             }
         }
 
@@ -281,8 +280,8 @@ impl Cluster {
         if let Some(autoscaler_config) = &self.config.autoscaler {
             if autoscaler_config.enabled {
                 let worker_config_path = self.output_dir.join("worker.yaml");
-                let manager = AutoscalerManager::new(kubeconfig_path);
-                manager
+                let autoscaler = Autoscaler::new(kubeconfig_path);
+                autoscaler
                     .deploy(&self.config, autoscaler_config, &worker_config_path)
                     .await?;
             }
@@ -413,12 +412,12 @@ impl Cluster {
             info!("");
             info!("Cilium Status:");
             let control_plane_count = self.config.control_planes.iter().map(|cp| cp.count).sum();
-            let cilium_manager = CiliumManager::new(
+            let cilium = Cilium::new(
                 self.config.cilium.clone(),
                 kubeconfig_path,
                 control_plane_count,
             );
-            match cilium_manager.get_status().await {
+            match cilium.get_status().await {
                 Ok(status) => info!("{}", status),
                 Err(e) => info!("Could not get Cilium status: {}", e),
             }

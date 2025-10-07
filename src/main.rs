@@ -7,6 +7,7 @@ mod cilium;
 mod cluster;
 mod config;
 mod hcloud;
+mod helm;
 mod k8s;
 mod metrics_server;
 mod prometheus;
@@ -19,13 +20,13 @@ use std::path::PathBuf;
 use tracing::{error, info};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
-use crate::autoscaler::AutoscalerManager;
+use crate::autoscaler::Autoscaler;
 use crate::cluster::Cluster;
 use crate::config::ClusterConfig;
 use crate::hcloud::server::NodeRole;
-use crate::k8s::ResourceManager;
-use crate::metrics_server::MetricsServerManager;
-use crate::prometheus::PrometheusManager;
+use crate::k8s::Resources;
+use crate::metrics_server::MetricsServer;
+use crate::prometheus::Prometheus;
 
 #[derive(Parser)]
 #[command(name = "oxide")]
@@ -270,14 +271,14 @@ async fn deploy_nginx(cli: &Cli) -> Result<()> {
     if !nginx_deployment_path.exists() {
         anyhow::bail!("nginx-deployment.yaml not found in current directory");
     }
-    ResourceManager::apply_manifest(&kubeconfig_path, nginx_deployment_path).await?;
+    Resources::apply_manifest(&kubeconfig_path, nginx_deployment_path).await?;
 
     // Apply Gateway and HTTPRoute
     let nginx_gateway_path = std::path::Path::new("nginx-gateway.yaml");
     if !nginx_gateway_path.exists() {
         anyhow::bail!("nginx-gateway.yaml not found in current directory");
     }
-    ResourceManager::apply_manifest(&kubeconfig_path, nginx_gateway_path).await?;
+    Resources::apply_manifest(&kubeconfig_path, nginx_gateway_path).await?;
 
     info!("✓ nginx deployed successfully with Gateway API!");
     info!("");
@@ -307,16 +308,16 @@ async fn install_prometheus(cli: &Cli) -> Result<()> {
         );
     }
 
-    let prometheus_manager = PrometheusManager::new(prometheus_config.clone(), kubeconfig_path);
+    let prometheus = Prometheus::new(prometheus_config.clone(), kubeconfig_path);
 
-    prometheus_manager.install().await?;
-    prometheus_manager.wait_for_ready(600).await?;
+    prometheus.install().await?;
+    prometheus.wait_for_ready(600).await?;
 
     info!("✓ Prometheus monitoring stack installed successfully!");
     info!("");
 
     if prometheus_config.enable_grafana {
-        let grafana_info = prometheus_manager.get_grafana_info().await?;
+        let grafana_info = prometheus.get_grafana_info().await?;
         info!("{}", grafana_info);
     }
 
@@ -342,15 +343,15 @@ async fn prometheus_status(cli: &Cli) -> Result<()> {
         );
     }
 
-    let prometheus_manager = PrometheusManager::new(prometheus_config.clone(), kubeconfig_path);
+    let prometheus = Prometheus::new(prometheus_config.clone(), kubeconfig_path);
 
-    let status = prometheus_manager.get_status().await?;
+    let status = prometheus.get_status().await?;
     info!("Prometheus Status:");
     info!("{}", status);
 
     if prometheus_config.enable_grafana {
         info!("");
-        let grafana_info = prometheus_manager.get_grafana_info().await?;
+        let grafana_info = prometheus.get_grafana_info().await?;
         info!("{}", grafana_info);
     }
 
@@ -375,8 +376,8 @@ async fn uninstall_prometheus(cli: &Cli) -> Result<()> {
         );
     }
 
-    let prometheus_manager = PrometheusManager::new(prometheus_config, kubeconfig_path);
-    prometheus_manager.uninstall().await?;
+    let prometheus = Prometheus::new(prometheus_config, kubeconfig_path);
+    prometheus.uninstall().await?;
 
     info!("✓ Prometheus monitoring stack uninstalled successfully!");
 
@@ -395,8 +396,8 @@ async fn deploy_autoscaler(cli: &Cli) -> Result<()> {
     let kubeconfig_path = cli.output.join("kubeconfig");
     let worker_config_path = cli.output.join("worker.yaml");
 
-    let manager = AutoscalerManager::new(kubeconfig_path);
-    manager
+    let autoscaler = Autoscaler::new(kubeconfig_path);
+    autoscaler
         .deploy(&config, autoscaler_config, &worker_config_path)
         .await
 }
@@ -404,20 +405,20 @@ async fn deploy_autoscaler(cli: &Cli) -> Result<()> {
 /// Uninstall cluster autoscaler
 async fn uninstall_autoscaler(cli: &Cli) -> Result<()> {
     let kubeconfig_path = cli.output.join("kubeconfig");
-    let manager = AutoscalerManager::new(kubeconfig_path);
-    manager.uninstall().await
+    let autoscaler = Autoscaler::new(kubeconfig_path);
+    autoscaler.uninstall().await
 }
 
 /// Install Kubernetes Metrics Server
 async fn install_metrics_server(cli: &Cli) -> Result<()> {
     let kubeconfig_path = cli.output.join("kubeconfig");
-    let manager = MetricsServerManager::new(kubeconfig_path);
-    manager.install().await
+    let metrics_server = MetricsServer::new(kubeconfig_path);
+    metrics_server.install().await
 }
 
 /// Uninstall Kubernetes Metrics Server
 async fn uninstall_metrics_server(cli: &Cli) -> Result<()> {
     let kubeconfig_path = cli.output.join("kubeconfig");
-    let manager = MetricsServerManager::new(kubeconfig_path);
-    manager.uninstall().await
+    let metrics_server = MetricsServer::new(kubeconfig_path);
+    metrics_server.uninstall().await
 }
