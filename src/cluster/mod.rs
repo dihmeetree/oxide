@@ -269,6 +269,16 @@ impl Cluster {
                 let prometheus =
                     Prometheus::new(prometheus_config.clone(), kubeconfig_path.clone());
                 prometheus.install_stack().await?;
+
+                // Configure Cilium monitoring after Prometheus is installed
+                let control_plane_count =
+                    self.config.control_planes.iter().map(|cp| cp.count).sum();
+                let cilium = Cilium::new(
+                    self.config.cilium.clone(),
+                    kubeconfig_path.clone(),
+                    control_plane_count,
+                );
+                cilium.configure_monitoring().await?;
             }
         }
 

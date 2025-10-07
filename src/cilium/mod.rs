@@ -370,6 +370,33 @@ data:
         info!("CoreDNS configured successfully");
         Ok(())
     }
+
+    /// Configure Cilium monitoring by applying PodMonitor resources
+    /// This enables Prometheus to scrape metrics from Cilium agent, operator, and Hubble
+    pub async fn configure_monitoring(&self) -> Result<()> {
+        info!("Configuring Cilium monitoring...");
+
+        let manifest_dir = std::path::Path::new("manifests/cilium");
+
+        if !manifest_dir.exists() {
+            info!("Cilium monitoring manifests not found, skipping");
+            return Ok(());
+        }
+
+        // Apply all Cilium monitoring manifests (PodMonitors and Grafana dashboards)
+        for entry in std::fs::read_dir(manifest_dir)? {
+            let entry = entry?;
+            let path = entry.path();
+
+            if path.extension().and_then(|s| s.to_str()) == Some("yaml") {
+                crate::k8s::resources::Resources::apply_manifest(&self.kubeconfig_path, &path)
+                    .await?;
+            }
+        }
+
+        info!("Cilium monitoring configured successfully");
+        Ok(())
+    }
 }
 
 #[cfg(test)]

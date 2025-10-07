@@ -1,0 +1,48 @@
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: cilium-agent
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/name: cilium-agent
+    release: prometheus
+spec:
+  selector:
+    matchLabels:
+      k8s-app: cilium
+  namespaceSelector:
+    matchNames:
+      - kube-system
+  podTargetLabels:
+    - k8s-app
+  podMetricsEndpoints:
+    - port: prometheus
+      interval: 30s
+      path: /metrics
+      relabelings:
+        - sourceLabels: [__meta_kubernetes_pod_node_name]
+          targetLabel: __tmp_node
+          action: replace
+        - sourceLabels: [__meta_kubernetes_pod_name]
+          targetLabel: __tmp_pod
+          action: replace
+        - sourceLabels: [__meta_kubernetes_namespace]
+          targetLabel: __tmp_namespace
+          action: replace
+        - sourceLabels: [__meta_kubernetes_pod_label_k8s_app]
+          targetLabel: __tmp_k8s_app
+          action: replace
+      metricRelabelings:
+        - sourceLabels: [__tmp_node]
+          targetLabel: node
+          action: replace
+        - sourceLabels: [__tmp_pod]
+          targetLabel: pod
+          action: replace
+        - sourceLabels: [__tmp_namespace]
+          targetLabel: namespace
+          action: replace
+        - sourceLabels: [__tmp_k8s_app]
+          targetLabel: k8s_app
+          action: replace

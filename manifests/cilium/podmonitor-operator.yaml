@@ -1,0 +1,42 @@
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: cilium-operator
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/name: cilium-operator
+    release: prometheus
+spec:
+  selector:
+    matchLabels:
+      io.cilium/app: operator
+  namespaceSelector:
+    matchNames:
+      - kube-system
+  podTargetLabels:
+    - io.cilium/app
+  podMetricsEndpoints:
+    - port: prometheus
+      interval: 30s
+      path: /metrics
+      relabelings:
+        - sourceLabels: [__meta_kubernetes_pod_name]
+          targetLabel: __tmp_pod
+          action: replace
+        - sourceLabels: [__meta_kubernetes_namespace]
+          targetLabel: __tmp_namespace
+          action: replace
+        - sourceLabels: [__meta_kubernetes_pod_label_io_cilium_app]
+          targetLabel: __tmp_k8s_app
+          action: replace
+      metricRelabelings:
+        - sourceLabels: [__tmp_pod]
+          targetLabel: pod
+          action: replace
+        - sourceLabels: [__tmp_namespace]
+          targetLabel: namespace
+          action: replace
+        - sourceLabels: [__tmp_k8s_app]
+          targetLabel: k8s_app
+          action: replace
