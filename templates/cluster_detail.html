@@ -497,10 +497,10 @@
     const btnLoading = document.getElementById("deleteButtonLoading");
 
     // Check confirmation text
-    if (confirmText !== "delete this cluster") {
+    if (confirmText !== "delete cluster {{ cluster.name }}") {
       showToast(
         "Confirmation Required",
-        'Please type "delete this cluster" to confirm deletion',
+        'Please type "delete cluster {{ cluster.name }}" to confirm deletion',
         "error"
       );
       return;
@@ -551,7 +551,7 @@
   function validateDeleteInput() {
     const confirmText = document.getElementById("deleteConfirmText").value;
     const deleteBtn = document.getElementById("deleteSubmitBtn");
-    deleteBtn.disabled = confirmText !== "delete this cluster";
+    deleteBtn.disabled = confirmText !== "delete cluster {{ cluster.name }}";
   }
 </script>
 
@@ -898,7 +898,7 @@
             Type
             <span
               class="font-mono px-2 py-0.5 rounded bg-[#FF4D4D]/15 text-[#FF4D4D]"
-              >delete this cluster</span
+              >delete cluster {{ cluster.name }}</span
             >
             to confirm:
           </label>
@@ -907,7 +907,7 @@
             id="deleteConfirmText"
             autocomplete="off"
             class="w-full px-4 py-2 rounded-lg bg-dark-hover border border-dark-border text-text-primary focus:!border-[#FF4D4D] focus:![--tw-ring-color:rgb(255_77_77)]"
-            placeholder="delete this cluster"
+            placeholder="delete cluster {{ cluster.name }}"
             oninput="validateDeleteInput()"
           />
         </div>
