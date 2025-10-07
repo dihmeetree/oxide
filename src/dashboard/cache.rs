@@ -63,8 +63,12 @@ impl ClusterCache {
             return None;
         }
 
-        // Build ClusterDetail from cached servers
-        Some(build_cluster_detail(cluster_name, &cluster_servers))
+        // Build ClusterDetail from cached servers and node details
+        Some(build_cluster_detail(
+            cluster_name,
+            &cluster_servers,
+            &data.node_details,
+        ))
     }
 
     /// Get detailed node info with pods from cache
@@ -336,7 +340,11 @@ async fn fetch_all_node_details(
 }
 
 /// Build detailed cluster info
-fn build_cluster_detail(cluster_name: &str, cluster_servers: &[&Server]) -> ClusterDetail {
+fn build_cluster_detail(
+    cluster_name: &str,
+    cluster_servers: &[&Server],
+    node_details: &std::collections::HashMap<String, NodeDetail>,
+) -> ClusterDetail {
     use super::templates::NodeInfo;
 
     let status = if cluster_servers.iter().all(|s| s.status == "running") {
@@ -388,6 +396,17 @@ fn build_cluster_detail(cluster_name: &str, cluster_servers: &[&Server]) -> Clus
                 .map(|net| net.ip.clone())
                 .unwrap_or_else(|| "N/A".to_string());
 
+            // Get metrics from node_details if available
+            let (cpu_usage_percent, memory_usage_percent) =
+                if let Some(detail) = node_details.get(&server.name) {
+                    (
+                        detail.cpu_usage_percent.clone(),
+                        detail.memory_usage_percent.clone(),
+                    )
+                } else {
+                    ("N/A".to_string(), "N/A".to_string())
+                };
+
             NodeInfo {
                 name: server.name.clone(),
                 role,
@@ -401,6 +420,8 @@ fn build_cluster_detail(cluster_name: &str, cluster_servers: &[&Server]) -> Clus
                     .next()
                     .unwrap_or("Unknown")
                     .to_string(),
+                cpu_usage_percent,
+                memory_usage_percent,
             }
         })
         .collect();

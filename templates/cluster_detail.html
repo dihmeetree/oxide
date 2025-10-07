@@ -116,6 +116,8 @@
                     <tr class="border-b border-dark-border">
                         <th class="px-6 py-3 text-left text-sm font-medium text-text-secondary">Name</th>
                         <th class="px-6 py-3 text-left text-sm font-medium text-text-secondary">Role</th>
+                        <th class="px-6 py-3 text-left text-sm font-medium text-text-secondary">CPU</th>
+                        <th class="px-6 py-3 text-left text-sm font-medium text-text-secondary">Memory</th>
                         <th class="px-6 py-3 text-left text-sm font-medium text-text-secondary">Public IP</th>
                         <th class="px-6 py-3 text-left text-sm font-medium text-text-secondary">Private IP</th>
                         <th class="px-6 py-3 text-left text-sm font-medium text-text-secondary">Type</th>
@@ -139,6 +141,12 @@
                                 {{ node.role }}
                             </span>
                             {% endif %}
+                        </td>
+                        <td class="px-6 py-4">
+                            <span class="text-base font-mono text-text-primaryAlt">{{ node.cpu_usage_percent }}</span>
+                        </td>
+                        <td class="px-6 py-4">
+                            <span class="text-base font-mono text-text-primaryAlt">{{ node.memory_usage_percent }}</span>
                         </td>
                         <td class="px-6 py-4">
                             <span class="text-base font-mono text-text-primaryAlt">{{ node.ip }}</span>

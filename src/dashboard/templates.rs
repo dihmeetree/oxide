@@ -73,6 +73,8 @@ pub struct NodeInfo {
     pub status: String,
     pub server_type: String,
     pub created: String,
+    pub cpu_usage_percent: String,
+    pub memory_usage_percent: String,
 }
 
 /// Node detail page
