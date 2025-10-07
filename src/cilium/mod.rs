@@ -257,8 +257,9 @@ impl Cilium {
             .await
     }
 
-    /// Configure CoreDNS to use public DNS servers instead of Talos hostDNS
-    /// This prevents DNS timeout issues when CoreDNS tries to forward to Talos hostDNS (169.254.x.x)
+    /// Configure CoreDNS to use Hetzner private DNS servers
+    /// This is required because Cilium's VXLAN tunneling prevents pods from reaching Talos Host DNS (169.254.x.x)
+    /// We use Hetzner's private DNS servers which are accessible from the pod network
     async fn configure_coredns_public_dns(&self) -> Result<()> {
         info!("Waiting for CoreDNS to be deployed...");
 
@@ -277,7 +278,7 @@ impl Cilium {
             })
             .await?;
 
-        info!("Configuring CoreDNS to use public DNS servers...");
+        info!("Configuring CoreDNS to use Hetzner private DNS servers...");
 
         let coredns_config = r"
 data:
@@ -298,7 +299,7 @@ data:
             fallthrough in-addr.arpa ip6.arpa
             ttl 30
         }
-        forward . 1.1.1.1 8.8.8.8 {
+        forward . 185.12.64.1 185.12.64.2 {
            max_concurrent 1000
         }
         cache 30 {
