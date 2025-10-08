@@ -171,6 +171,11 @@
             <th
               class="px-6 py-3 text-center text-sm font-medium text-text-secondary"
             >
+              Status
+            </th>
+            <th
+              class="px-6 py-3 text-center text-sm font-medium text-text-secondary"
+            >
               CPU
             </th>
             <th
@@ -192,11 +197,6 @@
               class="px-6 py-3 text-center text-sm font-medium text-text-secondary"
             >
               Type
-            </th>
-            <th
-              class="px-6 py-3 text-center text-sm font-medium text-text-secondary"
-            >
-              Status
             </th>
             <th
               class="px-6 py-3 text-center text-sm font-medium text-text-secondary"
@@ -237,21 +237,6 @@
               {% endif %}
             </td>
             <td class="px-6 py-4 whitespace-nowrap text-center">
-              <span class="text-base font-mono text-text-primaryAlt">{{ node.cpu_usage_percent }}</span>
-            </td>
-            <td class="px-6 py-4 whitespace-nowrap text-center">
-              <span class="text-base font-mono text-text-primaryAlt">{{ node.memory_usage_percent }}</span>
-            </td>
-            <td class="px-6 py-4 whitespace-nowrap text-center">
-              <span class="text-base font-mono text-text-primaryAlt">{{ node.ip }}</span>
-            </td>
-            <td class="px-6 py-4 whitespace-nowrap text-center">
-              <span class="text-base font-mono text-text-primaryAlt">{{ node.private_ip }}</span>
-            </td>
-            <td class="px-6 py-4 whitespace-nowrap text-center">
-              <span class="text-base text-text-primaryAlt">{{ node.server_type }}</span>
-            </td>
-            <td class="px-6 py-4 whitespace-nowrap text-center">
               {% if node.status == "running" %}
               <span
                 class="inline-flex items-center px-2.5 py-1 rounded-md text-sm font-medium bg-accent-green/15 text-accent-green"
@@ -268,6 +253,21 @@
                 {{ node.status }}
               </span>
               {% endif %}
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-center">
+              <span class="text-base font-mono text-text-primaryAlt">{{ node.cpu_usage_percent }}</span>
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-center">
+              <span class="text-base font-mono text-text-primaryAlt">{{ node.memory_usage_percent }}</span>
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-center">
+              <span class="text-base font-mono text-text-primaryAlt">{{ node.ip }}</span>
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-center">
+              <span class="text-base font-mono text-text-primaryAlt">{{ node.private_ip }}</span>
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-center">
+              <span class="text-base text-text-primaryAlt">{{ node.server_type }}</span>
             </td>
             <td class="px-6 py-4 whitespace-nowrap text-center">
               <span class="text-base text-text-secondary">{{ node.created }}</span>
