@@ -35,17 +35,39 @@ impl TalosConfigGenerator {
             .await
             .context("Failed to create output directory")?;
 
-        // Check if secrets file already exists
+        // Always generate new secrets file
         let secrets_path = output_dir.join("secrets.yaml");
-        let secrets_exists = secrets_path.exists();
+        info!("Generating new secrets file...");
+        let secrets_output = Command::new("talosctl")
+            .args([
+                "gen",
+                "secrets",
+                "-o",
+                secrets_path.to_str().context("Invalid secrets path")?,
+            ])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .output()
+            .await
+            .context("Failed to execute talosctl gen secrets")?;
+
+        if !secrets_output.status.success() {
+            let stderr = String::from_utf8_lossy(&secrets_output.stderr);
+            anyhow::bail!("talosctl gen secrets failed: {}", stderr);
+        }
+        info!("Secrets file generated successfully");
 
         // Convert paths to strings with proper error handling
         let output_dir_str = output_dir
             .to_str()
             .context("Output directory path contains invalid UTF-8")?;
 
+        let secrets_path_str = secrets_path
+            .to_str()
+            .context("Secrets path contains invalid UTF-8")?;
+
         // Generate base configuration using talosctl with patches
-        let mut args = vec![
+        let args = vec![
             "gen",
             "config",
             &self.cluster_name,
@@ -57,6 +79,8 @@ impl TalosConfigGenerator {
             "--force",               // Overwrite existing config files
             "--with-docs=false",     // Exclude docs to stay under 32KB user_data limit
             "--with-examples=false", // Exclude examples to stay under 32KB user_data limit
+            "--with-secrets",
+            secrets_path_str,
             // Control plane patches
             "--config-patch-control-plane",
             "@patches/control-plane.yaml",
@@ -64,17 +88,6 @@ impl TalosConfigGenerator {
             "--config-patch-worker",
             "@patches/worker.yaml",
         ];
-
-        // Only use existing secrets if the file exists
-        let secrets_path_str;
-        if secrets_exists {
-            info!("Using existing secrets file");
-            secrets_path_str = secrets_path
-                .to_str()
-                .context("Secrets path contains invalid UTF-8")?;
-            args.push("--with-secrets");
-            args.push(secrets_path_str);
-        }
 
         let output = Command::new("talosctl")
             .args(&args)

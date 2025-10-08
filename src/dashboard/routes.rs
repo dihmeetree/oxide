@@ -284,7 +284,7 @@ fn create_cluster_config_from_form(form: &CreateClusterForm) -> ClusterConfig {
             version: form.talos_version.clone(),
             kubernetes_version: "1.30.0".to_string(),
             cluster_endpoint: None,
-            hcloud_snapshot_id: None,
+            hcloud_snapshot_id: Some(form.hcloud_snapshot_id.clone()),
             config_patches: vec![],
         },
         cilium: CiliumConfig {
@@ -321,6 +321,7 @@ pub struct CreateClusterForm {
     pub cluster_name: String,
     pub hcloud_token: String,
     pub talos_version: String,
+    pub hcloud_snapshot_id: String,
     pub control_plane_count: u32,
     pub worker_count: u32,
     pub server_type: String,

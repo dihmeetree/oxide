@@ -48,6 +48,31 @@
         html {
             overflow-y: scroll;
         }
+        /* Custom scrollbar styling */
+        ::-webkit-scrollbar {
+            width: 12px;
+            height: 12px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #1E1E1E;
+            border-radius: 6px;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #404040;
+            border-radius: 6px;
+            border: 2px solid #1E1E1E;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #505050;
+        }
+        ::-webkit-scrollbar-corner {
+            background: #1E1E1E;
+        }
+        /* Firefox scrollbar */
+        * {
+            scrollbar-width: thin;
+            scrollbar-color: #404040 #1E1E1E;
+        }
         @keyframes spin-slow {
             from { transform: rotate(0deg); }
             to { transform: rotate(360deg); }

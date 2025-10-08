@@ -55,6 +55,11 @@ impl Cluster {
     pub async fn create_cluster(&self) -> Result<()> {
         info!("Starting cluster creation...");
 
+        // Ensure output directory exists
+        tokio::fs::create_dir_all(&self.output_dir)
+            .await
+            .context("Failed to create output directory")?;
+
         // Check prerequisites
         TalosClient::check_talosctl_installed()
             .await
@@ -345,6 +350,14 @@ impl Cluster {
         network_manager
             .delete_network(&self.config.cluster_name)
             .await?;
+
+        // Remove output directory
+        if self.output_dir.exists() {
+            info!("Removing output directory: {:?}", self.output_dir);
+            tokio::fs::remove_dir_all(&self.output_dir)
+                .await
+                .context("Failed to remove output directory")?;
+        }
 
         info!("[OK] Cluster destroyed successfully!");
 
