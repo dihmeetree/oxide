@@ -3,6 +3,7 @@ use anyhow::Result;
 use axum::{routing::get, Router};
 use std::net::SocketAddr;
 use std::path::PathBuf;
+use tower_http::compression::CompressionLayer;
 use tower_http::services::ServeDir;
 use tower_http::trace::TraceLayer;
 use tracing::info;
@@ -89,6 +90,7 @@ impl DashboardServer {
                 output_dir: self.output_dir,
                 cache,
             })
+            .layer(CompressionLayer::new())
             .layer(TraceLayer::new_for_http());
 
         let listener = tokio::net::TcpListener::bind(&self.addr).await?;

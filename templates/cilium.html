@@ -225,43 +225,6 @@
     </div>
   </div>
 
-  <!-- Configuration -->
-  <div class="rounded-lg bg-[#242424] border border-dark-border">
-    <div class="p-6 border-b border-dark-border">
-      <h3 class="text-xl font-semibold text-text-primary">Configuration</h3>
-    </div>
-    <div class="p-6">
-      <dl class="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <div>
-          <dt class="text-sm font-medium text-text-secondary mb-1">
-            Hubble UI
-          </dt>
-          <dd class="text-base text-text-primary">
-            {% if hubble_enabled %}Enabled{% else %}Disabled{% endif %}
-          </dd>
-        </div>
-        <div>
-          <dt class="text-sm font-medium text-text-secondary mb-1">IPv6</dt>
-          <dd class="text-base text-text-primary">
-            {% if ipv6_enabled %}Enabled{% else %}Disabled{% endif %}
-          </dd>
-        </div>
-        <div>
-          <dt class="text-sm font-medium text-text-secondary mb-1">
-            Namespace
-          </dt>
-          <dd class="text-base font-mono text-text-primary">kube-system</dd>
-        </div>
-        <div>
-          <dt class="text-sm font-medium text-text-secondary mb-1">
-            Chart Version
-          </dt>
-          <dd class="text-base text-text-primary">{{ cilium_version }}</dd>
-        </div>
-      </dl>
-    </div>
-  </div>
-
   <!-- CPU Usage Chart -->
   <div class="rounded-lg p-6 bg-[#242424] border border-dark-border">
     <div class="flex items-center justify-between mb-4">
@@ -320,6 +283,43 @@
       <canvas id="memoryChart"></canvas>
     </div>
     <div id="memoryLegend" class="mt-4 max-h-32 overflow-y-auto scrollbar-thin scrollbar-thumb-dark-border scrollbar-track-dark-bg"></div>
+  </div>
+
+  <!-- Configuration -->
+  <div class="rounded-lg bg-[#242424] border border-dark-border">
+    <div class="p-6 border-b border-dark-border">
+      <h3 class="text-xl font-semibold text-text-primary">Configuration</h3>
+    </div>
+    <div class="p-6">
+      <dl class="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div>
+          <dt class="text-sm font-medium text-text-secondary mb-1">
+            Hubble UI
+          </dt>
+          <dd class="text-base text-text-primary">
+            {% if hubble_enabled %}Enabled{% else %}Disabled{% endif %}
+          </dd>
+        </div>
+        <div>
+          <dt class="text-sm font-medium text-text-secondary mb-1">IPv6</dt>
+          <dd class="text-base text-text-primary">
+            {% if ipv6_enabled %}Enabled{% else %}Disabled{% endif %}
+          </dd>
+        </div>
+        <div>
+          <dt class="text-sm font-medium text-text-secondary mb-1">
+            Namespace
+          </dt>
+          <dd class="text-base font-mono text-text-primary">kube-system</dd>
+        </div>
+        <div>
+          <dt class="text-sm font-medium text-text-secondary mb-1">
+            Chart Version
+          </dt>
+          <dd class="text-base text-text-primary">{{ cilium_version }}</dd>
+        </div>
+      </dl>
+    </div>
   </div>
   {% endif %}
 </div>

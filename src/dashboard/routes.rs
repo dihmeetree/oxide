@@ -554,8 +554,10 @@ pub async fn metrics(State(state): State<AppState>) -> impl IntoResponse {
 
     // Build metrics response
     let metrics_json = if has_data {
-        let results: Vec<(String, crate::prometheus::NodeMetricsHistory)> =
-            node_metrics_history.into_iter().collect();
+        let results: Vec<(String, crate::prometheus::NodeMetricsHistory)> = node_metrics_history
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
 
         // Collect timestamps and build node metrics using helpers
         let timestamps = collect_timestamps(&results);
@@ -591,6 +593,24 @@ pub async fn api_metrics(
     // Get time range from query params (default to 1h)
     let time_range = params.get("range").map(|s| s.as_str()).unwrap_or("1h");
 
+    // For default 1h range, use pre-serialized JSON cache (BLAZING FAST!)
+    if time_range == "1h" {
+        let json_cache = state.cache.get_metrics_json_cache().await;
+
+        // Add caching headers for browser caching
+        return (
+            [
+                (axum::http::header::CONTENT_TYPE, "application/json"),
+                (
+                    axum::http::header::CACHE_CONTROL,
+                    "public, max-age=15, stale-while-revalidate=30",
+                ),
+            ],
+            json_cache.to_string(),
+        )
+            .into_response();
+    }
+
     // For ranges other than 1h, fetch fresh data from Prometheus
     let results: Vec<(String, crate::prometheus::NodeMetricsHistory)> = if time_range != "1h" {
         let node_details = state.cache.get_node_details_map().await;
@@ -622,7 +642,10 @@ pub async fn api_metrics(
     } else {
         // Use cached 1h data
         let metrics_history = state.cache.get_node_metrics_history().await;
-        metrics_history.into_iter().collect()
+        metrics_history
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect()
     };
 
     // Collect timestamps and build node metrics using helpers
@@ -639,7 +662,7 @@ pub async fn api_metrics(
         pods,
     };
 
-    Json(response)
+    Json(response).into_response()
 }
 
 #[derive(Debug, Serialize)]
@@ -758,8 +781,10 @@ pub async fn nodes_list(State(state): State<AppState>) -> impl IntoResponse {
     // Get node metrics for charts (only node metrics, not pod metrics)
     let node_metrics_history = state.cache.get_node_metrics_history().await;
     let metrics_json = if !node_metrics_history.is_empty() {
-        let results: Vec<(String, crate::prometheus::NodeMetricsHistory)> =
-            node_metrics_history.into_iter().collect();
+        let results: Vec<(String, crate::prometheus::NodeMetricsHistory)> = node_metrics_history
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
         let timestamps = collect_timestamps(&results);
         let metrics_nodes = build_node_metrics(results);
 
@@ -786,10 +811,12 @@ pub async fn nodes_list(State(state): State<AppState>) -> impl IntoResponse {
 
 /// Build pod metrics from history data
 fn build_pod_metrics(
-    pod_metrics_history: std::collections::HashMap<String, crate::prometheus::NodeMetricsHistory>,
+    pod_metrics_history: std::sync::Arc<
+        std::collections::HashMap<String, crate::prometheus::NodeMetricsHistory>,
+    >,
 ) -> Vec<MetricsPod> {
     pod_metrics_history
-        .into_iter()
+        .iter()
         .map(|(key, history)| {
             let parts: Vec<&str> = key.split('/').collect();
             let namespace = parts.first().unwrap_or(&"unknown").to_string();
@@ -954,13 +981,19 @@ pub async fn api_cilium_metrics(State(state): State<AppState>) -> impl IntoRespo
         .into_response();
     }
 
-    // Build metrics JSON using single lock - avoids cloning large HashMaps
-    let metrics_json = state
-        .cache
-        .with_cilium_and_pod_metrics(|cilium_pods, _, _, _, pod_metrics_history| {
-            build_cilium_metrics_json(pod_metrics_history, cilium_pods)
-        })
-        .await;
+    // Use pre-serialized JSON cache (BLAZING FAST!)
+    let json_cache = state.cache.get_cilium_metrics_json_cache().await;
 
-    Json(metrics_json).into_response()
+    // Add caching headers for browser caching
+    (
+        [
+            (axum::http::header::CONTENT_TYPE, "application/json"),
+            (
+                axum::http::header::CACHE_CONTROL,
+                "public, max-age=15, stale-while-revalidate=30",
+            ),
+        ],
+        json_cache.to_string(),
+    )
+        .into_response()
 }

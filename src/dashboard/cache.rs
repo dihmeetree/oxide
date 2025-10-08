@@ -1,5 +1,6 @@
 /// Cluster data cache with background refresh
 use anyhow::Result;
+use dashmap::DashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
@@ -90,16 +91,23 @@ pub struct ClusterCache {
 struct CacheData {
     clusters: Vec<ClusterInfo>,
     servers: Vec<Server>,
-    node_details: std::collections::HashMap<String, NodeDetail>,
-    node_metrics_history: std::collections::HashMap<String, crate::prometheus::NodeMetricsHistory>,
-    pod_details: std::collections::HashMap<String, super::templates::PodDetail>,
-    pod_metrics_history: std::collections::HashMap<String, crate::prometheus::NodeMetricsHistory>,
+    node_details: Arc<DashMap<String, NodeDetail>>,
+    node_metrics_history:
+        Arc<std::collections::HashMap<String, crate::prometheus::NodeMetricsHistory>>,
+    pod_details: Arc<DashMap<String, super::templates::PodDetail>>,
+    pod_metrics_history:
+        Arc<std::collections::HashMap<String, crate::prometheus::NodeMetricsHistory>>,
     cilium_pods: Vec<super::templates::CiliumPod>,
-    cilium_version: String,
+    cilium_version: Arc<str>,
     hubble_enabled: bool,
     ipv6_enabled: bool,
     last_update: Instant,
     is_ready: bool,
+    // Pre-serialized JSON for API responses (TODO: implement caching)
+    #[allow(dead_code)]
+    metrics_json_cache: Arc<str>,
+    #[allow(dead_code)]
+    cilium_metrics_json_cache: Arc<str>,
 }
 
 impl ClusterCache {
@@ -109,16 +117,18 @@ impl ClusterCache {
             inner: Arc::new(RwLock::new(CacheData {
                 clusters: Vec::new(),
                 servers: Vec::new(),
-                node_details: std::collections::HashMap::new(),
-                node_metrics_history: std::collections::HashMap::new(),
-                pod_details: std::collections::HashMap::new(),
-                pod_metrics_history: std::collections::HashMap::new(),
+                node_details: Arc::new(DashMap::new()),
+                node_metrics_history: Arc::new(std::collections::HashMap::new()),
+                pod_details: Arc::new(DashMap::new()),
+                pod_metrics_history: Arc::new(std::collections::HashMap::new()),
                 cilium_pods: Vec::new(),
-                cilium_version: "N/A".to_string(),
+                cilium_version: Arc::from("N/A"),
                 hubble_enabled: false,
                 ipv6_enabled: false,
                 last_update: Instant::now(),
                 is_ready: false,
+                metrics_json_cache: Arc::from("{}"),
+                cilium_metrics_json_cache: Arc::from("{}"),
             })),
         }
     }
@@ -162,7 +172,7 @@ impl ClusterCache {
         node_name: &str,
     ) -> Option<NodeDetail> {
         let data = self.inner.read().await;
-        data.node_details.get(node_name).cloned()
+        data.node_details.get(node_name).map(|v| v.clone())
     }
 
     /// Get detailed pod info from cache
@@ -175,7 +185,7 @@ impl ClusterCache {
     ) -> Option<super::templates::PodDetail> {
         let data = self.inner.read().await;
         let key = format!("{}/{}", namespace, pod_name);
-        data.pod_details.get(&key).cloned()
+        data.pod_details.get(&key).map(|v| v.clone())
     }
 
     /// Get pod metrics history from cache
@@ -192,9 +202,9 @@ impl ClusterCache {
     /// Get all node metrics history from cache
     pub async fn get_node_metrics_history(
         &self,
-    ) -> std::collections::HashMap<String, crate::prometheus::NodeMetricsHistory> {
+    ) -> Arc<std::collections::HashMap<String, crate::prometheus::NodeMetricsHistory>> {
         let data = self.inner.read().await;
-        data.node_metrics_history.clone()
+        Arc::clone(&data.node_metrics_history)
     }
 
     /// Process node metrics history with a closure to avoid cloning
@@ -210,27 +220,36 @@ impl ClusterCache {
     /// Get all node details map from cache
     pub async fn get_node_details_map(&self) -> std::collections::HashMap<String, NodeDetail> {
         let data = self.inner.read().await;
-        data.node_details.clone()
+        data.node_details
+            .iter()
+            .map(|entry| (entry.key().clone(), entry.value().clone()))
+            .collect()
     }
 
     /// Get all pods from cache
     pub async fn get_all_pods(&self) -> Vec<super::templates::PodDetail> {
         let data = self.inner.read().await;
-        data.pod_details.values().cloned().collect()
+        data.pod_details
+            .iter()
+            .map(|entry| entry.value().clone())
+            .collect()
     }
 
     /// Get all node details from cache
     pub async fn get_all_node_details(&self) -> Vec<super::templates::NodeDetail> {
         let data = self.inner.read().await;
-        data.node_details.values().cloned().collect()
+        data.node_details
+            .iter()
+            .map(|entry| entry.value().clone())
+            .collect()
     }
 
     /// Get all pod metrics history from cache
     pub async fn get_pod_metrics_history(
         &self,
-    ) -> std::collections::HashMap<String, crate::prometheus::NodeMetricsHistory> {
+    ) -> Arc<std::collections::HashMap<String, crate::prometheus::NodeMetricsHistory>> {
         let data = self.inner.read().await;
-        data.pod_metrics_history.clone()
+        Arc::clone(&data.pod_metrics_history)
     }
 
     /// Process pod metrics history with a closure to avoid cloning
@@ -245,11 +264,13 @@ impl ClusterCache {
 
     /// Get Cilium pod information from cache
     #[allow(dead_code)]
-    pub async fn get_cilium_data(&self) -> (Vec<super::templates::CiliumPod>, String, bool, bool) {
+    pub async fn get_cilium_data(
+        &self,
+    ) -> (Vec<super::templates::CiliumPod>, Arc<str>, bool, bool) {
         let data = self.inner.read().await;
         (
             data.cilium_pods.clone(),
-            data.cilium_version.clone(),
+            Arc::clone(&data.cilium_version),
             data.hubble_enabled,
             data.ipv6_enabled,
         )
@@ -295,14 +316,26 @@ impl ClusterCache {
     pub async fn get_all_metrics_history(
         &self,
     ) -> (
-        std::collections::HashMap<String, crate::prometheus::NodeMetricsHistory>,
-        std::collections::HashMap<String, crate::prometheus::NodeMetricsHistory>,
+        Arc<std::collections::HashMap<String, crate::prometheus::NodeMetricsHistory>>,
+        Arc<std::collections::HashMap<String, crate::prometheus::NodeMetricsHistory>>,
     ) {
         let data = self.inner.read().await;
         (
-            data.node_metrics_history.clone(),
-            data.pod_metrics_history.clone(),
+            Arc::clone(&data.node_metrics_history),
+            Arc::clone(&data.pod_metrics_history),
         )
+    }
+
+    /// Get pre-serialized metrics JSON from cache
+    pub async fn get_metrics_json_cache(&self) -> Arc<str> {
+        let data = self.inner.read().await;
+        Arc::clone(&data.metrics_json_cache)
+    }
+
+    /// Get pre-serialized Cilium metrics JSON from cache
+    pub async fn get_cilium_metrics_json_cache(&self) -> Arc<str> {
+        let data = self.inner.read().await;
+        Arc::clone(&data.cilium_metrics_json_cache)
     }
 
     /// Get cache age
@@ -393,18 +426,209 @@ impl ClusterCache {
             }
         }
 
+        // Pre-serialize metrics JSON for API responses (outside of write lock)
+        let metrics_json_cache = {
+            use serde::Serialize;
+
+            #[derive(Serialize)]
+            struct MetricsResponse {
+                timestamps: Vec<i64>,
+                nodes: Vec<MetricsNode>,
+                pods: Vec<MetricsPod>,
+            }
+
+            #[derive(Serialize)]
+            struct MetricsNode {
+                name: String,
+                cpu_history: Vec<f64>,
+                memory_history: Vec<f64>,
+            }
+
+            #[derive(Serialize)]
+            struct MetricsPod {
+                name: String,
+                namespace: String,
+                cpu_history: Vec<f64>,
+                memory_history: Vec<f64>,
+            }
+
+            if !node_metrics_history.is_empty() {
+                let results: Vec<_> = node_metrics_history.iter().collect();
+
+                // Collect all unique timestamps
+                let mut all_timestamps = std::collections::BTreeSet::new();
+                for (_, history) in &results {
+                    for (ts, _) in &history.cpu_history {
+                        all_timestamps.insert(*ts);
+                    }
+                }
+                let timestamps: Vec<i64> = all_timestamps.into_iter().collect();
+
+                // Build nodes
+                let nodes: Vec<MetricsNode> = results
+                    .iter()
+                    .map(|(name, history)| {
+                        let cpu_history: Vec<f64> = timestamps
+                            .iter()
+                            .map(|ts| {
+                                history
+                                    .cpu_history
+                                    .iter()
+                                    .find(|(t, _)| t == ts)
+                                    .map(|(_, val)| *val)
+                                    .unwrap_or(0.0)
+                            })
+                            .collect();
+
+                        let memory_history: Vec<f64> = timestamps
+                            .iter()
+                            .map(|ts| {
+                                history
+                                    .memory_history
+                                    .iter()
+                                    .find(|(t, _)| t == ts)
+                                    .map(|(_, val)| *val)
+                                    .unwrap_or(0.0)
+                            })
+                            .collect();
+
+                        MetricsNode {
+                            name: (*name).clone(),
+                            cpu_history,
+                            memory_history,
+                        }
+                    })
+                    .collect();
+
+                // Build pods
+                let pods: Vec<MetricsPod> = pod_metrics_history
+                    .iter()
+                    .map(|(key, history)| {
+                        let parts: Vec<&str> = key.split('/').collect();
+                        let namespace = parts.first().unwrap_or(&"unknown").to_string();
+                        let name = parts.get(1).unwrap_or(&"unknown").to_string();
+
+                        let cpu_history: Vec<f64> = history
+                            .cpu_history
+                            .iter()
+                            .map(|(_, val)| val * 10.0)
+                            .collect();
+                        let memory_history: Vec<f64> =
+                            history.memory_history.iter().map(|(_, val)| *val).collect();
+
+                        MetricsPod {
+                            name,
+                            namespace,
+                            cpu_history,
+                            memory_history,
+                        }
+                    })
+                    .collect();
+
+                let response = MetricsResponse {
+                    timestamps,
+                    nodes,
+                    pods,
+                };
+                Arc::from(
+                    serde_json::to_string(&response)
+                        .unwrap_or_else(|_| "{}".to_string())
+                        .as_str(),
+                )
+            } else {
+                Arc::from("{}")
+            }
+        };
+
+        // Pre-serialize Cilium metrics JSON
+        let cilium_metrics_json_cache = {
+            use serde::Serialize;
+
+            #[derive(Serialize)]
+            struct CiliumMetrics {
+                timestamps: Vec<i64>,
+                pods: Vec<CiliumPodMetrics>,
+            }
+
+            #[derive(Serialize)]
+            struct CiliumPodMetrics {
+                name: String,
+                node: String,
+                cpu_history: Vec<f64>,
+                memory_history: Vec<f64>,
+                cpu_request: f64,
+                cpu_limit: f64,
+                memory_request: f64,
+                memory_limit: f64,
+            }
+
+            // Filter for Cilium pods
+            let cilium_pod_metrics: Vec<_> = pod_metrics_history
+                .iter()
+                .filter(|(key, _)| key.starts_with("kube-system/cilium-"))
+                .collect();
+
+            if !cilium_pod_metrics.is_empty() {
+                let mut all_timestamps = std::collections::BTreeSet::new();
+                for (_, history) in &cilium_pod_metrics {
+                    for (ts, _) in &history.cpu_history {
+                        all_timestamps.insert(*ts);
+                    }
+                }
+                let timestamps: Vec<i64> = all_timestamps.into_iter().collect();
+
+                let pods: Vec<CiliumPodMetrics> = cilium_pod_metrics
+                    .iter()
+                    .filter_map(|(key, history)| {
+                        let pod_name = key.strip_prefix("kube-system/")?;
+                        let cilium_pod = cilium_pods.iter().find(|p| p.name == pod_name)?;
+
+                        let cpu_history: Vec<f64> = history
+                            .cpu_history
+                            .iter()
+                            .map(|(_, val)| val * 10.0)
+                            .collect();
+                        let memory_history: Vec<f64> =
+                            history.memory_history.iter().map(|(_, val)| *val).collect();
+
+                        Some(CiliumPodMetrics {
+                            name: cilium_pod.name.clone(),
+                            node: cilium_pod.node.clone(),
+                            cpu_history,
+                            memory_history,
+                            cpu_request: cilium_pod.cpu_request,
+                            cpu_limit: cilium_pod.cpu_limit,
+                            memory_request: cilium_pod.memory_request,
+                            memory_limit: cilium_pod.memory_limit,
+                        })
+                    })
+                    .collect();
+
+                let response = CiliumMetrics { timestamps, pods };
+                Arc::from(
+                    serde_json::to_string(&response)
+                        .unwrap_or_else(|_| "{}".to_string())
+                        .as_str(),
+                )
+            } else {
+                Arc::from("{}")
+            }
+        };
+
         // Update cache
         let mut data = self.inner.write().await;
         data.clusters = clusters;
         data.servers = servers;
-        data.node_details = node_details;
-        data.pod_details = pod_details;
-        data.pod_metrics_history = pod_metrics_history;
-        data.node_metrics_history = node_metrics_history;
+        data.node_details = Arc::new(node_details.into_iter().collect());
+        data.pod_details = Arc::new(pod_details.into_iter().collect());
+        data.pod_metrics_history = Arc::new(pod_metrics_history);
+        data.node_metrics_history = Arc::new(node_metrics_history);
         data.cilium_pods = cilium_pods;
-        data.cilium_version = cilium_version;
+        data.cilium_version = Arc::from(cilium_version.as_str());
         data.hubble_enabled = hubble_enabled;
         data.ipv6_enabled = ipv6_enabled;
+        data.metrics_json_cache = metrics_json_cache;
+        data.cilium_metrics_json_cache = cilium_metrics_json_cache;
         data.last_update = Instant::now();
         data.is_ready = true;
 
@@ -427,7 +651,7 @@ impl ClusterCache {
 
         // Update only metrics in cache
         let mut data = self.inner.write().await;
-        data.node_metrics_history = node_metrics_history;
+        data.node_metrics_history = Arc::new(node_metrics_history);
 
         Ok(())
     }
@@ -745,7 +969,7 @@ async fn fetch_all_node_metrics_history(
 fn build_cluster_detail(
     cluster_name: &str,
     cluster_servers: &[&Server],
-    node_details: &std::collections::HashMap<String, NodeDetail>,
+    node_details: &DashMap<String, NodeDetail>,
 ) -> ClusterDetail {
     use super::templates::NodeInfo;
 
