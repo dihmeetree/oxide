@@ -166,7 +166,7 @@ pub async fn node_detail(
         Some(node) => {
             let template = NodeDetailTemplate {
                 node,
-                active_page: "clusters".to_string(),
+                active_page: "nodes".to_string(),
                 version: env!("CARGO_PKG_VERSION").to_string(),
             };
             Html(template.render().unwrap()).into_response()
