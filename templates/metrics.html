@@ -958,7 +958,7 @@
     const cpuVisibility = cpuChart.data.datasets.map((ds, i) => cpuChart.isDatasetVisible(i));
     const memoryVisibility = memoryChart.data.datasets.map((ds, i) => memoryChart.isDatasetVisible(i));
 
-    // Update CPU chart - preserve visibility state
+    // Update CPU chart data
     cpuChart.data.labels = formattedTimestamps;
     cpuChart.data.datasets = data.nodes.map((node, i) => ({
       label: node.name,
@@ -972,10 +972,8 @@
       pointHoverRadius: 5,
       hidden: i < cpuVisibility.length ? !cpuVisibility[i] : false,
     }));
-    cpuChart.update();
-    generateLegend(cpuChart, 'nodeCpuLegend', 'nodeCpu');
 
-    // Update memory chart - preserve visibility state
+    // Update memory chart data
     memoryChart.data.labels = formattedTimestamps;
     memoryChart.data.datasets = data.nodes.map((node, i) => ({
       label: node.name,
@@ -989,7 +987,13 @@
       pointHoverRadius: 5,
       hidden: i < memoryVisibility.length ? !memoryVisibility[i] : false,
     }));
+
+    // Update both charts together
+    cpuChart.update();
     memoryChart.update();
+
+    // Regenerate legends after both charts are updated
+    generateLegend(cpuChart, 'nodeCpuLegend', 'nodeCpu');
     generateLegend(memoryChart, 'nodeMemoryLegend', 'nodeMemory');
 
     // Update pod charts if available
@@ -1014,7 +1018,7 @@
       const podCpuVisibility = podCpuChart.data.datasets.map((ds, i) => podCpuChart.isDatasetVisible(i));
       const podMemoryVisibility = podMemoryChart.data.datasets.map((ds, i) => podMemoryChart.isDatasetVisible(i));
 
-      // Update pod CPU chart - preserve visibility state
+      // Update pod CPU chart data
       podCpuChart.data.labels = formattedTimestamps;
       podCpuChart.data.datasets = data.pods.map((pod, i) => ({
         label: `${pod.namespace}/${pod.name}`,
@@ -1028,9 +1032,8 @@
         pointHoverRadius: 5,
         hidden: i < podCpuVisibility.length ? !podCpuVisibility[i] : false,
       }));
-      podCpuChart.update();
 
-      // Update pod memory chart - preserve visibility state
+      // Update pod memory chart data
       podMemoryChart.data.labels = formattedTimestamps;
       podMemoryChart.data.datasets = data.pods.map((pod, i) => ({
         label: `${pod.namespace}/${pod.name}`,
@@ -1044,9 +1047,12 @@
         pointHoverRadius: 5,
         hidden: i < podMemoryVisibility.length ? !podMemoryVisibility[i] : false,
       }));
+
+      // Update both pod charts together
+      podCpuChart.update();
       podMemoryChart.update();
 
-      // Regenerate legends
+      // Regenerate legends after both charts are updated
       generateLegend(podCpuChart, 'podCpuLegend', 'podCpu');
       generateLegend(podMemoryChart, 'podMemoryLegend', 'podMemory');
     }
