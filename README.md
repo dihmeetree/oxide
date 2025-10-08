@@ -195,6 +195,10 @@ kubectl get nodes
 
 Oxide includes a built-in web dashboard for managing your clusters through a modern UI:
 
+<p align="center">
+  <img src="https://i.imgur.com/ncmbkgp.png" alt="Oxide Dashboard" width="850">
+</p>
+
 ```bash
 # Start the dashboard server (default port: 3000)
 oxide dashboard
