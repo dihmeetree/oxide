@@ -278,6 +278,278 @@
       </table>
     </div>
   </div>
+
+  <!-- Node Metrics Charts -->
+  <div class="grid grid-cols-1 gap-6">
+    <!-- CPU Usage Graph -->
+    <div class="rounded-lg p-6 bg-[#242424] border border-dark-border">
+      <div class="flex items-center justify-between mb-4">
+        <h3 class="text-xl font-semibold text-text-primary">Node CPU Usage</h3>
+      </div>
+      <div class="relative h-80">
+        <canvas id="cpuChart"></canvas>
+      </div>
+      <div id="nodeCpuLegend" class="mt-4 max-h-32 overflow-y-auto"></div>
+    </div>
+
+    <!-- Memory Usage Graph -->
+    <div class="rounded-lg p-6 bg-[#242424] border border-dark-border">
+      <div class="flex items-center justify-between mb-4">
+        <h3 class="text-xl font-semibold text-text-primary">Node Memory Usage</h3>
+      </div>
+      <div class="relative h-80">
+        <canvas id="memoryChart"></canvas>
+      </div>
+      <div id="nodeMemoryLegend" class="mt-4 max-h-32 overflow-y-auto"></div>
+    </div>
+  </div>
   {% endif %}
 </div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script>
+  // Color palette
+  const colors = [
+    "#2776F3", "#10B981", "#F59E0B", "#8B5CF6", "#EC4899",
+    "#06B6D4", "#F43F5E", "#84CC16", "#A855F7", "#EAB308"
+  ];
+
+  let cpuChart;
+  let memoryChart;
+  let isStacked = true;
+  let nodeColorMap = {};
+
+  // Generate HTML legend for charts
+  function generateLegend(chart, containerId, chartType) {
+    const legendContainer = document.getElementById(containerId);
+    if (!legendContainer) return;
+
+    let legendHTML = '<div class="flex flex-wrap gap-3">';
+
+    chart.data.datasets.forEach((dataset, i) => {
+      const isVisible = chart.isDatasetVisible(i);
+      legendHTML += `
+        <button
+          onclick="toggleDataset('${chartType}', ${i})"
+          class="flex items-center gap-2 px-3 py-1.5 rounded-md transition ${isVisible ? 'bg-dark-hover' : 'bg-dark-bg opacity-50'}"
+        >
+          <span class="w-2 h-2 rounded-full" style="background-color: ${dataset.borderColor}"></span>
+          <span class="text-sm text-text-primary">${dataset.label}</span>
+        </button>
+      `;
+    });
+
+    legendHTML += '</div>';
+    legendContainer.innerHTML = legendHTML;
+  }
+
+  // Toggle dataset visibility
+  function toggleDataset(chartType, index) {
+    let chart, containerId;
+
+    switch(chartType) {
+      case 'nodeCpu':
+        chart = cpuChart;
+        containerId = 'nodeCpuLegend';
+        break;
+      case 'nodeMemory':
+        chart = memoryChart;
+        containerId = 'nodeMemoryLegend';
+        break;
+    }
+
+    const isCurrentlyVisible = chart.isDatasetVisible(index);
+    let visibleCount = 0;
+    for (let i = 0; i < chart.data.datasets.length; i++) {
+      if (chart.isDatasetVisible(i)) visibleCount++;
+    }
+
+    if (visibleCount === 1 && isCurrentlyVisible) {
+      chart.data.datasets.forEach((dataset, i) => {
+        chart.setDatasetVisibility(i, true);
+      });
+    } else {
+      chart.data.datasets.forEach((dataset, i) => {
+        chart.setDatasetVisibility(i, i === index);
+      });
+    }
+    chart.update();
+    generateLegend(chart, containerId, chartType);
+  }
+
+  // Initialize charts
+  function initCharts(data) {
+    if (!data || !data.nodes || data.nodes.length === 0) {
+      return;
+    }
+
+    // Sort nodes by name for consistent ordering
+    data.nodes.sort((a, b) => a.name.localeCompare(b.name));
+
+    // Assign consistent colors to nodes
+    data.nodes.forEach((node) => {
+      if (!nodeColorMap[node.name]) {
+        nodeColorMap[node.name] = colors[Object.keys(nodeColorMap).length % colors.length];
+      }
+    });
+
+    // Format timestamps
+    const formattedTimestamps = data.timestamps.map((ts) => {
+      const date = new Date(ts * 1000);
+      return date.toLocaleTimeString("en-US", {
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+    });
+
+    // CPU Chart
+    const cpuCtx = document.getElementById("cpuChart").getContext("2d");
+    if (cpuChart) {
+      cpuChart.destroy();
+    }
+    cpuChart = new Chart(cpuCtx, {
+      type: "line",
+      data: {
+        labels: formattedTimestamps,
+        datasets: data.nodes.map((node) => ({
+          label: node.name,
+          data: node.cpu_history,
+          borderColor: nodeColorMap[node.name],
+          backgroundColor: nodeColorMap[node.name] + (isStacked ? "80" : "20"),
+          borderWidth: 2,
+          fill: isStacked,
+          tension: 0.4,
+          pointRadius: 0,
+          pointHoverRadius: 5,
+        })),
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: false,
+        interaction: {
+          mode: "index",
+          intersect: false,
+        },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            backgroundColor: "#2A2A2A",
+            titleColor: "#F2F2F2",
+            bodyColor: "#E8E8E8",
+            borderColor: "#313131",
+            borderWidth: 1,
+            padding: 12,
+            displayColors: true,
+            callbacks: {
+              label: function (context) {
+                return context.dataset.label + ": " + context.parsed.y.toFixed(2) + "%";
+              },
+            },
+          },
+        },
+        scales: {
+          x: {
+            stacked: isStacked,
+            grid: { color: "#313131" },
+            ticks: { color: "#AAAAAA" },
+          },
+          y: {
+            stacked: isStacked,
+            beginAtZero: true,
+            max: isStacked ? null : 100,
+            grid: { color: "#313131" },
+            ticks: { color: "#AAAAAA" },
+            title: {
+              display: true,
+              text: "CPU Usage (%)",
+              color: "#AAAAAA",
+            },
+          },
+        },
+      },
+    });
+
+    // Memory Chart
+    const memoryCtx = document.getElementById("memoryChart").getContext("2d");
+    if (memoryChart) {
+      memoryChart.destroy();
+    }
+    memoryChart = new Chart(memoryCtx, {
+      type: "line",
+      data: {
+        labels: formattedTimestamps,
+        datasets: data.nodes.map((node) => ({
+          label: node.name,
+          data: node.memory_history,
+          borderColor: nodeColorMap[node.name],
+          backgroundColor: nodeColorMap[node.name] + (isStacked ? "80" : "20"),
+          borderWidth: 2,
+          fill: isStacked,
+          tension: 0.4,
+          pointRadius: 0,
+          pointHoverRadius: 5,
+        })),
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: false,
+        interaction: {
+          mode: "index",
+          intersect: false,
+        },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            backgroundColor: "#2A2A2A",
+            titleColor: "#F2F2F2",
+            bodyColor: "#E8E8E8",
+            borderColor: "#313131",
+            borderWidth: 1,
+            padding: 12,
+            displayColors: true,
+            callbacks: {
+              label: function (context) {
+                return context.dataset.label + ": " + context.parsed.y.toFixed(2) + "%";
+              },
+            },
+          },
+        },
+        scales: {
+          x: {
+            stacked: isStacked,
+            grid: { color: "#313131" },
+            ticks: { color: "#AAAAAA" },
+          },
+          y: {
+            stacked: isStacked,
+            beginAtZero: true,
+            max: isStacked ? null : 100,
+            grid: { color: "#313131" },
+            ticks: { color: "#AAAAAA" },
+            title: {
+              display: true,
+              text: "Memory Usage (%)",
+              color: "#AAAAAA",
+            },
+          },
+        },
+      },
+    });
+
+    // Generate legends
+    generateLegend(cpuChart, 'nodeCpuLegend', 'nodeCpu');
+    generateLegend(memoryChart, 'nodeMemoryLegend', 'nodeMemory');
+  }
+
+  // Initialize on page load
+  document.addEventListener("DOMContentLoaded", function () {
+    const serverData = {{ metrics_json|safe }};
+    if (serverData && serverData.nodes && serverData.nodes.length > 0) {
+      initCharts(serverData);
+    }
+  });
+</script>
+
 {% endblock %}

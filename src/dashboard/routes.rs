@@ -650,6 +650,12 @@ struct MetricsResponse {
 }
 
 #[derive(Debug, Serialize)]
+struct NodeMetricsResponse {
+    timestamps: Vec<i64>,
+    nodes: Vec<MetricsNode>,
+}
+
+#[derive(Debug, Serialize)]
 struct MetricsNode {
     name: String,
     cpu_history: Vec<f64>,
@@ -749,11 +755,29 @@ pub async fn nodes_list(State(state): State<AppState>) -> impl IntoResponse {
             .then_with(|| a.name.cmp(&b.name))
     });
 
+    // Get node metrics for charts (only node metrics, not pod metrics)
+    let node_metrics_history = state.cache.get_node_metrics_history().await;
+    let metrics_json = if !node_metrics_history.is_empty() {
+        let results: Vec<(String, crate::prometheus::NodeMetricsHistory)> =
+            node_metrics_history.into_iter().collect();
+        let timestamps = collect_timestamps(&results);
+        let metrics_nodes = build_node_metrics(results);
+
+        let response = NodeMetricsResponse {
+            timestamps,
+            nodes: metrics_nodes,
+        };
+        serde_json::to_string(&response).unwrap_or_else(|_| "{}".to_string())
+    } else {
+        "{}".to_string()
+    };
+
     let template = NodesTemplate {
         nodes,
         control_plane_count,
         worker_count,
         running_count,
+        metrics_json,
         active_page: "nodes".to_string(),
         version: env!("CARGO_PKG_VERSION").to_string(),
     };
