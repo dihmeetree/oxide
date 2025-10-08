@@ -94,7 +94,7 @@
     <!-- CPU Usage Graph -->
     <div class="rounded-lg p-6 bg-[#242424] border border-dark-border">
       <div class="flex items-center justify-between mb-4">
-        <h3 class="text-xl font-semibold text-text-primary">CPU Usage</h3>
+        <h3 class="text-xl font-semibold text-text-primary">Node CPU Usage</h3>
         <button
           onclick="refreshMetrics()"
           class="p-2 rounded-lg text-text-muted hover:text-text-primary bg-dark-hover hover:bg-dark-hoverAlt transition"
@@ -119,12 +119,13 @@
       <div class="relative h-80">
         <canvas id="cpuChart"></canvas>
       </div>
+      <div id="nodeCpuLegend" class="mt-4 max-h-32 overflow-y-auto scrollbar-thin scrollbar-thumb-dark-border scrollbar-track-dark-bg"></div>
     </div>
 
     <!-- Memory Usage Graph -->
     <div class="rounded-lg p-6 bg-[#242424] border border-dark-border">
       <div class="flex items-center justify-between mb-4">
-        <h3 class="text-xl font-semibold text-text-primary">Memory Usage</h3>
+        <h3 class="text-xl font-semibold text-text-primary">Node Memory Usage</h3>
         <button
           onclick="refreshMetrics()"
           class="p-2 rounded-lg text-text-muted hover:text-text-primary bg-dark-hover hover:bg-dark-hoverAlt transition"
@@ -148,6 +149,67 @@
       <div class="relative h-80">
         <canvas id="memoryChart"></canvas>
       </div>
+      <div id="nodeMemoryLegend" class="mt-4 max-h-32 overflow-y-auto scrollbar-thin scrollbar-thumb-dark-border scrollbar-track-dark-bg"></div>
+    </div>
+
+    <!-- Pod CPU Usage Graph -->
+    <div class="rounded-lg p-6 bg-[#242424] border border-dark-border">
+      <div class="flex items-center justify-between mb-4">
+        <h3 class="text-xl font-semibold text-text-primary">Pod CPU Usage</h3>
+        <button
+          onclick="refreshMetrics()"
+          class="p-2 rounded-lg text-text-muted hover:text-text-primary bg-dark-hover hover:bg-dark-hoverAlt transition"
+          title="Refresh"
+        >
+          <svg
+            class="w-5 h-5"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+            stroke-width="2"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+            ></path>
+          </svg>
+        </button>
+      </div>
+      <div class="relative h-80">
+        <canvas id="podCpuChart"></canvas>
+      </div>
+      <div id="podCpuLegend" class="mt-4 max-h-32 overflow-y-auto scrollbar-thin scrollbar-thumb-dark-border scrollbar-track-dark-bg"></div>
+    </div>
+
+    <!-- Pod Memory Usage Graph -->
+    <div class="rounded-lg p-6 bg-[#242424] border border-dark-border">
+      <div class="flex items-center justify-between mb-4">
+        <h3 class="text-xl font-semibold text-text-primary">Pod Memory Usage</h3>
+        <button
+          onclick="refreshMetrics()"
+          class="p-2 rounded-lg text-text-muted hover:text-text-primary bg-dark-hover hover:bg-dark-hoverAlt transition"
+          title="Refresh"
+        >
+          <svg
+            class="w-5 h-5"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+            stroke-width="2"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+            ></path>
+          </svg>
+        </button>
+      </div>
+      <div class="relative h-80">
+        <canvas id="podMemoryChart"></canvas>
+      </div>
+      <div id="podMemoryLegend" class="mt-4 max-h-32 overflow-y-auto scrollbar-thin scrollbar-thumb-dark-border scrollbar-track-dark-bg"></div>
     </div>
   </div>
 </div>
@@ -171,9 +233,82 @@
 
   let cpuChart;
   let memoryChart;
+  let podCpuChart;
+  let podMemoryChart;
   let isStacked = true;
   let currentTimeRange = "1h";
   let nodeColorMap = {}; // Store consistent colors for each node
+  let podColorMap = {}; // Store consistent colors for each pod
+
+  // Generate HTML legend for charts
+  function generateLegend(chart, containerId, chartType) {
+    const legendContainer = document.getElementById(containerId);
+    if (!legendContainer) return;
+
+    let legendHTML = '<div class="flex flex-wrap gap-3">';
+
+    chart.data.datasets.forEach((dataset, i) => {
+      const isVisible = chart.isDatasetVisible(i);
+      legendHTML += `
+        <button
+          onclick="toggleDataset('${chartType}', ${i})"
+          class="flex items-center gap-2 px-3 py-1.5 rounded-md transition ${isVisible ? 'bg-dark-hover' : 'bg-dark-bg opacity-50'}"
+        >
+          <span class="w-2 h-2 rounded-full" style="background-color: ${dataset.borderColor}"></span>
+          <span class="text-sm text-text-primary">${dataset.label}</span>
+        </button>
+      `;
+    });
+
+    legendHTML += '</div>';
+    legendContainer.innerHTML = legendHTML;
+  }
+
+  // Toggle dataset visibility
+  function toggleDataset(chartType, index) {
+    let chart, containerId;
+
+    switch(chartType) {
+      case 'nodeCpu':
+        chart = cpuChart;
+        containerId = 'nodeCpuLegend';
+        break;
+      case 'nodeMemory':
+        chart = memoryChart;
+        containerId = 'nodeMemoryLegend';
+        break;
+      case 'podCpu':
+        chart = podCpuChart;
+        containerId = 'podCpuLegend';
+        break;
+      case 'podMemory':
+        chart = podMemoryChart;
+        containerId = 'podMemoryLegend';
+        break;
+    }
+
+    const isCurrentlyVisible = chart.isDatasetVisible(index);
+
+    // Count how many datasets are currently visible
+    let visibleCount = 0;
+    for (let i = 0; i < chart.data.datasets.length; i++) {
+      if (chart.isDatasetVisible(i)) visibleCount++;
+    }
+
+    // If only one is visible and we click it, show all
+    if (visibleCount === 1 && isCurrentlyVisible) {
+      chart.data.datasets.forEach((dataset, i) => {
+        chart.setDatasetVisibility(i, true);
+      });
+    } else {
+      // Otherwise, show only the clicked one
+      chart.data.datasets.forEach((dataset, i) => {
+        chart.setDatasetVisibility(i, i === index);
+      });
+    }
+    chart.update();
+    generateLegend(chart, containerId, chartType);
+  }
 
   // Initialize charts
   async function initCharts(initialData) {
@@ -254,7 +389,7 @@
           animation: false,
           plugins: {
             legend: {
-              display: true,
+              display: false,
               position: "bottom",
               labels: {
                 color: "#F2F2F2",
@@ -269,6 +404,30 @@
                 boxWidth: 8,
                 boxHeight: 8,
               },
+              onClick: function(e, legendItem, legend) {
+                const index = legendItem.datasetIndex;
+                const chart = legend.chart;
+                const isCurrentlyVisible = chart.isDatasetVisible(index);
+
+                // Count how many datasets are currently visible
+                let visibleCount = 0;
+                for (let i = 0; i < chart.data.datasets.length; i++) {
+                  if (chart.isDatasetVisible(i)) visibleCount++;
+                }
+
+                // If only one is visible and we click it, show all
+                if (visibleCount === 1 && isCurrentlyVisible) {
+                  chart.data.datasets.forEach((dataset, i) => {
+                    chart.setDatasetVisibility(i, true);
+                  });
+                } else {
+                  // Otherwise, show only the clicked one
+                  chart.data.datasets.forEach((dataset, i) => {
+                    chart.setDatasetVisibility(i, i === index);
+                  });
+                }
+                chart.update();
+              }
             },
             tooltip: {
               enabled: true,
@@ -373,7 +532,7 @@
           animation: false,
           plugins: {
             legend: {
-              display: true,
+              display: false,
               position: "bottom",
               labels: {
                 color: "#F2F2F2",
@@ -388,6 +547,30 @@
                 boxWidth: 8,
                 boxHeight: 8,
               },
+              onClick: function(e, legendItem, legend) {
+                const index = legendItem.datasetIndex;
+                const chart = legend.chart;
+                const isCurrentlyVisible = chart.isDatasetVisible(index);
+
+                // Count how many datasets are currently visible
+                let visibleCount = 0;
+                for (let i = 0; i < chart.data.datasets.length; i++) {
+                  if (chart.isDatasetVisible(i)) visibleCount++;
+                }
+
+                // If only one is visible and we click it, show all
+                if (visibleCount === 1 && isCurrentlyVisible) {
+                  chart.data.datasets.forEach((dataset, i) => {
+                    chart.setDatasetVisibility(i, true);
+                  });
+                } else {
+                  // Otherwise, show only the clicked one
+                  chart.data.datasets.forEach((dataset, i) => {
+                    chart.setDatasetVisibility(i, i === index);
+                  });
+                }
+                chart.update();
+              }
             },
             tooltip: {
               enabled: true,
@@ -463,6 +646,269 @@
           },
         },
       });
+
+      // Generate HTML legends for node charts
+      generateLegend(cpuChart, 'nodeCpuLegend', 'nodeCpu');
+      generateLegend(memoryChart, 'nodeMemoryLegend', 'nodeMemory');
+
+      // Pod charts
+      if (data.pods && data.pods.length > 0) {
+        // Sort pods by name for consistent ordering
+        data.pods.sort((a, b) => {
+          const fullNameA = `${a.namespace}/${a.name}`;
+          const fullNameB = `${b.namespace}/${b.name}`;
+          return fullNameA.localeCompare(fullNameB);
+        });
+
+        // Assign consistent colors to pods
+        data.pods.forEach((pod) => {
+          const podKey = `${pod.namespace}/${pod.name}`;
+          if (!podColorMap[podKey]) {
+            podColorMap[podKey] =
+              colors[Object.keys(podColorMap).length % colors.length];
+          }
+        });
+
+        // Pod CPU Chart
+        const podCpuCtx = document.getElementById("podCpuChart").getContext("2d");
+        if (podCpuChart) {
+          podCpuChart.destroy();
+        }
+        podCpuChart = new Chart(podCpuCtx, {
+          type: "line",
+          data: {
+            labels: formattedTimestamps,
+            datasets: data.pods.map((pod) => ({
+              label: `${pod.namespace}/${pod.name}`,
+              data: pod.cpu_history,
+              borderColor: podColorMap[`${pod.namespace}/${pod.name}`],
+              backgroundColor:
+                podColorMap[`${pod.namespace}/${pod.name}`] + (isStacked ? "80" : "20"),
+              borderWidth: 2,
+              fill: isStacked,
+              tension: 0.4,
+              pointRadius: 0,
+              pointHoverRadius: 5,
+            })),
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            animation: false,
+            plugins: {
+              legend: {
+                display: false,
+                position: "bottom",
+                labels: {
+                  color: "#F2F2F2",
+                  padding: 20,
+                  font: {
+                    size: 13,
+                    weight: "500",
+                    family: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+                  },
+                  usePointStyle: true,
+                  pointStyle: "circle",
+                  boxWidth: 8,
+                  boxHeight: 8,
+                },
+              },
+              tooltip: {
+                enabled: true,
+                mode: "point",
+                intersect: true,
+                backgroundColor: "#1A1A1A",
+                titleColor: "#FFFFFF",
+                titleFont: {
+                  size: 14,
+                  weight: "600",
+                  family: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+                },
+                bodyColor: "#E5E5E5",
+                bodyFont: {
+                  size: 13,
+                  weight: "500",
+                },
+                borderColor: "#404040",
+                borderWidth: 1,
+                padding: 16,
+                displayColors: true,
+                boxWidth: 10,
+                boxHeight: 10,
+                boxPadding: 6,
+                cornerRadius: 8,
+                caretSize: 6,
+                caretPadding: 12,
+                callbacks: {
+                  title: function (context) {
+                    return "Time: " + context[0].label;
+                  },
+                  label: function (context) {
+                    const value = context.parsed.y.toFixed(0);
+                    return " " + context.dataset.label + ": " + value + "m";
+                  },
+                  labelTextColor: function (context) {
+                    return context.dataset.borderColor;
+                  },
+                },
+              },
+            },
+            scales: {
+              x: {
+                display: true,
+                stacked: isStacked,
+                grid: {
+                  color: "#313131",
+                },
+                ticks: {
+                  color: "#AAAAAA",
+                },
+              },
+              y: {
+                display: true,
+                stacked: isStacked,
+                min: 0,
+                grid: {
+                  color: "#313131",
+                },
+                ticks: {
+                  color: "#AAAAAA",
+                  callback: function (value) {
+                    return value + "m";
+                  },
+                },
+              },
+            },
+            interaction: {
+              mode: "nearest",
+              axis: "x",
+              intersect: false,
+            },
+          },
+        });
+
+        // Pod Memory Chart
+        const podMemoryCtx = document.getElementById("podMemoryChart").getContext("2d");
+        if (podMemoryChart) {
+          podMemoryChart.destroy();
+        }
+        podMemoryChart = new Chart(podMemoryCtx, {
+          type: "line",
+          data: {
+            labels: formattedTimestamps,
+            datasets: data.pods.map((pod) => ({
+              label: `${pod.namespace}/${pod.name}`,
+              data: pod.memory_history,
+              borderColor: podColorMap[`${pod.namespace}/${pod.name}`],
+              backgroundColor:
+                podColorMap[`${pod.namespace}/${pod.name}`] + (isStacked ? "80" : "20"),
+              borderWidth: 2,
+              fill: isStacked,
+              tension: 0.4,
+              pointRadius: 0,
+              pointHoverRadius: 5,
+            })),
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            animation: false,
+            plugins: {
+              legend: {
+                display: false,
+                position: "bottom",
+                labels: {
+                  color: "#F2F2F2",
+                  padding: 20,
+                  font: {
+                    size: 13,
+                    weight: "500",
+                    family: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+                  },
+                  usePointStyle: true,
+                  pointStyle: "circle",
+                  boxWidth: 8,
+                  boxHeight: 8,
+                },
+              },
+              tooltip: {
+                enabled: true,
+                mode: "point",
+                intersect: true,
+                backgroundColor: "#1A1A1A",
+                titleColor: "#FFFFFF",
+                titleFont: {
+                  size: 14,
+                  weight: "600",
+                  family: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+                },
+                bodyColor: "#E5E5E5",
+                bodyFont: {
+                  size: 13,
+                  weight: "500",
+                },
+                borderColor: "#404040",
+                borderWidth: 1,
+                padding: 16,
+                displayColors: true,
+                boxWidth: 10,
+                boxHeight: 10,
+                boxPadding: 6,
+                cornerRadius: 8,
+                caretSize: 6,
+                caretPadding: 12,
+                callbacks: {
+                  title: function (context) {
+                    return "Time: " + context[0].label;
+                  },
+                  label: function (context) {
+                    const value = context.parsed.y.toFixed(0);
+                    return " " + context.dataset.label + ": " + value + "Mi";
+                  },
+                  labelTextColor: function (context) {
+                    return context.dataset.borderColor;
+                  },
+                },
+              },
+            },
+            scales: {
+              x: {
+                display: true,
+                stacked: isStacked,
+                grid: {
+                  color: "#313131",
+                },
+                ticks: {
+                  color: "#AAAAAA",
+                },
+              },
+              y: {
+                display: true,
+                stacked: isStacked,
+                min: 0,
+                grid: {
+                  color: "#313131",
+                },
+                ticks: {
+                  color: "#AAAAAA",
+                  callback: function (value) {
+                    return value + "Mi";
+                  },
+                },
+              },
+            },
+            interaction: {
+              mode: "nearest",
+              axis: "x",
+              intersect: false,
+            },
+          },
+        });
+
+        // Generate HTML legends for pod charts
+        generateLegend(podCpuChart, 'podCpuLegend', 'podCpu');
+        generateLegend(podMemoryChart, 'podMemoryLegend', 'podMemory');
+      }
     } catch (error) {
       console.error("Failed to load metrics:", error);
       document.getElementById("loadingState").innerHTML = `
@@ -508,9 +954,10 @@
       });
     });
 
-    // Update CPU chart
+    // Update CPU chart - preserve visibility state
+    const cpuVisibility = cpuChart.data.datasets.map((ds, i) => cpuChart.isDatasetVisible(i));
     cpuChart.data.labels = formattedTimestamps;
-    cpuChart.data.datasets = data.nodes.map((node) => ({
+    cpuChart.data.datasets = data.nodes.map((node, i) => ({
       label: node.name,
       data: node.cpu_history,
       borderColor: nodeColorMap[node.name],
@@ -520,12 +967,15 @@
       tension: 0.4,
       pointRadius: 0,
       pointHoverRadius: 5,
+      hidden: i < cpuVisibility.length ? !cpuVisibility[i] : false,
     }));
     cpuChart.update();
+    generateLegend(cpuChart, 'nodeCpuLegend', 'nodeCpu');
 
-    // Update memory chart
+    // Update memory chart - preserve visibility state
+    const memoryVisibility = memoryChart.data.datasets.map((ds, i) => memoryChart.isDatasetVisible(i));
     memoryChart.data.labels = formattedTimestamps;
-    memoryChart.data.datasets = data.nodes.map((node) => ({
+    memoryChart.data.datasets = data.nodes.map((node, i) => ({
       label: node.name,
       data: node.memory_history,
       borderColor: nodeColorMap[node.name],
@@ -535,8 +985,67 @@
       tension: 0.4,
       pointRadius: 0,
       pointHoverRadius: 5,
+      hidden: i < memoryVisibility.length ? !memoryVisibility[i] : false,
     }));
     memoryChart.update();
+    generateLegend(memoryChart, 'nodeMemoryLegend', 'nodeMemory');
+
+    // Update pod charts if available
+    if (data.pods && data.pods.length > 0 && podCpuChart && podMemoryChart) {
+      // Sort pods
+      data.pods.sort((a, b) => {
+        const fullNameA = `${a.namespace}/${a.name}`;
+        const fullNameB = `${b.namespace}/${b.name}`;
+        return fullNameA.localeCompare(fullNameB);
+      });
+
+      // Assign colors to any new pods
+      data.pods.forEach((pod) => {
+        const podKey = `${pod.namespace}/${pod.name}`;
+        if (!podColorMap[podKey]) {
+          podColorMap[podKey] =
+            colors[Object.keys(podColorMap).length % colors.length];
+        }
+      });
+
+      // Update pod CPU chart - preserve visibility state
+      const podCpuVisibility = podCpuChart.data.datasets.map((ds, i) => podCpuChart.isDatasetVisible(i));
+      podCpuChart.data.labels = formattedTimestamps;
+      podCpuChart.data.datasets = data.pods.map((pod, i) => ({
+        label: `${pod.namespace}/${pod.name}`,
+        data: pod.cpu_history,
+        borderColor: podColorMap[`${pod.namespace}/${pod.name}`],
+        backgroundColor: podColorMap[`${pod.namespace}/${pod.name}`] + (isStacked ? "80" : "20"),
+        borderWidth: 2,
+        fill: isStacked,
+        tension: 0.4,
+        pointRadius: 0,
+        pointHoverRadius: 5,
+        hidden: i < podCpuVisibility.length ? !podCpuVisibility[i] : false,
+      }));
+      podCpuChart.update();
+
+      // Update pod memory chart - preserve visibility state
+      const podMemoryVisibility = podMemoryChart.data.datasets.map((ds, i) => podMemoryChart.isDatasetVisible(i));
+      podMemoryChart.data.labels = formattedTimestamps;
+      podMemoryChart.data.datasets = data.pods.map((pod, i) => ({
+        label: `${pod.namespace}/${pod.name}`,
+        data: pod.memory_history,
+        borderColor: podColorMap[`${pod.namespace}/${pod.name}`],
+        backgroundColor: podColorMap[`${pod.namespace}/${pod.name}`] + (isStacked ? "80" : "20"),
+        borderWidth: 2,
+        fill: isStacked,
+        tension: 0.4,
+        pointRadius: 0,
+        pointHoverRadius: 5,
+        hidden: i < podMemoryVisibility.length ? !podMemoryVisibility[i] : false,
+      }));
+      podMemoryChart.update();
+
+      // Regenerate legends
+      generateLegend(podCpuChart, 'podCpuLegend', 'podCpu');
+      generateLegend(podMemoryChart, 'podMemoryLegend', 'podMemory');
+    }
 
     // Hide refresh indicator after update
     if (indicator) {
@@ -578,6 +1087,30 @@
 
     cpuChart.update();
     memoryChart.update();
+
+    // Update pod charts if they exist
+    if (podCpuChart && podMemoryChart) {
+      podCpuChart.options.scales.x.stacked = isStacked;
+      podCpuChart.options.scales.y.stacked = isStacked;
+
+      podMemoryChart.options.scales.x.stacked = isStacked;
+      podMemoryChart.options.scales.y.stacked = isStacked;
+
+      podCpuChart.data.datasets.forEach((dataset) => {
+        dataset.fill = isStacked;
+        dataset.backgroundColor =
+          podColorMap[dataset.label] + (isStacked ? "80" : "20");
+      });
+
+      podMemoryChart.data.datasets.forEach((dataset) => {
+        dataset.fill = isStacked;
+        dataset.backgroundColor =
+          podColorMap[dataset.label] + (isStacked ? "80" : "20");
+      });
+
+      podCpuChart.update();
+      podMemoryChart.update();
+    }
   }
 
   // Initialize on page load

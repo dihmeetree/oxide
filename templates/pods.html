@@ -1,0 +1,267 @@
+{% extends "layout.html" %} {% block content %}
+<div class="space-y-6">
+  <!-- Header -->
+  <div>
+    <h2 class="text-3xl font-semibold text-text-primary">All Pods</h2>
+    <p class="mt-1 text-base text-text-secondary">
+      Complete list of pods across all namespaces
+    </p>
+  </div>
+
+  {% if pods.is_empty() %}
+  <!-- No Pods Found -->
+  <div
+    class="rounded-lg p-12 text-center bg-[#242424] border border-dark-border"
+  >
+    <svg
+      class="w-16 h-16 mx-auto mb-4"
+      fill="none"
+      stroke="currentColor"
+      viewBox="0 0 24 24"
+      stroke-width="1.5"
+    >
+      <path
+        class="stroke-text-muted"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z"
+      ></path>
+    </svg>
+    <h3 class="text-xl font-semibold mb-2 text-text-primaryAlt">
+      No pods found
+    </h3>
+    <p class="text-text-muted">
+      No pods are currently running in the cluster
+    </p>
+  </div>
+  {% else %}
+  <!-- Summary Cards -->
+  <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
+    <!-- Total Pods -->
+    <div class="rounded-lg p-6 bg-[#242424] border border-dark-border">
+      <div class="flex items-center justify-between">
+        <div>
+          <p class="text-sm font-medium mb-2 text-text-secondary">
+            Total Pods
+          </p>
+          <p class="text-4xl font-semibold text-text-primary">
+            {{ pods.len() }}
+          </p>
+        </div>
+        <div class="rounded-lg p-3 bg-accent-blue/15">
+          <svg
+            class="w-8 h-8 stroke-accent-blue"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke-width="2"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"
+            ></path>
+          </svg>
+        </div>
+      </div>
+    </div>
+
+    <!-- Running -->
+    <div class="rounded-lg p-6 bg-[#242424] border border-dark-border">
+      <div class="flex items-center justify-between">
+        <div>
+          <p class="text-sm font-medium mb-2 text-text-secondary">Running</p>
+          <p class="text-4xl font-semibold text-accent-green">
+            {{ running_count }}
+          </p>
+        </div>
+        <div class="rounded-lg p-3 bg-accent-green/15">
+          <svg
+            class="w-8 h-8 stroke-accent-green"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke-width="2"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
+            ></path>
+          </svg>
+        </div>
+      </div>
+    </div>
+
+    <!-- Pending -->
+    <div class="rounded-lg p-6 bg-[#242424] border border-dark-border">
+      <div class="flex items-center justify-between">
+        <div>
+          <p class="text-sm font-medium mb-2 text-text-secondary">Pending</p>
+          <p class="text-4xl font-semibold text-[#F59E0B]">
+            {{ pending_count }}
+          </p>
+        </div>
+        <div class="rounded-lg p-3 bg-[#F59E0B]/15">
+          <svg
+            class="w-8 h-8 stroke-[#F59E0B]"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke-width="2"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+            ></path>
+          </svg>
+        </div>
+      </div>
+    </div>
+
+    <!-- Failed -->
+    <div class="rounded-lg p-6 bg-[#242424] border border-dark-border">
+      <div class="flex items-center justify-between">
+        <div>
+          <p class="text-sm font-medium mb-2 text-text-secondary">Failed</p>
+          <p class="text-4xl font-semibold text-[#FF4D4D]">
+            {{ failed_count }}
+          </p>
+        </div>
+        <div class="rounded-lg p-3 bg-[#FF4D4D]/15">
+          <svg
+            class="w-8 h-8 stroke-[#FF4D4D]"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke-width="2"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
+            ></path>
+          </svg>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Pods Table -->
+  <div class="rounded-lg bg-[#242424] border border-dark-border">
+    <div class="p-6 border-b border-dark-border">
+      <h3 class="text-xl font-semibold text-text-primary">All Pods</h3>
+    </div>
+    <div class="overflow-x-auto">
+      <table class="w-full">
+        <thead>
+          <tr class="border-b border-dark-border">
+            <th
+              class="px-6 py-3 text-left text-sm font-medium text-text-secondary"
+            >
+              Name
+            </th>
+            <th
+              class="px-6 py-3 text-center text-sm font-medium text-text-secondary"
+            >
+              Namespace
+            </th>
+            <th
+              class="px-6 py-3 text-center text-sm font-medium text-text-secondary"
+            >
+              Node
+            </th>
+            <th
+              class="px-6 py-3 text-center text-sm font-medium text-text-secondary"
+            >
+              Status
+            </th>
+            <th
+              class="px-6 py-3 text-center text-sm font-medium text-text-secondary"
+            >
+              CPU
+            </th>
+            <th
+              class="px-6 py-3 text-center text-sm font-medium text-text-secondary"
+            >
+              Memory
+            </th>
+            <th
+              class="px-6 py-3 text-center text-sm font-medium text-text-secondary"
+            >
+              Restarts
+            </th>
+            <th
+              class="px-6 py-3 text-center text-sm font-medium text-text-secondary"
+            >
+              Age
+            </th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-dark-border">
+          {% for pod in pods %}
+          <tr
+            class="hover:bg-dark-hover transition cursor-pointer"
+            onclick="window.location='/clusters/{{ pod.cluster_name }}/nodes/{{ pod.node_name }}/pods/{{ pod.namespace }}/{{ pod.name }}'"
+          >
+            <td class="px-6 py-4">
+              <span class="text-base font-medium font-mono text-text-primary block truncate max-w-xs">{{
+                pod.name
+              }}</span>
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-center">
+              <span
+                class="inline-flex items-center px-2.5 py-1 rounded-md text-sm font-medium bg-accent-blue/15 text-accent-blue"
+              >
+                {{ pod.namespace }}
+              </span>
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-center">
+              <span class="text-base text-text-secondary">{{
+                pod.node_name
+              }}</span>
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-center">
+              {% if pod.status == "Running" %}
+              <span
+                class="inline-flex items-center px-2.5 py-1 rounded-md text-sm font-medium bg-accent-green/15 text-accent-green"
+              >
+                <span
+                  class="w-1.5 h-1.5 rounded-full mr-1.5 bg-accent-green"
+                ></span>
+                Running
+              </span>
+              {% else if pod.status == "Pending" %}
+              <span
+                class="inline-flex items-center px-2.5 py-1 rounded-md text-sm font-medium bg-[#F59E0B]/15 text-[#F59E0B]"
+              >
+                Pending
+              </span>
+              {% else %}
+              <span
+                class="inline-flex items-center px-2.5 py-1 rounded-md text-sm font-medium bg-[#FF4D4D]/15 text-[#FF4D4D]"
+              >
+                {{ pod.status }}
+              </span>
+              {% endif %}
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-center">
+              <span class="text-base font-mono text-text-primaryAlt">{{ pod.cpu }}</span>
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-center">
+              <span class="text-base font-mono text-text-primaryAlt">{{ pod.memory }}</span>
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-center">
+              <span class="text-base text-text-secondary">{{
+                pod.restarts
+              }}</span>
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-center">
+              <span class="text-base text-text-secondary">{{ pod.age }}</span>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

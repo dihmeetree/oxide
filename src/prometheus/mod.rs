@@ -847,3 +847,64 @@ mod tests {
         assert_eq!(prometheus.calculate_retention_size(), "45GB");
     }
 }
+
+/// Query pod metrics history from Prometheus
+pub async fn query_pod_metrics_range(
+    namespace: &str,
+    pod_name: &str,
+    kubeconfig_path: &std::path::Path,
+    duration: &str, // e.g., "1h"
+    step: &str,     // e.g., "1m"
+) -> Result<NodeMetricsHistory> {
+    // Get the Prometheus pod name
+    let output = CommandBuilder::new("kubectl")
+        .args([
+            "get",
+            "pods",
+            "-n",
+            "monitoring",
+            "-l",
+            "app.kubernetes.io/name=prometheus",
+            "-o",
+            "jsonpath={.items[0].metadata.name}",
+        ])
+        .kubeconfig(kubeconfig_path)
+        .context("Failed to get Prometheus pod name")
+        .output()
+        .await?;
+
+    if !output.success || output.stdout.is_empty() {
+        return Ok(NodeMetricsHistory::default());
+    }
+
+    let prom_pod_name = output.stdout.trim();
+
+    // Query CPU usage history (rate of cpu usage for the pod)
+    let cpu_query = format!(
+        "sum(rate(container_cpu_usage_seconds_total{{namespace=\"{}\",pod=\"{}\",container!=\"\"}}[5m])) * 100",
+        namespace, pod_name
+    );
+
+    let cpu_history =
+        query_prometheus_range(prom_pod_name, &cpu_query, duration, step, kubeconfig_path).await?;
+
+    // Query memory usage history (in bytes)
+    let memory_query = format!(
+        "sum(container_memory_working_set_bytes{{namespace=\"{}\",pod=\"{}\",container!=\"\"}}) / 1024 / 1024",
+        namespace, pod_name
+    );
+
+    let memory_history = query_prometheus_range(
+        prom_pod_name,
+        &memory_query,
+        duration,
+        step,
+        kubeconfig_path,
+    )
+    .await?;
+
+    Ok(NodeMetricsHistory {
+        cpu_history,
+        memory_history,
+    })
+}

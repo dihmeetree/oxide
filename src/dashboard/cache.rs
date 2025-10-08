@@ -5,6 +5,76 @@ use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
 use tracing::{error, info};
 
+/// Calculate human-readable age from ISO 8601 timestamp
+fn calculate_age(timestamp: &str) -> String {
+    use chrono::{DateTime, Utc};
+
+    let created = match DateTime::parse_from_rfc3339(timestamp) {
+        Ok(dt) => dt.with_timezone(&Utc),
+        Err(_) => return "N/A".to_string(),
+    };
+
+    let now = Utc::now();
+    let duration = now.signed_duration_since(created);
+
+    let days = duration.num_days();
+    let hours = duration.num_hours() % 24;
+    let minutes = duration.num_minutes() % 60;
+
+    if days > 0 {
+        format!("{}d", days)
+    } else if hours > 0 {
+        format!("{}h", hours)
+    } else {
+        format!("{}m", minutes)
+    }
+}
+
+/// Parse CPU resource string to millicores
+fn parse_cpu_resource(value: &str) -> Option<f64> {
+    if value.is_empty() || value == "-" {
+        return None;
+    }
+
+    if let Some(stripped) = value.strip_suffix('m') {
+        // Already in millicores (e.g., "100m")
+        stripped.parse::<f64>().ok()
+    } else {
+        // Cores to millicores (e.g., "1" = 1000m)
+        value.parse::<f64>().ok().map(|v| v * 1000.0)
+    }
+}
+
+/// Parse memory resource string to MiB
+fn parse_memory_resource(value: &str) -> Option<f64> {
+    if value.is_empty() || value == "-" {
+        return None;
+    }
+
+    if let Some(stripped) = value.strip_suffix("Ki") {
+        // Kibibytes to MiB
+        stripped.parse::<f64>().ok().map(|v| v / 1024.0)
+    } else if let Some(stripped) = value.strip_suffix("Mi") {
+        // Already in MiB
+        stripped.parse::<f64>().ok()
+    } else if let Some(stripped) = value.strip_suffix("Gi") {
+        // Gibibytes to MiB
+        stripped.parse::<f64>().ok().map(|v| v * 1024.0)
+    } else if let Some(stripped) = value.strip_suffix('K') {
+        // Kilobytes to MiB
+        stripped.parse::<f64>().ok().map(|v| v / 1024.0)
+    } else if let Some(stripped) = value.strip_suffix('M') {
+        // Megabytes to MiB
+        stripped.parse::<f64>().ok()
+    } else if let Some(stripped) = value.strip_suffix('G') {
+        // Gigabytes to MiB
+        stripped.parse::<f64>().ok().map(|v| v * 1024.0)
+    } else {
+        // Bytes to MiB
+        value.parse::<f64>().ok().map(|v| v / (1024.0 * 1024.0))
+    }
+}
+
 use super::templates::{ClusterDetail, ClusterInfo, NodeDetail};
 use crate::config::ClusterConfig;
 use crate::hcloud::client::HetznerCloudClient;
@@ -22,6 +92,12 @@ struct CacheData {
     servers: Vec<Server>,
     node_details: std::collections::HashMap<String, NodeDetail>,
     node_metrics_history: std::collections::HashMap<String, crate::prometheus::NodeMetricsHistory>,
+    pod_details: std::collections::HashMap<String, super::templates::PodDetail>,
+    pod_metrics_history: std::collections::HashMap<String, crate::prometheus::NodeMetricsHistory>,
+    cilium_pods: Vec<super::templates::CiliumPod>,
+    cilium_version: String,
+    hubble_enabled: bool,
+    ipv6_enabled: bool,
     last_update: Instant,
     is_ready: bool,
 }
@@ -35,6 +111,12 @@ impl ClusterCache {
                 servers: Vec::new(),
                 node_details: std::collections::HashMap::new(),
                 node_metrics_history: std::collections::HashMap::new(),
+                pod_details: std::collections::HashMap::new(),
+                pod_metrics_history: std::collections::HashMap::new(),
+                cilium_pods: Vec::new(),
+                cilium_version: "N/A".to_string(),
+                hubble_enabled: false,
+                ipv6_enabled: false,
                 last_update: Instant::now(),
                 is_ready: false,
             })),
@@ -83,6 +165,30 @@ impl ClusterCache {
         data.node_details.get(node_name).cloned()
     }
 
+    /// Get detailed pod info from cache
+    pub async fn get_pod_detail(
+        &self,
+        _cluster_name: &str,
+        _node_name: &str,
+        namespace: &str,
+        pod_name: &str,
+    ) -> Option<super::templates::PodDetail> {
+        let data = self.inner.read().await;
+        let key = format!("{}/{}", namespace, pod_name);
+        data.pod_details.get(&key).cloned()
+    }
+
+    /// Get pod metrics history from cache
+    pub async fn get_pod_metrics(
+        &self,
+        namespace: &str,
+        pod_name: &str,
+    ) -> Option<crate::prometheus::NodeMetricsHistory> {
+        let data = self.inner.read().await;
+        let key = format!("{}/{}", namespace, pod_name);
+        data.pod_metrics_history.get(&key).cloned()
+    }
+
     /// Get all node metrics history from cache
     pub async fn get_node_metrics_history(
         &self,
@@ -91,10 +197,106 @@ impl ClusterCache {
         data.node_metrics_history.clone()
     }
 
+    /// Process node metrics history with a closure to avoid cloning
+    #[allow(dead_code)]
+    pub async fn with_node_metrics_history<F, R>(&self, f: F) -> R
+    where
+        F: FnOnce(&std::collections::HashMap<String, crate::prometheus::NodeMetricsHistory>) -> R,
+    {
+        let data = self.inner.read().await;
+        f(&data.node_metrics_history)
+    }
+
     /// Get all node details map from cache
     pub async fn get_node_details_map(&self) -> std::collections::HashMap<String, NodeDetail> {
         let data = self.inner.read().await;
         data.node_details.clone()
+    }
+
+    /// Get all pods from cache
+    pub async fn get_all_pods(&self) -> Vec<super::templates::PodDetail> {
+        let data = self.inner.read().await;
+        data.pod_details.values().cloned().collect()
+    }
+
+    /// Get all pod metrics history from cache
+    pub async fn get_pod_metrics_history(
+        &self,
+    ) -> std::collections::HashMap<String, crate::prometheus::NodeMetricsHistory> {
+        let data = self.inner.read().await;
+        data.pod_metrics_history.clone()
+    }
+
+    /// Process pod metrics history with a closure to avoid cloning
+    #[allow(dead_code)]
+    pub async fn with_pod_metrics_history<F, R>(&self, f: F) -> R
+    where
+        F: FnOnce(&std::collections::HashMap<String, crate::prometheus::NodeMetricsHistory>) -> R,
+    {
+        let data = self.inner.read().await;
+        f(&data.pod_metrics_history)
+    }
+
+    /// Get Cilium pod information from cache
+    #[allow(dead_code)]
+    pub async fn get_cilium_data(&self) -> (Vec<super::templates::CiliumPod>, String, bool, bool) {
+        let data = self.inner.read().await;
+        (
+            data.cilium_pods.clone(),
+            data.cilium_version.clone(),
+            data.hubble_enabled,
+            data.ipv6_enabled,
+        )
+    }
+
+    /// Process Cilium data with a closure to avoid cloning
+    #[allow(dead_code)]
+    pub async fn with_cilium_data<F, R>(&self, f: F) -> R
+    where
+        F: FnOnce(&[super::templates::CiliumPod], &str, bool, bool) -> R,
+    {
+        let data = self.inner.read().await;
+        f(
+            &data.cilium_pods,
+            &data.cilium_version,
+            data.hubble_enabled,
+            data.ipv6_enabled,
+        )
+    }
+
+    /// Process both Cilium data and pod metrics history together to avoid multiple locks
+    pub async fn with_cilium_and_pod_metrics<F, R>(&self, f: F) -> R
+    where
+        F: FnOnce(
+            &[super::templates::CiliumPod],
+            &str,
+            bool,
+            bool,
+            &std::collections::HashMap<String, crate::prometheus::NodeMetricsHistory>,
+        ) -> R,
+    {
+        let data = self.inner.read().await;
+        f(
+            &data.cilium_pods,
+            &data.cilium_version,
+            data.hubble_enabled,
+            data.ipv6_enabled,
+            &data.pod_metrics_history,
+        )
+    }
+
+    /// Get both node and pod metrics history together in one lock
+    pub async fn get_all_metrics_history(
+        &self,
+    ) -> (
+        std::collections::HashMap<String, crate::prometheus::NodeMetricsHistory>,
+        std::collections::HashMap<String, crate::prometheus::NodeMetricsHistory>,
+    ) {
+        let data = self.inner.read().await;
+        (
+            data.node_metrics_history.clone(),
+            data.pod_metrics_history.clone(),
+        )
     }
 
     /// Get cache age
@@ -126,18 +328,77 @@ impl ClusterCache {
         // Group by cluster name
         let clusters = group_servers_into_clusters(&servers);
 
-        // Fetch node details with pods for all nodes
-        let node_details = fetch_all_node_details(&servers, config_path).await;
+        // Fetch all data in parallel - this is the main optimization!
+        let (node_details, mut pod_details, pod_metrics_history, node_metrics_history, cilium_data) = tokio::join!(
+            fetch_all_node_details(&servers, config_path),
+            fetch_all_pod_details(config_path, &config.cluster_name),
+            fetch_all_pod_metrics_history(config_path),
+            fetch_all_node_metrics_history(&servers, config_path),
+            fetch_cilium_data(config_path, &config, &config.cluster_name)
+        );
 
-        // Fetch historical metrics for all nodes
-        let node_metrics_history = fetch_all_node_metrics_history(&servers, config_path).await;
+        // Unpack Cilium data
+        let (mut cilium_pods, cilium_version, hubble_enabled, ipv6_enabled) = cilium_data;
+
+        // Update pod details with latest metrics from history
+        for (key, history) in &pod_metrics_history {
+            if let Some(pod_detail) = pod_details.get_mut(key) {
+                if let Some(&(_, cpu_value)) = history.cpu_history.last() {
+                    pod_detail.cpu = format!("{}m", (cpu_value * 10.0) as u64);
+                }
+                if let Some(&(_, mem_value)) = history.memory_history.last() {
+                    pod_detail.memory = format!("{}Mi", mem_value as u64);
+                }
+            }
+        }
+
+        // Update Cilium pods with CPU and memory from pod_details
+        for cilium_pod in &mut cilium_pods {
+            let key = format!("kube-system/{}", cilium_pod.name);
+            if let Some(pod_detail) = pod_details.get(&key) {
+                cilium_pod.cpu = pod_detail.cpu.clone();
+                cilium_pod.memory = pod_detail.memory.clone();
+
+                // Calculate total requests and limits from all containers
+                let mut cpu_req_total = 0.0;
+                let mut cpu_lim_total = 0.0;
+                let mut mem_req_total = 0.0;
+                let mut mem_lim_total = 0.0;
+
+                for container in &pod_detail.containers {
+                    if let Some(val) = parse_cpu_resource(&container.cpu_request) {
+                        cpu_req_total += val;
+                    }
+                    if let Some(val) = parse_cpu_resource(&container.cpu_limit) {
+                        cpu_lim_total += val;
+                    }
+                    if let Some(val) = parse_memory_resource(&container.memory_request) {
+                        mem_req_total += val;
+                    }
+                    if let Some(val) = parse_memory_resource(&container.memory_limit) {
+                        mem_lim_total += val;
+                    }
+                }
+
+                cilium_pod.cpu_request = cpu_req_total;
+                cilium_pod.cpu_limit = cpu_lim_total;
+                cilium_pod.memory_request = mem_req_total;
+                cilium_pod.memory_limit = mem_lim_total;
+            }
+        }
 
         // Update cache
         let mut data = self.inner.write().await;
         data.clusters = clusters;
         data.servers = servers;
         data.node_details = node_details;
+        data.pod_details = pod_details;
+        data.pod_metrics_history = pod_metrics_history;
         data.node_metrics_history = node_metrics_history;
+        data.cilium_pods = cilium_pods;
+        data.cilium_version = cilium_version;
+        data.hubble_enabled = hubble_enabled;
+        data.ipv6_enabled = ipv6_enabled;
         data.last_update = Instant::now();
         data.is_ready = true;
 
@@ -265,8 +526,7 @@ async fn fetch_all_node_details(
     config_path: &std::path::Path,
 ) -> std::collections::HashMap<String, NodeDetail> {
     use std::collections::HashMap;
-
-    let mut node_details = HashMap::new();
+    use std::sync::Arc;
 
     // Get the output directory from config path
     let output_dir = config_path
@@ -280,49 +540,64 @@ async fn fetch_all_node_details(
     // Check if kubeconfig exists
     if !kubeconfig.exists() {
         info!("Kubeconfig not found, skipping pod data fetch");
-        return node_details;
+        return HashMap::new();
     }
+
+    // Wrap kubeconfig in Arc to avoid cloning PathBuf for each task
+    let kubeconfig = std::sync::Arc::new(kubeconfig);
 
     // Fetch pods for all nodes in parallel
     let fetch_tasks: Vec<_> = servers
         .iter()
         .map(|server| {
-            let kubeconfig = kubeconfig.clone();
-            let server = server.clone();
+            let kubeconfig = Arc::clone(&kubeconfig);
+            // Extract only the fields we need instead of cloning entire server
+            let server_name = server.name.clone();
+            let server_status = server.status.clone();
+            let server_type_name = server.server_type.name.clone();
+            let server_cores = server.server_type.cores;
+            let server_created = server.created.clone();
+            let ip = server
+                .public_net
+                .ipv4
+                .as_ref()
+                .map(|ipv4| ipv4.ip.clone())
+                .unwrap_or_else(|| "N/A".to_string());
+            let private_ip = server
+                .private_net
+                .first()
+                .map(|net| net.ip.clone())
+                .unwrap_or_else(|| "N/A".to_string());
+
             async move {
-                let cluster_name = server
-                    .name
+                let cluster_name = server_name
                     .split('-')
                     .next()
                     .unwrap_or("unknown")
                     .to_string();
 
-                let role = if server.name.contains("control-plane") {
+                let role = if server_name.contains("control-plane") {
                     "Control Plane".to_string()
                 } else {
                     "Worker".to_string()
                 };
 
-                let ip = server
-                    .public_net
-                    .ipv4
-                    .as_ref()
-                    .map(|ipv4| ipv4.ip.clone())
-                    .unwrap_or_else(|| "N/A".to_string());
-
-                let private_ip = server
-                    .private_net
-                    .first()
-                    .map(|net| net.ip.clone())
-                    .unwrap_or_else(|| "N/A".to_string());
-
                 // Get pods from Kubernetes
-                let pods = KubernetesClient::get_pods_on_node(&kubeconfig, &server.name)
+                let mut pods = KubernetesClient::get_pods_on_node(&kubeconfig, &server_name)
                     .await
                     .unwrap_or_else(|e| {
-                        error!("Failed to get pods for node {}: {}", server.name, e);
+                        error!("Failed to get pods for node {}: {}", server_name, e);
                         Vec::new()
                     });
+
+                // Sort pods by CPU usage (highest to lowest)
+                pods.sort_by(|a, b| {
+                    let cpu_a = a.cpu.trim_end_matches('m').parse::<f64>().unwrap_or(-1.0);
+                    let cpu_b = b.cpu.trim_end_matches('m').parse::<f64>().unwrap_or(-1.0);
+                    cpu_b
+                        .partial_cmp(&cpu_a)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                });
 
                 // Get metrics from Prometheus using private IP
                 let metrics = crate::prometheus::query_node_metrics(&private_ip, &kubeconfig)
@@ -331,6 +606,13 @@ async fn fetch_all_node_details(
 
                 let cpu_usage_percent = if metrics.cpu_usage_percent > 0.0 {
                     format!("{:.1}%", metrics.cpu_usage_percent)
+                } else {
+                    "N/A".to_string()
+                };
+
+                let cpu_used_cores = if metrics.cpu_usage_percent > 0.0 {
+                    let used = (metrics.cpu_usage_percent / 100.0) * server_cores as f64;
+                    format!("{:.2}", used)
                 } else {
                     "N/A".to_string()
                 };
@@ -360,23 +642,24 @@ async fn fetch_all_node_details(
                 };
 
                 (
-                    server.name.clone(),
+                    server_name.clone(),
                     NodeDetail {
                         cluster_name,
-                        name: server.name.clone(),
+                        name: server_name,
                         role,
                         ip,
                         private_ip,
-                        status: server.status.clone(),
-                        server_type: server.server_type.name.clone(),
-                        created: server
-                            .created
+                        status: server_status,
+                        server_type: server_type_name,
+                        created: server_created
                             .split('T')
                             .next()
                             .unwrap_or("Unknown")
                             .to_string(),
                         pods,
                         cpu_usage_percent,
+                        cpu_cores: server_cores,
+                        cpu_used_cores,
                         memory_usage_percent,
                         memory_used_gb,
                         memory_total_gb,
@@ -386,15 +669,11 @@ async fn fetch_all_node_details(
         })
         .collect();
 
-    // Execute all fetch tasks in parallel
-    let results = futures::future::join_all(fetch_tasks).await;
-
-    // Collect results into HashMap
-    for (name, detail) in results {
-        node_details.insert(name, detail);
-    }
-
-    node_details
+    // Execute all fetch tasks in parallel and collect directly into HashMap
+    futures::future::join_all(fetch_tasks)
+        .await
+        .into_iter()
+        .collect()
 }
 
 /// Fetch historical metrics for all nodes
@@ -402,7 +681,7 @@ async fn fetch_all_node_metrics_history(
     servers: &[Server],
     config_path: &std::path::Path,
 ) -> std::collections::HashMap<String, crate::prometheus::NodeMetricsHistory> {
-    let mut metrics_history = std::collections::HashMap::new();
+    use std::sync::Arc;
 
     let output_dir = config_path
         .parent()
@@ -415,22 +694,26 @@ async fn fetch_all_node_metrics_history(
     // Check if kubeconfig exists
     if !kubeconfig.exists() {
         info!("Kubeconfig not found, skipping metrics history fetch");
-        return metrics_history;
+        return std::collections::HashMap::new();
     }
+
+    // Wrap kubeconfig in Arc to avoid cloning PathBuf for each task
+    let kubeconfig = Arc::new(kubeconfig);
 
     // Fetch metrics history for all nodes in parallel
     let fetch_tasks: Vec<_> = servers
         .iter()
         .map(|server| {
-            let kubeconfig = kubeconfig.clone();
-            let server = server.clone();
-            async move {
-                let private_ip = server
-                    .private_net
-                    .first()
-                    .map(|net| net.ip.clone())
-                    .unwrap_or_else(|| "N/A".to_string());
+            let kubeconfig = Arc::clone(&kubeconfig);
+            // Extract only needed fields instead of cloning entire server
+            let server_name = server.name.clone();
+            let private_ip = server
+                .private_net
+                .first()
+                .map(|net| net.ip.clone())
+                .unwrap_or_else(|| "N/A".to_string());
 
+            async move {
                 let history = crate::prometheus::query_node_metrics_range(
                     &private_ip,
                     &kubeconfig,
@@ -440,20 +723,16 @@ async fn fetch_all_node_metrics_history(
                 .await
                 .unwrap_or_default();
 
-                (server.name.clone(), history)
+                (server_name, history)
             }
         })
         .collect();
 
-    // Execute all fetch tasks in parallel
-    let results = futures::future::join_all(fetch_tasks).await;
-
-    // Collect results into HashMap
-    for (name, history) in results {
-        metrics_history.insert(name, history);
-    }
-
-    metrics_history
+    // Execute all fetch tasks in parallel and collect directly into HashMap
+    futures::future::join_all(fetch_tasks)
+        .await
+        .into_iter()
+        .collect()
 }
 
 /// Build detailed cluster info
@@ -491,7 +770,7 @@ fn build_cluster_detail(
         .map(|ipv4| format!("https://{}:6443", ipv4.ip))
         .unwrap_or_else(|| "N/A".to_string());
 
-    let nodes: Vec<NodeInfo> = cluster_servers
+    let mut nodes: Vec<NodeInfo> = cluster_servers
         .iter()
         .map(|server| {
             let role = if server.name.contains("control-plane") {
@@ -543,6 +822,23 @@ fn build_cluster_detail(
         })
         .collect();
 
+    // Sort nodes by CPU usage (highest to lowest)
+    nodes.sort_by(|a, b| {
+        let cpu_a = a
+            .cpu_usage_percent
+            .trim_end_matches('%')
+            .parse::<f64>()
+            .unwrap_or(-1.0);
+        let cpu_b = b
+            .cpu_usage_percent
+            .trim_end_matches('%')
+            .parse::<f64>()
+            .unwrap_or(-1.0);
+        cpu_b
+            .partial_cmp(&cpu_a)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+
     let control_plane_count = nodes.iter().filter(|n| n.role == "Control Plane").count();
     let worker_count = nodes.iter().filter(|n| n.role == "Worker").count();
 
@@ -556,4 +852,417 @@ fn build_cluster_detail(
         control_plane_count,
         worker_count,
     }
+}
+
+/// Fetch Cilium pod information
+async fn fetch_cilium_data(
+    config_path: &std::path::Path,
+    config: &ClusterConfig,
+    cluster_name: &str,
+) -> (Vec<super::templates::CiliumPod>, String, bool, bool) {
+    use tokio::process::Command;
+
+    let output_dir = config_path
+        .parent()
+        .and_then(|p| p.parent())
+        .map(|p| p.join("output"))
+        .unwrap_or_else(|| std::path::PathBuf::from("output"));
+
+    let kubeconfig = output_dir.join("kubeconfig");
+
+    // Get configuration from cluster config
+    let cilium_version = config.cilium.version.clone();
+    let hubble_enabled = config.cilium.enable_hubble;
+    let ipv6_enabled = config.cilium.enable_ipv6;
+
+    // Check if kubeconfig exists
+    if !kubeconfig.exists() {
+        info!("Kubeconfig not found, skipping Cilium data fetch");
+        return (vec![], cilium_version, hubble_enabled, ipv6_enabled);
+    }
+
+    // Get Cilium pods using kubectl
+    let output = match Command::new("kubectl")
+        .arg("--kubeconfig")
+        .arg(&kubeconfig)
+        .arg("get")
+        .arg("pods")
+        .arg("-n")
+        .arg("kube-system")
+        .arg("-l")
+        .arg("k8s-app=cilium")
+        .arg("-o")
+        .arg("json")
+        .output()
+        .await
+    {
+        Ok(output) => output,
+        Err(e) => {
+            info!("Failed to query Cilium pods: {}", e);
+            return (vec![], cilium_version, hubble_enabled, ipv6_enabled);
+        }
+    };
+
+    if !output.status.success() {
+        info!(
+            "kubectl get pods failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        return (vec![], cilium_version, hubble_enabled, ipv6_enabled);
+    }
+
+    let pods_json: serde_json::Value = match serde_json::from_slice(&output.stdout) {
+        Ok(json) => json,
+        Err(e) => {
+            info!("Failed to parse Cilium pods JSON: {}", e);
+            return (vec![], cilium_version, hubble_enabled, ipv6_enabled);
+        }
+    };
+
+    let mut cilium_pods = Vec::new();
+
+    if let Some(items) = pods_json["items"].as_array() {
+        for pod in items {
+            let name = pod["metadata"]["name"]
+                .as_str()
+                .unwrap_or("unknown")
+                .to_string();
+            let node = pod["spec"]["nodeName"]
+                .as_str()
+                .unwrap_or("N/A")
+                .to_string();
+            let status = pod["status"]["phase"]
+                .as_str()
+                .unwrap_or("Unknown")
+                .to_string();
+
+            // Count restarts
+            let mut restarts = 0u32;
+            if let Some(container_statuses) = pod["status"]["containerStatuses"].as_array() {
+                for container in container_statuses {
+                    if let Some(restart_count) = container["restartCount"].as_u64() {
+                        restarts += restart_count as u32;
+                    }
+                }
+            }
+
+            // Calculate age from creationTimestamp
+            let age = if let Some(created_str) = pod["metadata"]["creationTimestamp"].as_str() {
+                calculate_age(created_str)
+            } else {
+                "N/A".to_string()
+            };
+
+            cilium_pods.push(super::templates::CiliumPod {
+                name,
+                node,
+                cluster_name: cluster_name.to_string(),
+                status,
+                cpu: "0m".to_string(),
+                memory: "0Mi".to_string(),
+                cpu_request: 0.0,
+                cpu_limit: 0.0,
+                memory_request: 0.0,
+                memory_limit: 0.0,
+                restarts,
+                age,
+            });
+        }
+    }
+
+    (cilium_pods, cilium_version, hubble_enabled, ipv6_enabled)
+}
+
+/// Fetch detailed information for all pods
+async fn fetch_all_pod_details(
+    config_path: &std::path::Path,
+    cluster_name: &str,
+) -> std::collections::HashMap<String, super::templates::PodDetail> {
+    use tokio::process::Command;
+
+    let mut pod_details = std::collections::HashMap::new();
+
+    let output_dir = config_path
+        .parent()
+        .and_then(|p| p.parent())
+        .map(|p| p.join("output"))
+        .unwrap_or_else(|| std::path::PathBuf::from("output"));
+
+    let kubeconfig = output_dir.join("kubeconfig");
+
+    // Check if kubeconfig exists
+    if !kubeconfig.exists() {
+        info!("Kubeconfig not found, skipping pod details fetch");
+        return pod_details;
+    }
+
+    // Get all pods from all namespaces
+    let output = match Command::new("kubectl")
+        .arg("--kubeconfig")
+        .arg(&kubeconfig)
+        .arg("get")
+        .arg("pods")
+        .arg("--all-namespaces")
+        .arg("-o")
+        .arg("json")
+        .output()
+        .await
+    {
+        Ok(output) => output,
+        Err(e) => {
+            info!("Failed to query pods: {}", e);
+            return pod_details;
+        }
+    };
+
+    if !output.status.success() {
+        info!(
+            "kubectl get pods failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        return pod_details;
+    }
+
+    let pods_json: serde_json::Value = match serde_json::from_slice(&output.stdout) {
+        Ok(json) => json,
+        Err(e) => {
+            info!("Failed to parse pods JSON: {}", e);
+            return pod_details;
+        }
+    };
+
+    if let Some(items) = pods_json["items"].as_array() {
+        for pod in items {
+            let namespace = pod["metadata"]["namespace"]
+                .as_str()
+                .unwrap_or("unknown")
+                .to_string();
+            let pod_name = pod["metadata"]["name"]
+                .as_str()
+                .unwrap_or("unknown")
+                .to_string();
+            let node_name = pod["spec"]["nodeName"]
+                .as_str()
+                .unwrap_or("N/A")
+                .to_string();
+            let status = pod["status"]["phase"]
+                .as_str()
+                .unwrap_or("Unknown")
+                .to_string();
+            let pod_ip = pod["status"]["podIP"].as_str().unwrap_or("N/A").to_string();
+
+            // Calculate age
+            let age = if let Some(created_str) = pod["metadata"]["creationTimestamp"].as_str() {
+                calculate_age(created_str)
+            } else {
+                "N/A".to_string()
+            };
+
+            // Count restarts
+            let mut restarts = 0u32;
+            if let Some(container_statuses) = pod["status"]["containerStatuses"].as_array() {
+                for container in container_statuses {
+                    if let Some(restart_count) = container["restartCount"].as_u64() {
+                        restarts += restart_count as u32;
+                    }
+                }
+            }
+
+            // Extract labels
+            let mut labels = Vec::new();
+            if let Some(labels_obj) = pod["metadata"]["labels"].as_object() {
+                for (k, v) in labels_obj {
+                    if let Some(v_str) = v.as_str() {
+                        labels.push((k.clone(), v_str.to_string()));
+                    }
+                }
+            }
+
+            // Extract container information
+            let mut containers = Vec::new();
+            if let Some(container_specs) = pod["spec"]["containers"].as_array() {
+                for (idx, container_spec) in container_specs.iter().enumerate() {
+                    let container_name = container_spec["name"]
+                        .as_str()
+                        .unwrap_or("unknown")
+                        .to_string();
+                    let image = container_spec["image"]
+                        .as_str()
+                        .unwrap_or("N/A")
+                        .to_string();
+
+                    // Get resource requests and limits (handle both missing and present)
+                    let cpu_request = container_spec
+                        .get("resources")
+                        .and_then(|r| r.get("requests"))
+                        .and_then(|req| req.get("cpu"))
+                        .and_then(|c| c.as_str())
+                        .unwrap_or("-")
+                        .to_string();
+                    let cpu_limit = container_spec
+                        .get("resources")
+                        .and_then(|r| r.get("limits"))
+                        .and_then(|lim| lim.get("cpu"))
+                        .and_then(|c| c.as_str())
+                        .unwrap_or("-")
+                        .to_string();
+                    let memory_request = container_spec
+                        .get("resources")
+                        .and_then(|r| r.get("requests"))
+                        .and_then(|req| req.get("memory"))
+                        .and_then(|m| m.as_str())
+                        .unwrap_or("-")
+                        .to_string();
+                    let memory_limit = container_spec
+                        .get("resources")
+                        .and_then(|r| r.get("limits"))
+                        .and_then(|lim| lim.get("memory"))
+                        .and_then(|m| m.as_str())
+                        .unwrap_or("-")
+                        .to_string();
+
+                    // Get container status
+                    let (ready, restart_count) = if let Some(container_statuses) =
+                        pod["status"]["containerStatuses"].as_array()
+                    {
+                        if let Some(container_status) = container_statuses.get(idx) {
+                            let ready = container_status["ready"].as_bool().unwrap_or(false);
+                            let restart_count =
+                                container_status["restartCount"].as_u64().unwrap_or(0) as u32;
+                            (ready, restart_count)
+                        } else {
+                            (false, 0)
+                        }
+                    } else {
+                        (false, 0)
+                    };
+
+                    containers.push(super::templates::ContainerInfo {
+                        name: container_name,
+                        image,
+                        cpu_request,
+                        cpu_limit,
+                        memory_request,
+                        memory_limit,
+                        ready,
+                        restart_count,
+                    });
+                }
+            }
+
+            let pod_detail = super::templates::PodDetail {
+                cluster_name: cluster_name.to_string(),
+                node_name,
+                name: pod_name.clone(),
+                namespace: namespace.clone(),
+                status,
+                restarts,
+                age,
+                ip: pod_ip,
+                cpu: "N/A".to_string(),
+                memory: "N/A".to_string(),
+                labels,
+                containers,
+            };
+
+            let key = format!("{}/{}", namespace, pod_name);
+            pod_details.insert(key, pod_detail);
+        }
+    }
+
+    pod_details
+}
+
+/// Fetch metrics history for all pods
+async fn fetch_all_pod_metrics_history(
+    config_path: &std::path::Path,
+) -> std::collections::HashMap<String, crate::prometheus::NodeMetricsHistory> {
+    use std::sync::Arc;
+
+    let output_dir = config_path
+        .parent()
+        .and_then(|p| p.parent())
+        .map(|p| p.join("output"))
+        .unwrap_or_else(|| std::path::PathBuf::from("output"));
+
+    let kubeconfig = output_dir.join("kubeconfig");
+
+    // Check if kubeconfig exists
+    if !kubeconfig.exists() {
+        info!("Kubeconfig not found, skipping pod metrics history fetch");
+        return std::collections::HashMap::new();
+    }
+
+    // Get all pods to fetch metrics for
+    let output = match tokio::process::Command::new("kubectl")
+        .arg("--kubeconfig")
+        .arg(&kubeconfig)
+        .arg("get")
+        .arg("pods")
+        .arg("--all-namespaces")
+        .arg("-o")
+        .arg("json")
+        .output()
+        .await
+    {
+        Ok(output) => output,
+        Err(e) => {
+            info!("Failed to query pods for metrics: {}", e);
+            return std::collections::HashMap::new();
+        }
+    };
+
+    if !output.status.success() {
+        return std::collections::HashMap::new();
+    }
+
+    let pods_json: serde_json::Value = match serde_json::from_slice(&output.stdout) {
+        Ok(json) => json,
+        Err(_) => return std::collections::HashMap::new(),
+    };
+
+    let items = match pods_json["items"].as_array() {
+        Some(items) => items,
+        None => return std::collections::HashMap::new(),
+    };
+
+    // Wrap kubeconfig in Arc to avoid cloning PathBuf for each task
+    let kubeconfig = Arc::new(kubeconfig);
+
+    // Fetch metrics for all pods in parallel
+    let fetch_tasks: Vec<_> = items
+        .iter()
+        .map(|pod| {
+            let namespace = pod["metadata"]["namespace"]
+                .as_str()
+                .unwrap_or("unknown")
+                .to_string();
+            let pod_name = pod["metadata"]["name"]
+                .as_str()
+                .unwrap_or("unknown")
+                .to_string();
+            let kubeconfig = Arc::clone(&kubeconfig);
+
+            async move {
+                let history = crate::prometheus::query_pod_metrics_range(
+                    &namespace,
+                    &pod_name,
+                    &kubeconfig,
+                    "1h",
+                    "1m",
+                )
+                .await
+                .unwrap_or_default();
+
+                let key = format!("{}/{}", namespace, pod_name);
+                (key, history)
+            }
+        })
+        .collect();
+
+    // Execute all fetch tasks in parallel and collect directly into HashMap
+    futures::future::join_all(fetch_tasks)
+        .await
+        .into_iter()
+        .collect()
 }

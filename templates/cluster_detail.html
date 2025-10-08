@@ -2,34 +2,32 @@
 <div class="space-y-6">
   <!-- Header -->
   <div class="flex items-center justify-between">
-    <div>
-      <div class="mb-3">
-        <a
-          href="/clusters"
-          class="inline-flex items-center px-3 py-1.5 rounded-lg text-sm font-medium transition bg-dark-hover hover:bg-dark-hoverAlt text-text-primaryAlt"
+    <div class="flex items-center gap-4">
+      <a
+        href="/clusters"
+        class="p-2 rounded-lg bg-dark-hover hover:bg-dark-hoverAlt transition"
+      >
+        <svg
+          class="w-5 h-5 stroke-text-primaryAlt"
+          fill="none"
+          viewBox="0 0 24 24"
+          stroke-width="2"
         >
-          <svg
-            class="w-4 h-4 mr-1.5"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-            stroke-width="2"
-          >
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              d="M10 19l-7-7m0 0l7-7m-7 7h18"
-            ></path>
-          </svg>
-          Back to Clusters
-        </a>
+          <path
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            d="M15 19l-7-7 7-7"
+          ></path>
+        </svg>
+      </a>
+      <div>
+        <h2 class="text-3xl font-semibold text-text-primary">
+          {{ cluster.name }}
+        </h2>
+        <p class="mt-1 text-base text-text-secondary">
+          Created {{ cluster.created }}
+        </p>
       </div>
-      <h2 class="text-3xl font-semibold text-text-primary">
-        {{ cluster.name }}
-      </h2>
-      <p class="mt-1 text-base text-text-secondary">
-        Created {{ cluster.created }}
-      </p>
     </div>
     <div class="flex items-center space-x-3">
       {% if cluster.status == "Running" %}
@@ -239,42 +237,42 @@
               Name
             </th>
             <th
-              class="px-6 py-3 text-left text-sm font-medium text-text-secondary"
+              class="px-6 py-3 text-center text-sm font-medium text-text-secondary"
             >
               Role
             </th>
             <th
-              class="px-6 py-3 text-left text-sm font-medium text-text-secondary"
+              class="px-6 py-3 text-center text-sm font-medium text-text-secondary"
             >
               CPU
             </th>
             <th
-              class="px-6 py-3 text-left text-sm font-medium text-text-secondary"
+              class="px-6 py-3 text-center text-sm font-medium text-text-secondary"
             >
               Memory
             </th>
             <th
-              class="px-6 py-3 text-left text-sm font-medium text-text-secondary"
+              class="px-6 py-3 text-center text-sm font-medium text-text-secondary"
             >
               Public IP
             </th>
             <th
-              class="px-6 py-3 text-left text-sm font-medium text-text-secondary"
+              class="px-6 py-3 text-center text-sm font-medium text-text-secondary"
             >
               Private IP
             </th>
             <th
-              class="px-6 py-3 text-left text-sm font-medium text-text-secondary"
+              class="px-6 py-3 text-center text-sm font-medium text-text-secondary"
             >
               Type
             </th>
             <th
-              class="px-6 py-3 text-left text-sm font-medium text-text-secondary"
+              class="px-6 py-3 text-center text-sm font-medium text-text-secondary"
             >
               Status
             </th>
             <th
-              class="px-6 py-3 text-left text-sm font-medium text-text-secondary"
+              class="px-6 py-3 text-center text-sm font-medium text-text-secondary"
             >
               Created
             </th>
@@ -291,7 +289,7 @@
                 >{{ node.name }}</span
               >
             </td>
-            <td class="px-6 py-4">
+            <td class="px-6 py-4 text-center">
               {% if node.role == "Control Plane" %}
               <span
                 class="inline-flex items-center px-2.5 py-1 rounded-md text-sm font-medium bg-accent-blue/15 text-accent-blue"
@@ -306,32 +304,32 @@
               </span>
               {% endif %}
             </td>
-            <td class="px-6 py-4">
+            <td class="px-6 py-4 text-center">
               <span class="text-base font-mono text-text-primaryAlt"
                 >{{ node.cpu_usage_percent }}</span
               >
             </td>
-            <td class="px-6 py-4">
+            <td class="px-6 py-4 text-center">
               <span class="text-base font-mono text-text-primaryAlt"
                 >{{ node.memory_usage_percent }}</span
               >
             </td>
-            <td class="px-6 py-4">
+            <td class="px-6 py-4 text-center">
               <span class="text-base font-mono text-text-primaryAlt"
                 >{{ node.ip }}</span
               >
             </td>
-            <td class="px-6 py-4">
+            <td class="px-6 py-4 text-center">
               <span class="text-base font-mono text-text-primaryAlt"
                 >{{ node.private_ip }}</span
               >
             </td>
-            <td class="px-6 py-4">
+            <td class="px-6 py-4 text-center">
               <span class="text-base text-text-primaryAlt"
                 >{{ node.server_type }}</span
               >
             </td>
-            <td class="px-6 py-4">
+            <td class="px-6 py-4 text-center">
               {% if node.status == "running" %}
               <span
                 class="inline-flex items-center px-2.5 py-1 rounded-md text-sm font-medium bg-accent-green/15 text-accent-green"
@@ -349,7 +347,7 @@
               </span>
               {% endif %}
             </td>
-            <td class="px-6 py-4">
+            <td class="px-6 py-4 text-center">
               <span class="text-base text-text-secondary"
                 >{{ node.created }}</span
               >

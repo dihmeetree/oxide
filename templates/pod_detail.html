@@ -1,0 +1,845 @@
+{% extends "layout.html" %} {% block content %}
+<div class="space-y-6">
+  <!-- Header with Back Button -->
+  <div class="flex items-center gap-4">
+    <a
+      href="/clusters/{{ pod.cluster_name }}/nodes/{{ pod.node_name }}"
+      class="p-2 rounded-lg bg-dark-hover hover:bg-dark-hoverAlt transition"
+    >
+      <svg
+        class="w-5 h-5 stroke-text-primaryAlt"
+        fill="none"
+        viewBox="0 0 24 24"
+        stroke-width="2"
+      >
+        <path
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          d="M15 19l-7-7 7-7"
+        ></path>
+      </svg>
+    </a>
+    <div>
+      <h2 class="text-3xl font-semibold text-text-primary">{{ pod.name }}</h2>
+      <p class="mt-1 text-base text-text-secondary">
+        Pod in {{ pod.namespace }} namespace on {{ pod.node_name }}
+      </p>
+    </div>
+  </div>
+
+  <!-- Pod Info Cards -->
+  <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
+    <!-- Status -->
+    <div class="rounded-lg p-6 bg-[#242424] border border-dark-border">
+      <div class="flex items-center justify-between">
+        <div class="flex-1">
+          <p class="text-sm font-medium mb-2 text-text-secondary">Status</p>
+          {% if pod.status == "Running" %}
+          <span
+            class="inline-flex items-center px-2.5 py-1 rounded-md text-sm font-medium bg-accent-green/15 text-accent-green"
+          >
+            <span class="w-1.5 h-1.5 rounded-full mr-1.5 bg-accent-green"></span>
+            Running
+          </span>
+          {% else %}
+          <span
+            class="inline-flex items-center px-2.5 py-1 rounded-md text-sm font-medium bg-text-muted/15 text-text-muted"
+          >
+            {{ pod.status }}
+          </span>
+          {% endif %}
+        </div>
+        <div class="rounded-lg p-3 bg-accent-green/15">
+          <svg
+            class="w-8 h-8 stroke-accent-green"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke-width="2"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+            ></path>
+          </svg>
+        </div>
+      </div>
+    </div>
+
+    <!-- IP Address -->
+    <div class="rounded-lg p-6 bg-[#242424] border border-dark-border">
+      <div class="flex items-center justify-between">
+        <div class="flex-1">
+          <p class="text-sm font-medium mb-2 text-text-secondary">IP Address</p>
+          <p class="text-lg font-mono text-text-primary">{{ pod.ip }}</p>
+        </div>
+        <div class="rounded-lg p-3 bg-accent-blue/15">
+          <svg
+            class="w-8 h-8 stroke-accent-blue"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke-width="2"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"
+            ></path>
+          </svg>
+        </div>
+      </div>
+    </div>
+
+    <!-- Age -->
+    <div class="rounded-lg p-6 bg-[#242424] border border-dark-border">
+      <div class="flex items-center justify-between">
+        <div class="flex-1">
+          <p class="text-sm font-medium mb-2 text-text-secondary">Age</p>
+          <p class="text-lg text-text-primary">{{ pod.age }}</p>
+        </div>
+        <div class="rounded-lg p-3 bg-accent-blue/15">
+          <svg
+            class="w-8 h-8 stroke-accent-blue"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke-width="2"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z"
+            ></path>
+          </svg>
+        </div>
+      </div>
+    </div>
+
+    <!-- Restarts -->
+    <div class="rounded-lg p-6 bg-[#242424] border border-dark-border">
+      <div class="flex items-center justify-between">
+        <div class="flex-1">
+          <p class="text-sm font-medium mb-2 text-text-secondary">Restarts</p>
+          <p class="text-lg text-text-primary">{{ pod.restarts }}</p>
+        </div>
+        <div class="rounded-lg p-3 bg-accent-blue/15">
+          <svg
+            class="w-8 h-8 stroke-accent-blue"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke-width="2"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+            ></path>
+          </svg>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- CPU and Memory Usage Cards -->
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+    <div class="rounded-lg p-6 bg-[#242424] border border-dark-border">
+      <div class="flex items-center justify-between mb-4">
+        <div class="flex-1">
+          <p class="text-sm font-medium mb-2 text-text-secondary">CPU Usage</p>
+          <p class="text-4xl font-semibold text-text-primary">
+            {{ pod.cpu }}
+          </p>
+          <p class="text-sm text-text-muted mt-1">
+            Current usage
+          </p>
+        </div>
+        <div class="rounded-lg p-3 bg-accent-blue/15">
+          <svg
+            class="w-8 h-8 stroke-accent-blue"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke-width="2"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              d="M9 3.75H6.912a2.25 2.25 0 00-2.15 1.588L2.35 13.177a2.25 2.25 0 00-.1.661V18a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18v-4.162c0-.224-.034-.447-.1-.661L19.24 5.338a2.25 2.25 0 00-2.15-1.588H15M2.25 13.5h3.86a2.25 2.25 0 012.012 1.244l.256.512a2.25 2.25 0 002.013 1.244h3.218a2.25 2.25 0 002.013-1.244l.256-.512a2.25 2.25 0 012.013-1.244h3.859M12 3v8.25m0 0l-3-3m3 3l3-3"
+            ></path>
+          </svg>
+        </div>
+      </div>
+      <!-- Progress Bar -->
+      <div class="w-full bg-dark-hover rounded-full h-3 overflow-hidden" id="cpuProgressContainer" style="display: none;">
+        <div
+          class="h-3 rounded-full transition-all duration-300 bg-gradient-to-r from-accent-blue to-accent-blue"
+          id="cpuProgressBar"
+          style="width: 0%"
+        ></div>
+      </div>
+    </div>
+
+    <div class="rounded-lg p-6 bg-[#242424] border border-dark-border">
+      <div class="flex items-center justify-between mb-4">
+        <div class="flex-1">
+          <p class="text-sm font-medium mb-2 text-text-secondary">
+            Memory Usage
+          </p>
+          <p class="text-4xl font-semibold text-text-primary">
+            {{ pod.memory }}
+          </p>
+          <p class="text-sm text-text-muted mt-1">
+            Current usage
+          </p>
+        </div>
+        <div class="rounded-lg p-3 bg-accent-green/15">
+          <svg
+            class="w-8 h-8 stroke-accent-green"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke-width="2"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              d="M8.25 3v1.5M4.5 8.25H3m18 0h-1.5M4.5 12H3m18 0h-1.5m-15 3.75H3m18 0h-1.5M8.25 19.5V21M12 3v1.5m0 15V21m3.75-18v1.5m0 15V21m-9-1.5h10.5a2.25 2.25 0 002.25-2.25V6.75a2.25 2.25 0 00-2.25-2.25H6.75A2.25 2.25 0 004.5 6.75v10.5a2.25 2.25 0 002.25 2.25zm.75-12h9v9h-9v-9z"
+            ></path>
+          </svg>
+        </div>
+      </div>
+      <!-- Progress Bar -->
+      <div class="w-full bg-dark-hover rounded-full h-3 overflow-hidden" id="memoryProgressContainer" style="display: none;">
+        <div
+          class="h-3 rounded-full transition-all duration-300 bg-gradient-to-r from-accent-green to-accent-green"
+          id="memoryProgressBar"
+          style="width: 0%"
+        ></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Containers -->
+  <div class="rounded-lg bg-[#242424] border border-dark-border">
+    <div class="p-6 border-b border-dark-border">
+      <h3 class="text-xl font-semibold text-text-primary">Containers</h3>
+    </div>
+    <div class="overflow-x-auto">
+      <table class="w-full">
+        <thead>
+          <tr class="border-b border-dark-border">
+            <th
+              class="px-6 py-3 text-left text-sm font-medium text-text-secondary"
+            >
+              Name
+            </th>
+            <th
+              class="px-6 py-3 text-left text-sm font-medium text-text-secondary"
+            >
+              Image
+            </th>
+            <th
+              class="px-6 py-3 text-center text-sm font-medium text-text-secondary"
+            >
+              CPU Request/Limit
+            </th>
+            <th
+              class="px-6 py-3 text-center text-sm font-medium text-text-secondary"
+            >
+              Memory Request/Limit
+            </th>
+            <th
+              class="px-6 py-3 text-center text-sm font-medium text-text-secondary"
+            >
+              Ready
+            </th>
+            <th
+              class="px-6 py-3 text-center text-sm font-medium text-text-secondary"
+            >
+              Restarts
+            </th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-dark-border">
+          {% for container in pod.containers %}
+          <tr class="hover:bg-dark-hover transition">
+            <td class="px-6 py-4 whitespace-nowrap">
+              <span class="text-base font-medium font-mono text-text-primary">{{
+                container.name
+              }}</span>
+            </td>
+            <td class="px-6 py-4 max-w-xs">
+              <span
+                class="text-base font-mono text-text-secondary block truncate"
+                title="{{ container.image }}"
+              >
+                {{ container.image }}
+              </span>
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-center">
+              <span class="text-base text-text-secondary"
+                >{{ container.cpu_request }} / {{ container.cpu_limit }}</span
+              >
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-center">
+              <span class="text-base text-text-secondary"
+                >{{ container.memory_request }} / {{
+                container.memory_limit }}</span
+              >
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-center">
+              {% if container.ready %}
+              <span
+                class="inline-flex items-center px-2.5 py-1 rounded-md text-sm font-medium bg-accent-green/15 text-accent-green"
+              >
+                Yes
+              </span>
+              {% else %}
+              <span
+                class="inline-flex items-center px-2.5 py-1 rounded-md text-sm font-medium bg-text-muted/15 text-text-muted"
+              >
+                No
+              </span>
+              {% endif %}
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-center">
+              <span class="text-base text-text-secondary">{{
+                container.restart_count
+              }}</span>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Labels -->
+  {% if !pod.labels.is_empty() %}
+  <div class="rounded-lg bg-[#242424] border border-dark-border">
+    <div class="p-6 border-b border-dark-border">
+      <h3 class="text-xl font-semibold text-text-primary">Labels</h3>
+    </div>
+    <div class="p-6">
+      <div class="flex flex-wrap gap-2">
+        {% for label in pod.labels %}
+        <span
+          class="inline-flex items-center px-3 py-1 rounded-md text-xs font-mono bg-accent-blue/15 text-accent-blue border border-accent-blue/30"
+        >
+          {{ label.0 }}={{ label.1 }}
+        </span>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- CPU Usage History Graph -->
+  <div class="rounded-lg p-6 bg-[#242424] border border-dark-border">
+    <div class="flex items-center justify-between mb-4">
+      <h3 class="text-xl font-semibold text-text-primary">CPU Usage History</h3>
+      <select
+        id="timeRange"
+        class="px-3 py-1.5 rounded-lg bg-dark-hover border border-dark-border text-text-primary text-sm focus:outline-none focus:border-accent-blue"
+      >
+        <option value="15m">15 minutes</option>
+        <option value="1h" selected>1 hour</option>
+        <option value="6h">6 hours</option>
+        <option value="24h">24 hours</option>
+      </select>
+    </div>
+    <div class="relative h-80">
+      <canvas id="cpuChart"></canvas>
+    </div>
+    <div id="cpuLegend" class="mt-4 max-h-32 overflow-y-auto scrollbar-thin scrollbar-thumb-dark-border scrollbar-track-dark-bg"></div>
+  </div>
+
+  <!-- Memory Usage History Graph -->
+  <div class="rounded-lg p-6 bg-[#242424] border border-dark-border">
+    <div class="flex items-center justify-between mb-4">
+      <h3 class="text-xl font-semibold text-text-primary">Memory Usage History</h3>
+    </div>
+    <div class="relative h-80">
+      <canvas id="memoryChart"></canvas>
+    </div>
+    <div id="memoryLegend" class="mt-4 max-h-32 overflow-y-auto scrollbar-thin scrollbar-thumb-dark-border scrollbar-track-dark-bg"></div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script>
+  // Override scroll restoration hiding immediately
+  document.documentElement.style.visibility = "visible";
+
+  const podNamespace = "{{ pod.namespace }}";
+  const podName = "{{ pod.name }}";
+
+  // Parse resource limits from containers
+  const containers = {{ pod.containers|json|safe }};
+
+  // Calculate total CPU and memory limits
+  function parseResource(value, type) {
+    if (!value || value === '-') return null;
+
+    if (type === 'cpu') {
+      // CPU: "1000m" = 1000 millicores, "1" = 1000 millicores
+      if (value.endsWith('m')) {
+        return parseFloat(value.slice(0, -1)); // Keep as millicores
+      }
+      return parseFloat(value) * 1000; // cores to millicores
+    } else {
+      // Memory: convert to MB
+      if (value.endsWith('Ki')) return parseFloat(value.slice(0, -2)) / 1024;
+      if (value.endsWith('Mi')) return parseFloat(value.slice(0, -2));
+      if (value.endsWith('Gi')) return parseFloat(value.slice(0, -2)) * 1024;
+      if (value.endsWith('K')) return parseFloat(value.slice(0, -1)) / 1024;
+      if (value.endsWith('M')) return parseFloat(value.slice(0, -1));
+      if (value.endsWith('G')) return parseFloat(value.slice(0, -1)) * 1024;
+      return parseFloat(value) / (1024 * 1024); // bytes to MB
+    }
+  }
+
+  let cpuRequest = null;
+  let cpuLimit = null;
+  let memoryRequest = null;
+  let memoryLimit = null;
+
+  for (const container of containers) {
+    const cpuReq = parseResource(container.cpu_request, 'cpu');
+    const cpuLim = parseResource(container.cpu_limit, 'cpu');
+    const memReq = parseResource(container.memory_request, 'memory');
+    const memLim = parseResource(container.memory_limit, 'memory');
+    if (cpuReq !== null) cpuRequest = (cpuRequest || 0) + cpuReq;
+    if (cpuLim !== null) cpuLimit = (cpuLimit || 0) + cpuLim;
+    if (memReq !== null) memoryRequest = (memoryRequest || 0) + memReq;
+    if (memLim !== null) memoryLimit = (memoryLimit || 0) + memLim;
+  }
+
+  let cpuChart = null;
+  let memoryChart = null;
+  let currentTimeRange = '1h';
+
+  // Generate HTML legend for charts
+  function generateLegend(chart, containerId, chartType) {
+    const legendContainer = document.getElementById(containerId);
+    if (!legendContainer) return;
+
+    let legendHTML = '<div class="flex flex-wrap gap-3">';
+    chart.data.datasets.forEach((dataset, i) => {
+      const isVisible = chart.isDatasetVisible(i);
+      legendHTML += `
+        <button onclick="toggleDataset('${chartType}', ${i})"
+          class="flex items-center gap-2 px-3 py-1.5 rounded-md transition ${isVisible ? 'bg-dark-hover' : 'bg-dark-bg opacity-50'}">
+          <span class="w-2 h-2 rounded-full" style="background-color: ${dataset.borderColor}"></span>
+          <span class="text-sm text-text-primary">${dataset.label}</span>
+        </button>
+      `;
+    });
+    legendHTML += '</div>';
+    legendContainer.innerHTML = legendHTML;
+  }
+
+  // Toggle dataset visibility with isolate/show all behavior
+  function toggleDataset(chartType, index) {
+    let chart, containerId;
+    switch(chartType) {
+      case 'podDetailCpu':
+        chart = cpuChart;
+        containerId = 'cpuLegend';
+        break;
+      case 'podDetailMemory':
+        chart = memoryChart;
+        containerId = 'memoryLegend';
+        break;
+    }
+
+    if (!chart) return;
+
+    const isCurrentlyVisible = chart.isDatasetVisible(index);
+    let visibleCount = 0;
+    for (let i = 0; i < chart.data.datasets.length; i++) {
+      if (chart.isDatasetVisible(i)) visibleCount++;
+    }
+
+    // If only one visible and clicked, show all; otherwise show only clicked
+    if (visibleCount === 1 && isCurrentlyVisible) {
+      chart.data.datasets.forEach((dataset, i) => {
+        chart.setDatasetVisibility(i, true);
+      });
+    } else {
+      chart.data.datasets.forEach((dataset, i) => {
+        chart.setDatasetVisibility(i, i === index);
+      });
+    }
+    chart.update();
+    generateLegend(chart, containerId, chartType);
+  }
+
+  async function fetchMetrics() {
+    try {
+      const response = await fetch(`/api/pods/${podNamespace}/${podName}/metrics?range=${currentTimeRange}`);
+      const data = await response.json();
+      return data;
+    } catch (error) {
+      console.error('Failed to fetch metrics:', error);
+      return null;
+    }
+  }
+
+  async function initCharts(initialData) {
+    let data;
+    if (initialData && initialData.timestamps && initialData.timestamps.length > 0) {
+      // Use server-provided data
+      data = initialData;
+    } else {
+      // Fetch from API
+      data = await fetchMetrics();
+      if (!data || !data.timestamps || data.timestamps.length === 0) {
+        return;
+      }
+    }
+
+    // Update progress bars with current usage vs limits
+    if (data.cpu_history && data.cpu_history.length > 0 && cpuLimit !== null) {
+      const currentCpu = data.cpu_history[data.cpu_history.length - 1];
+      const cpuPercent = Math.min((currentCpu / cpuLimit) * 100, 100);
+      document.getElementById('cpuProgressContainer').style.display = 'block';
+      document.getElementById('cpuProgressBar').style.width = cpuPercent + '%';
+    }
+
+    if (data.memory_history && data.memory_history.length > 0 && memoryLimit !== null) {
+      const currentMemory = data.memory_history[data.memory_history.length - 1];
+      const memoryPercent = Math.min((currentMemory / memoryLimit) * 100, 100);
+      document.getElementById('memoryProgressContainer').style.display = 'block';
+      document.getElementById('memoryProgressBar').style.width = memoryPercent + '%';
+    }
+
+    // Format timestamps to local time
+    const labels = data.timestamps.map(ts => {
+      const date = new Date(ts * 1000);
+      return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    });
+
+    // CPU Chart - convert percentage to millicores
+    const cpuHistoryMillicores = data.cpu_history.map(v => v * 10);
+
+    const cpuCtx = document.getElementById('cpuChart').getContext('2d');
+    const cpuDatasets = [{
+      label: podName,
+      data: cpuHistoryMillicores,
+      borderColor: '#60A5FA',
+      backgroundColor: '#60A5FA20',
+      borderWidth: 2,
+      fill: true,
+      tension: 0.4,
+      pointRadius: 0,
+      pointHoverRadius: 5,
+    }];
+
+    // Add CPU request line if it exists
+    if (cpuRequest !== null) {
+      cpuDatasets.push({
+        label: 'CPU Request',
+        data: Array(data.timestamps.length).fill(cpuRequest),
+        borderColor: '#FBBF24',
+        backgroundColor: 'transparent',
+        borderWidth: 2,
+        borderDash: [5, 5],
+        fill: false,
+        pointRadius: 0,
+        pointHoverRadius: 0,
+      });
+    }
+
+    // Add CPU limit line if it exists
+    if (cpuLimit !== null) {
+      cpuDatasets.push({
+        label: 'CPU Limit',
+        data: Array(data.timestamps.length).fill(cpuLimit),
+        borderColor: '#FF4D4D',
+        backgroundColor: 'transparent',
+        borderWidth: 2,
+        borderDash: [5, 5],
+        fill: false,
+        pointRadius: 0,
+        pointHoverRadius: 0,
+      });
+    }
+
+    cpuChart = new Chart(cpuCtx, {
+      type: 'line',
+      data: {
+        labels: labels,
+        datasets: cpuDatasets,
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: false,
+        plugins: {
+          legend: {
+            display: false,
+          },
+          tooltip: {
+            enabled: true,
+            mode: 'point',
+            intersect: true,
+            backgroundColor: '#1A1A1A',
+            titleColor: '#FFFFFF',
+            titleFont: {
+              size: 14,
+              weight: '600',
+              family: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+            },
+            bodyColor: '#E5E5E5',
+            bodyFont: {
+              size: 13,
+              weight: '500',
+            },
+            borderColor: '#404040',
+            borderWidth: 1,
+            padding: 16,
+            displayColors: true,
+            boxWidth: 10,
+            boxHeight: 10,
+            boxPadding: 6,
+            cornerRadius: 8,
+            caretSize: 6,
+            caretPadding: 12,
+            callbacks: {
+              title: function (context) {
+                return 'Time: ' + context[0].label;
+              },
+              label: function (context) {
+                const value = context.parsed.y.toFixed(0);
+                return ' ' + context.dataset.label + ': ' + value + 'm';
+              },
+              labelTextColor: function (context) {
+                return context.dataset.borderColor;
+              },
+            },
+          },
+        },
+        scales: {
+          x: {
+            display: true,
+            grid: {
+              color: '#313131',
+            },
+            ticks: {
+              color: '#AAAAAA',
+            },
+          },
+          y: {
+            display: true,
+            beginAtZero: true,
+            grid: {
+              color: '#313131',
+            },
+            ticks: {
+              color: '#AAAAAA',
+              callback: function (value) {
+                return value.toFixed(0) + 'm';
+              },
+            },
+          },
+        },
+        interaction: {
+          mode: 'nearest',
+          axis: 'x',
+          intersect: false,
+        },
+      },
+    });
+
+    // Generate HTML legend for CPU chart
+    generateLegend(cpuChart, 'cpuLegend', 'podDetailCpu');
+
+    // Memory Chart
+    const memCtx = document.getElementById('memoryChart').getContext('2d');
+    const memDatasets = [{
+      label: podName,
+      data: data.memory_history,
+      borderColor: '#34D399',
+      backgroundColor: '#34D39920',
+      borderWidth: 2,
+      fill: true,
+      tension: 0.4,
+      pointRadius: 0,
+      pointHoverRadius: 5,
+    }];
+
+    // Add memory request line if it exists
+    if (memoryRequest !== null) {
+      memDatasets.push({
+        label: 'Memory Request',
+        data: Array(data.timestamps.length).fill(memoryRequest),
+        borderColor: '#FBBF24',
+        backgroundColor: 'transparent',
+        borderWidth: 2,
+        borderDash: [5, 5],
+        fill: false,
+        pointRadius: 0,
+        pointHoverRadius: 0,
+      });
+    }
+
+    // Add memory limit line if it exists
+    if (memoryLimit !== null) {
+      memDatasets.push({
+        label: 'Memory Limit',
+        data: Array(data.timestamps.length).fill(memoryLimit),
+        borderColor: '#FF4D4D',
+        backgroundColor: 'transparent',
+        borderWidth: 2,
+        borderDash: [5, 5],
+        fill: false,
+        pointRadius: 0,
+        pointHoverRadius: 0,
+      });
+    }
+
+    memoryChart = new Chart(memCtx, {
+      type: 'line',
+      data: {
+        labels: labels,
+        datasets: memDatasets,
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: false,
+        plugins: {
+          legend: {
+            display: false,
+          },
+          tooltip: {
+            enabled: true,
+            mode: 'point',
+            intersect: true,
+            backgroundColor: '#1A1A1A',
+            titleColor: '#FFFFFF',
+            titleFont: {
+              size: 14,
+              weight: '600',
+              family: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+            },
+            bodyColor: '#E5E5E5',
+            bodyFont: {
+              size: 13,
+              weight: '500',
+            },
+            borderColor: '#404040',
+            borderWidth: 1,
+            padding: 16,
+            displayColors: true,
+            boxWidth: 10,
+            boxHeight: 10,
+            boxPadding: 6,
+            cornerRadius: 8,
+            caretSize: 6,
+            caretPadding: 12,
+            callbacks: {
+              title: function (context) {
+                return 'Time: ' + context[0].label;
+              },
+              label: function (context) {
+                const value = context.parsed.y.toFixed(1);
+                return ' ' + context.dataset.label + ': ' + value + ' MB';
+              },
+              labelTextColor: function (context) {
+                return context.dataset.borderColor;
+              },
+            },
+          },
+        },
+        scales: {
+          x: {
+            display: true,
+            grid: {
+              color: '#313131',
+            },
+            ticks: {
+              color: '#AAAAAA',
+            },
+          },
+          y: {
+            display: true,
+            beginAtZero: true,
+            grid: {
+              color: '#313131',
+            },
+            ticks: {
+              color: '#AAAAAA',
+              callback: function (value) {
+                return value.toFixed(0) + ' MB';
+              },
+            },
+          },
+        },
+        interaction: {
+          mode: 'nearest',
+          axis: 'x',
+          intersect: false,
+        },
+      },
+    });
+
+    // Generate HTML legend for Memory chart
+    generateLegend(memoryChart, 'memoryLegend', 'podDetailMemory');
+  }
+
+  async function refreshMetrics() {
+    const data = await fetchMetrics();
+    if (!data || !cpuChart || !memoryChart) return;
+
+    const labels = data.timestamps.map(ts => {
+      const date = new Date(ts * 1000);
+      return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    });
+
+    cpuChart.data.labels = labels;
+    cpuChart.data.datasets[0].data = data.cpu_history.map(v => v * 10);
+
+    // Update request and limit lines for CPU
+    let cpuDatasetIndex = 1;
+    if (cpuRequest !== null && cpuChart.data.datasets[cpuDatasetIndex]) {
+      cpuChart.data.datasets[cpuDatasetIndex].data = Array(data.timestamps.length).fill(cpuRequest);
+      cpuDatasetIndex++;
+    }
+    if (cpuLimit !== null && cpuChart.data.datasets[cpuDatasetIndex]) {
+      cpuChart.data.datasets[cpuDatasetIndex].data = Array(data.timestamps.length).fill(cpuLimit);
+    }
+    cpuChart.update();
+    generateLegend(cpuChart, 'cpuLegend', 'podDetailCpu');
+
+    memoryChart.data.labels = labels;
+    memoryChart.data.datasets[0].data = data.memory_history;
+
+    // Update request and limit lines for Memory
+    let memDatasetIndex = 1;
+    if (memoryRequest !== null && memoryChart.data.datasets[memDatasetIndex]) {
+      memoryChart.data.datasets[memDatasetIndex].data = Array(data.timestamps.length).fill(memoryRequest);
+      memDatasetIndex++;
+    }
+    if (memoryLimit !== null && memoryChart.data.datasets[memDatasetIndex]) {
+      memoryChart.data.datasets[memDatasetIndex].data = Array(data.timestamps.length).fill(memoryLimit);
+    }
+    memoryChart.update();
+    generateLegend(memoryChart, 'memoryLegend', 'podDetailMemory');
+  }
+
+  // Initialize on page load
+  document.addEventListener('DOMContentLoaded', function() {
+    // Check if we have server-side data
+    const serverData = {{ metrics_json|safe }};
+    initCharts(serverData);
+
+    // Add time range change listener
+    document.getElementById('timeRange').addEventListener('change', async function(e) {
+      currentTimeRange = e.target.value;
+      await refreshMetrics();
+    });
+  });
+
+  // Auto-refresh every 10 seconds
+  setInterval(refreshMetrics, 10000);
+</script>
+{% endblock %}

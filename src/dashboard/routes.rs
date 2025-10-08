@@ -11,37 +11,122 @@ use tracing::{error, info};
 
 use super::server::AppState;
 use super::templates::{
-    CiliumTemplate, ClusterDetailTemplate, ClustersTemplate, CreateClusterTemplate, IndexTemplate,
-    MetricsTemplate, NodeDetailTemplate,
+    CiliumPod, CiliumTemplate, ClusterDetailTemplate, ClustersTemplate, CreateClusterTemplate,
+    IndexTemplate, MetricsTemplate, NodeDetailTemplate, PodDetailTemplate, PodsTemplate,
 };
 use crate::config::ClusterConfig;
+
+/// Returns the preloader HTML page with auto-refresh
+fn preloader_page() -> Html<String> {
+    Html(r#"
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta http-equiv="refresh" content="5">
+            <title>Loading - Oxide</title>
+            <style>
+                body {
+                    background: #1e1e1e;
+                    color: #F2F2F2;
+                    font-family: system-ui;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    height: 100vh;
+                    margin: 0;
+                }
+                .loader { text-align: center; }
+                .logo-container {
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    gap: 12px;
+                    margin-bottom: 12px;
+                }
+                .logo { width: 64px; height: 64px; object-fit: contain; }
+                .brand { font-size: 2.5rem; font-weight: 600; color: #F2F2F2; margin: 0; }
+                @keyframes spin-slow {
+                    from { transform: rotate(0deg); }
+                    to { transform: rotate(360deg); }
+                }
+                .animate-spin-slow {
+                    animation: spin-slow 2s linear infinite;
+                }
+                .spinner-container {
+                    width: 32px;
+                    height: 32px;
+                    margin: 0 auto 8px;
+                }
+                .spinner-ring {
+                    width: 32px;
+                    height: 32px;
+                    border: 4px solid rgba(39, 118, 243, 0.2);
+                    border-top-color: rgba(39, 118, 243, 1);
+                    border-radius: 50%;
+                }
+            </style>
+        </head>
+        <body>
+            <div class="loader">
+                <div class="logo-container">
+                    <img src="/static/logo.png" alt="Oxide Logo" class="logo">
+                    <h1 class="brand">Oxide</h1>
+                </div>
+                <div class="spinner-container">
+                    <div class="spinner-ring animate-spin-slow"></div>
+                </div>
+                <h2 style="font-size: 1.75rem; font-weight: 600; margin-bottom: 12px; color: #E5E5E5;">Populating cache...</h2>
+                <p style="color: #888888; font-size: 0.875rem;">Refreshing in <span id="countdown" style="display: inline-block; min-width: 1ch; text-align: center;">5</span> seconds...</p>
+            </div>
+            <script>
+                let seconds = 5;
+                const countdownEl = document.getElementById('countdown');
+                setInterval(function() {
+                    seconds--;
+                    if (seconds > 0) {
+                        countdownEl.textContent = seconds;
+                    }
+                }, 1000);
+            </script>
+        </body>
+        </html>
+    "#.to_string())
+}
 
 /// Home page
 pub async fn index(State(state): State<AppState>) -> impl IntoResponse {
     let cache_ready = state.cache.is_ready().await;
+
+    if !cache_ready {
+        return preloader_page().into_response();
+    }
+
     let clusters = state.cache.get_clusters().await;
     let total_nodes: usize = clusters.iter().map(|c| c.nodes).sum();
     let template = IndexTemplate {
         cluster_count: clusters.len(),
         total_nodes,
-        cache_ready,
         active_page: "dashboard".to_string(),
         version: env!("CARGO_PKG_VERSION").to_string(),
     };
-    Html(template.render().unwrap())
+    Html(template.render().unwrap()).into_response()
 }
 
 /// Clusters list page
 pub async fn clusters_list(State(state): State<AppState>) -> impl IntoResponse {
     let cache_ready = state.cache.is_ready().await;
+
+    if !cache_ready {
+        return preloader_page().into_response();
+    }
+
     let clusters = state.cache.get_clusters().await;
     let template = ClustersTemplate {
         clusters,
-        cache_ready,
         active_page: "clusters".to_string(),
         version: env!("CARGO_PKG_VERSION").to_string(),
     };
-    Html(template.render().unwrap())
+    Html(template.render().unwrap()).into_response()
 }
 
 /// Create cluster form page
@@ -67,10 +152,7 @@ pub async fn cluster_detail(
             };
             Html(template.render().unwrap()).into_response()
         }
-        None => {
-            // Cluster not found or cache not ready, redirect to clusters list
-            Redirect::to("/clusters").into_response()
-        }
+        None => preloader_page().into_response(),
     }
 }
 
@@ -88,10 +170,60 @@ pub async fn node_detail(
             };
             Html(template.render().unwrap()).into_response()
         }
-        None => {
-            // Node not found or cache not ready, redirect to cluster detail
-            Redirect::to(&format!("/clusters/{}", cluster_name)).into_response()
+        None => preloader_page().into_response(),
+    }
+}
+
+/// Pod detail page
+pub async fn pod_detail(
+    State(state): State<AppState>,
+    axum::extract::Path((cluster_name, node_name, namespace, pod_name)): axum::extract::Path<(
+        String,
+        String,
+        String,
+        String,
+    )>,
+) -> impl IntoResponse {
+    match state
+        .cache
+        .get_pod_detail(&cluster_name, &node_name, &namespace, &pod_name)
+        .await
+    {
+        Some(pod) => {
+            // Get metrics from cache
+            let metrics = state
+                .cache
+                .get_pod_metrics(&namespace, &pod_name)
+                .await
+                .unwrap_or_default();
+
+            // Build metrics JSON
+            let mut all_timestamps = std::collections::BTreeSet::new();
+            for (ts, _) in &metrics.cpu_history {
+                all_timestamps.insert(*ts);
+            }
+
+            let timestamps: Vec<i64> = all_timestamps.iter().copied().collect();
+            let cpu_history: Vec<f64> = metrics.cpu_history.iter().map(|(_, val)| *val).collect();
+            let memory_history: Vec<f64> =
+                metrics.memory_history.iter().map(|(_, val)| *val).collect();
+
+            let metrics_json = serde_json::json!({
+                "timestamps": timestamps,
+                "cpu_history": cpu_history,
+                "memory_history": memory_history,
+            });
+
+            let template = PodDetailTemplate {
+                pod,
+                metrics_json: serde_json::to_string(&metrics_json)
+                    .unwrap_or_else(|_| "{}".to_string()),
+                active_page: "pods".to_string(),
+                version: env!("CARGO_PKG_VERSION").to_string(),
+            };
+            Html(template.render().unwrap()).into_response()
         }
+        None => preloader_page().into_response(),
     }
 }
 
@@ -156,6 +288,42 @@ pub async fn clusters_create(
 pub async fn api_clusters_list(State(state): State<AppState>) -> impl IntoResponse {
     let clusters = state.cache.get_clusters().await;
     Json(clusters)
+}
+
+/// API endpoint: Get pod metrics
+pub async fn api_pod_metrics(
+    State(state): State<AppState>,
+    axum::extract::Path((namespace, pod_name)): axum::extract::Path<(String, String)>,
+    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> impl IntoResponse {
+    let time_range = params.get("range").map(|s| s.as_str()).unwrap_or("1h");
+    let kubeconfig = state.output_dir.join("kubeconfig");
+
+    let history = crate::prometheus::query_pod_metrics_range(
+        &namespace,
+        &pod_name,
+        &kubeconfig,
+        time_range,
+        "1m",
+    )
+    .await
+    .unwrap_or_default();
+
+    // Collect timestamps and values
+    let mut all_timestamps = std::collections::BTreeSet::new();
+    for (ts, _) in &history.cpu_history {
+        all_timestamps.insert(*ts);
+    }
+
+    let timestamps: Vec<i64> = all_timestamps.iter().copied().collect();
+    let cpu_history: Vec<f64> = history.cpu_history.iter().map(|(_, val)| *val).collect();
+    let memory_history: Vec<f64> = history.memory_history.iter().map(|(_, val)| *val).collect();
+
+    Json(serde_json::json!({
+        "timestamps": timestamps,
+        "cpu_history": cpu_history,
+        "memory_history": memory_history,
+    }))
 }
 
 /// Scale cluster POST handler
@@ -366,53 +534,40 @@ fn default_true() -> bool {
 
 /// Metrics page
 pub async fn metrics(State(state): State<AppState>) -> impl IntoResponse {
-    // Check if cache is ready and has clusters
     let cache_ready = state.cache.is_ready().await;
-    if cache_ready {
-        let clusters = state.cache.get_clusters().await;
-        if clusters.is_empty() {
-            // No clusters found, redirect to clusters page
-            return Redirect::to("/clusters").into_response();
-        }
+
+    if !cache_ready {
+        return preloader_page().into_response();
     }
 
-    // Get metrics history from cache
-    let metrics_history = state.cache.get_node_metrics_history().await;
-    let has_data = !metrics_history.is_empty();
+    // Check if we have clusters
+    let clusters = state.cache.get_clusters().await;
+    if clusters.is_empty() {
+        // No clusters found, redirect to clusters page
+        return Redirect::to("/clusters").into_response();
+    }
+
+    // Get both metrics histories in one lock to avoid multiple lock acquisitions
+    let (node_metrics_history, pod_metrics_history) = state.cache.get_all_metrics_history().await;
+    let has_data = !node_metrics_history.is_empty();
 
     // Build metrics response
     let metrics_json = if has_data {
         let results: Vec<(String, crate::prometheus::NodeMetricsHistory)> =
-            metrics_history.into_iter().collect();
+            node_metrics_history.into_iter().collect();
 
-        // Collect all unique timestamps
-        let mut all_timestamps = std::collections::BTreeSet::new();
-        for (_, history) in &results {
-            for (ts, _) in &history.cpu_history {
-                all_timestamps.insert(*ts);
-            }
-        }
+        // Collect timestamps and build node metrics using helpers
+        let timestamps = collect_timestamps(&results);
+        let nodes = build_node_metrics(results);
 
-        // Send raw timestamps (will be formatted on client side for local timezone)
-        let timestamps: Vec<i64> = all_timestamps.iter().copied().collect();
+        // Build pods data using helper
+        let pods = build_pod_metrics(pod_metrics_history);
 
-        let nodes: Vec<MetricsNode> = results
-            .into_iter()
-            .map(|(name, history)| {
-                let cpu_history: Vec<f64> =
-                    history.cpu_history.iter().map(|(_, val)| *val).collect();
-                let memory_history: Vec<f64> =
-                    history.memory_history.iter().map(|(_, val)| *val).collect();
-
-                MetricsNode {
-                    name,
-                    cpu_history,
-                    memory_history,
-                }
-            })
-            .collect();
-
-        let response = MetricsResponse { timestamps, nodes };
+        let response = MetricsResponse {
+            timestamps,
+            nodes,
+            pods,
+        };
         serde_json::to_string(&response).unwrap_or_else(|_| "{}".to_string())
     } else {
         "{}".to_string()
@@ -469,19 +624,118 @@ pub async fn api_metrics(
         metrics_history.into_iter().collect()
     };
 
-    // Collect all unique timestamps
-    let mut all_timestamps = std::collections::BTreeSet::new();
-    for (_, history) in &results {
-        for (ts, _) in &history.cpu_history {
-            all_timestamps.insert(*ts);
-        }
+    // Collect timestamps and build node metrics using helpers
+    let timestamps = collect_timestamps(&results);
+    let nodes = build_node_metrics(results);
+
+    // Get pod metrics history (fetch separately as node metrics may come from Prometheus)
+    let pod_metrics_history = state.cache.get_pod_metrics_history().await;
+    let pods = build_pod_metrics(pod_metrics_history);
+
+    let response = MetricsResponse {
+        timestamps,
+        nodes,
+        pods,
+    };
+
+    Json(response)
+}
+
+#[derive(Debug, Serialize)]
+struct MetricsResponse {
+    timestamps: Vec<i64>,
+    nodes: Vec<MetricsNode>,
+    pods: Vec<MetricsPod>,
+}
+
+#[derive(Debug, Serialize)]
+struct MetricsNode {
+    name: String,
+    cpu_history: Vec<f64>,
+    memory_history: Vec<f64>,
+}
+
+#[derive(Debug, Serialize)]
+struct MetricsPod {
+    name: String,
+    namespace: String,
+    cpu_history: Vec<f64>,
+    memory_history: Vec<f64>,
+}
+
+/// Pods list page
+pub async fn pods_list(State(state): State<AppState>) -> impl IntoResponse {
+    let cache_ready = state.cache.is_ready().await;
+
+    if !cache_ready {
+        return preloader_page().into_response();
     }
 
-    // Send raw timestamps (will be formatted on client side for local timezone)
-    let timestamps: Vec<i64> = all_timestamps.iter().copied().collect();
+    let mut pods = state.cache.get_all_pods().await;
 
-    // Build nodes data
-    let nodes: Vec<MetricsNode> = results
+    // Calculate counts
+    let running_count = pods.iter().filter(|p| p.status == "Running").count();
+    let pending_count = pods.iter().filter(|p| p.status == "Pending").count();
+    let failed_count = pods
+        .iter()
+        .filter(|p| p.status == "Failed" || p.status == "Error" || p.status == "CrashLoopBackOff")
+        .count();
+
+    // Sort by CPU usage (highest to lowest)
+    pods.sort_by(|a, b| {
+        let cpu_a = a.cpu.trim_end_matches('m').parse::<f64>().unwrap_or(-1.0);
+        let cpu_b = b.cpu.trim_end_matches('m').parse::<f64>().unwrap_or(-1.0);
+        cpu_b
+            .partial_cmp(&cpu_a)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+
+    let template = PodsTemplate {
+        pods,
+        running_count,
+        pending_count,
+        failed_count,
+        active_page: "pods".to_string(),
+        version: env!("CARGO_PKG_VERSION").to_string(),
+    };
+    Html(template.render().unwrap()).into_response()
+}
+
+/// Build pod metrics from history data
+fn build_pod_metrics(
+    pod_metrics_history: std::collections::HashMap<String, crate::prometheus::NodeMetricsHistory>,
+) -> Vec<MetricsPod> {
+    pod_metrics_history
+        .into_iter()
+        .map(|(key, history)| {
+            let parts: Vec<&str> = key.split('/').collect();
+            let namespace = parts.first().unwrap_or(&"unknown").to_string();
+            let name = parts.get(1).unwrap_or(&"unknown").to_string();
+
+            // Convert CPU from percentage to millicores (multiply by 10)
+            let cpu_history: Vec<f64> = history
+                .cpu_history
+                .iter()
+                .map(|(_, val)| val * 10.0)
+                .collect();
+            let memory_history: Vec<f64> =
+                history.memory_history.iter().map(|(_, val)| *val).collect();
+
+            MetricsPod {
+                name,
+                namespace,
+                cpu_history,
+                memory_history,
+            }
+        })
+        .collect()
+}
+
+/// Build node metrics from history data
+fn build_node_metrics(
+    results: Vec<(String, crate::prometheus::NodeMetricsHistory)>,
+) -> Vec<MetricsNode> {
+    results
         .into_iter()
         .map(|(name, history)| {
             let cpu_history: Vec<f64> = history.cpu_history.iter().map(|(_, val)| *val).collect();
@@ -494,24 +748,84 @@ pub async fn api_metrics(
                 memory_history,
             }
         })
+        .collect()
+}
+
+/// Collect unique timestamps from node metrics history
+fn collect_timestamps(results: &[(String, crate::prometheus::NodeMetricsHistory)]) -> Vec<i64> {
+    let mut all_timestamps = std::collections::BTreeSet::new();
+    for (_, history) in results {
+        for (ts, _) in &history.cpu_history {
+            all_timestamps.insert(*ts);
+        }
+    }
+    all_timestamps.iter().copied().collect()
+}
+
+/// Build Cilium metrics JSON from cache data
+fn build_cilium_metrics_json(
+    pod_metrics_history: &std::collections::HashMap<String, crate::prometheus::NodeMetricsHistory>,
+    cilium_pods: &[CiliumPod],
+) -> serde_json::Value {
+    // Filter for only Cilium pods (in kube-system namespace with cilium- prefix)
+    let cilium_metrics: Vec<(&String, &crate::prometheus::NodeMetricsHistory)> =
+        pod_metrics_history
+            .iter()
+            .filter(|(key, _)| key.starts_with("kube-system/cilium-"))
+            .collect();
+
+    if cilium_metrics.is_empty() {
+        return serde_json::json!({
+            "timestamps": [],
+            "pods": []
+        });
+    }
+
+    // Get timestamps from the first pod (all should have same timestamps)
+    let timestamps: Vec<i64> = cilium_metrics
+        .first()
+        .map(|(_, history)| history.cpu_history.iter().map(|(ts, _)| *ts).collect())
+        .unwrap_or_default();
+
+    // Build pods metrics data
+    let pods_metrics: Vec<serde_json::Value> = cilium_metrics
+        .iter()
+        .map(|(key, history)| {
+            let parts: Vec<&str> = key.split('/').collect();
+            let name = parts.get(1).unwrap_or(&"unknown");
+
+            // Convert CPU from percentage to millicores (multiply by 10)
+            let cpu_history: Vec<f64> = history
+                .cpu_history
+                .iter()
+                .map(|(_, val)| val * 10.0)
+                .collect();
+            let memory_history: Vec<f64> =
+                history.memory_history.iter().map(|(_, val)| *val).collect();
+
+            // Find matching cilium_pod for request/limit data
+            let cilium_pod = cilium_pods.iter().find(|p| p.name == *name);
+            let cpu_request = cilium_pod.map(|p| p.cpu_request).unwrap_or(0.0);
+            let cpu_limit = cilium_pod.map(|p| p.cpu_limit).unwrap_or(0.0);
+            let memory_request = cilium_pod.map(|p| p.memory_request).unwrap_or(0.0);
+            let memory_limit = cilium_pod.map(|p| p.memory_limit).unwrap_or(0.0);
+
+            serde_json::json!({
+                "name": name,
+                "cpu_history": cpu_history,
+                "memory_history": memory_history,
+                "cpu_request": cpu_request,
+                "cpu_limit": cpu_limit,
+                "memory_request": memory_request,
+                "memory_limit": memory_limit,
+            })
+        })
         .collect();
 
-    let response = MetricsResponse { timestamps, nodes };
-
-    Json(response)
-}
-
-#[derive(Debug, Serialize)]
-struct MetricsResponse {
-    timestamps: Vec<i64>,
-    nodes: Vec<MetricsNode>,
-}
-
-#[derive(Debug, Serialize)]
-struct MetricsNode {
-    name: String,
-    cpu_history: Vec<f64>,
-    memory_history: Vec<f64>,
+    serde_json::json!({
+        "timestamps": timestamps,
+        "pods": pods_metrics,
+    })
 }
 
 /// Cilium page
@@ -519,121 +833,51 @@ pub async fn cilium(State(state): State<AppState>) -> impl IntoResponse {
     let cache_ready = state.cache.is_ready().await;
 
     if !cache_ready {
-        let template = CiliumTemplate {
-            active_page: "cilium".to_string(),
-            version: env!("CARGO_PKG_VERSION").to_string(),
-            cache_ready: false,
-            cilium_pods: vec![],
-            cilium_version: "N/A".to_string(),
-            hubble_enabled: false,
-            ipv6_enabled: false,
-        };
-        return Html(template.render().unwrap());
+        return preloader_page().into_response();
     }
 
-    // Get Cilium pods from kube-system namespace
-    let kubeconfig = state.output_dir.join("kubeconfig");
+    // Build template using single lock - avoids cloning large HashMaps
+    let template = state
+        .cache
+        .with_cilium_and_pod_metrics(
+            |cilium_pods, cilium_version, hubble_enabled, ipv6_enabled, pod_metrics_history| {
+                let metrics_json = build_cilium_metrics_json(pod_metrics_history, cilium_pods);
 
-    let (cilium_pods, cilium_version, hubble_enabled, ipv6_enabled) = if kubeconfig.exists() {
-        match fetch_cilium_info(&kubeconfig).await {
-            Ok(info) => info,
-            Err(e) => {
-                error!("Failed to fetch Cilium info: {}", e);
-                (vec![], "N/A".to_string(), false, false)
-            }
-        }
-    } else {
-        (vec![], "N/A".to_string(), false, false)
-    };
+                CiliumTemplate {
+                    active_page: "cilium".to_string(),
+                    version: env!("CARGO_PKG_VERSION").to_string(),
+                    cilium_pods: cilium_pods.to_vec(), // Still need to clone for template
+                    cilium_version: cilium_version.to_string(),
+                    hubble_enabled,
+                    ipv6_enabled,
+                    metrics_json: serde_json::to_string(&metrics_json)
+                        .unwrap_or_else(|_| "{}".to_string()),
+                }
+            },
+        )
+        .await;
 
-    let template = CiliumTemplate {
-        active_page: "cilium".to_string(),
-        version: env!("CARGO_PKG_VERSION").to_string(),
-        cache_ready: true,
-        cilium_pods,
-        cilium_version,
-        hubble_enabled,
-        ipv6_enabled,
-    };
-    Html(template.render().unwrap())
+    Html(template.render().unwrap()).into_response()
 }
 
-/// Fetch Cilium pod information
-async fn fetch_cilium_info(
-    kubeconfig: &std::path::Path,
-) -> Result<(Vec<super::templates::CiliumPod>, String, bool, bool), anyhow::Error> {
-    use tokio::process::Command;
+/// API endpoint for Cilium metrics data
+pub async fn api_cilium_metrics(State(state): State<AppState>) -> impl IntoResponse {
+    let cache_ready = state.cache.is_ready().await;
 
-    // Get Cilium pods using kubectl
-    let output = Command::new("kubectl")
-        .arg("--kubeconfig")
-        .arg(kubeconfig)
-        .arg("get")
-        .arg("pods")
-        .arg("-n")
-        .arg("kube-system")
-        .arg("-l")
-        .arg("k8s-app=cilium")
-        .arg("-o")
-        .arg("json")
-        .output()
-        .await?;
-
-    if !output.status.success() {
-        anyhow::bail!(
-            "kubectl get pods failed: {}",
-            String::from_utf8_lossy(&output.stderr)
-        );
+    if !cache_ready {
+        return Json(serde_json::json!({
+            "error": "Cache not ready"
+        }))
+        .into_response();
     }
 
-    let pods_json: serde_json::Value = serde_json::from_slice(&output.stdout)?;
+    // Build metrics JSON using single lock - avoids cloning large HashMaps
+    let metrics_json = state
+        .cache
+        .with_cilium_and_pod_metrics(|cilium_pods, _, _, _, pod_metrics_history| {
+            build_cilium_metrics_json(pod_metrics_history, cilium_pods)
+        })
+        .await;
 
-    let mut cilium_pods = Vec::new();
-
-    if let Some(items) = pods_json["items"].as_array() {
-        for pod in items {
-            let name = pod["metadata"]["name"]
-                .as_str()
-                .unwrap_or("unknown")
-                .to_string();
-            let node = pod["spec"]["nodeName"]
-                .as_str()
-                .unwrap_or("N/A")
-                .to_string();
-            let status = pod["status"]["phase"]
-                .as_str()
-                .unwrap_or("Unknown")
-                .to_string();
-
-            // Count restarts
-            let mut restarts = 0u32;
-            if let Some(container_statuses) = pod["status"]["containerStatuses"].as_array() {
-                for container in container_statuses {
-                    if let Some(restart_count) = container["restartCount"].as_u64() {
-                        restarts += restart_count as u32;
-                    }
-                }
-            }
-
-            // Calculate age (simple format for now)
-            let age = "N/A".to_string(); // TODO: Calculate from creationTimestamp
-
-            cilium_pods.push(super::templates::CiliumPod {
-                name,
-                node,
-                status,
-                restarts,
-                age,
-            });
-        }
-    }
-
-    // Get Cilium version (hardcoded for now, could parse from pod image)
-    let cilium_version = "1.16.5".to_string();
-
-    // Get Hubble and IPv6 status (hardcoded for now)
-    let hubble_enabled = true;
-    let ipv6_enabled = false;
-
-    Ok((cilium_pods, cilium_version, hubble_enabled, ipv6_enabled))
+    Json(metrics_json).into_response()
 }

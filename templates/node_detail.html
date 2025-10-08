@@ -2,32 +2,30 @@
 <div class="space-y-6">
   <!-- Header -->
   <div class="flex items-center justify-between">
-    <div>
-      <div class="mb-3">
-        <a
-          href="/clusters/{{ node.cluster_name }}"
-          class="inline-flex items-center px-3 py-1.5 rounded-lg text-sm font-medium transition bg-dark-hover hover:bg-dark-hoverAlt text-text-primaryAlt"
+    <div class="flex items-center gap-4">
+      <a
+        href="/clusters/{{ node.cluster_name }}"
+        class="p-2 rounded-lg bg-dark-hover hover:bg-dark-hoverAlt transition"
+      >
+        <svg
+          class="w-5 h-5 stroke-text-primaryAlt"
+          fill="none"
+          viewBox="0 0 24 24"
+          stroke-width="2"
         >
-          <svg
-            class="w-4 h-4 mr-1.5"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-            stroke-width="2"
-          >
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              d="M10 19l-7-7m0 0l7-7m-7 7h18"
-            ></path>
-          </svg>
-          Back to Cluster
-        </a>
+          <path
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            d="M15 19l-7-7 7-7"
+          ></path>
+        </svg>
+      </a>
+      <div>
+        <h2 class="text-3xl font-semibold text-text-primary">{{ node.name }}</h2>
+        <p class="mt-1 text-base text-text-secondary">
+          {{ node.role }} • {{ node.server_type }}
+        </p>
       </div>
-      <h2 class="text-3xl font-semibold text-text-primary">{{ node.name }}</h2>
-      <p class="mt-1 text-base text-text-secondary">
-        {{ node.role }} • {{ node.server_type }}
-      </p>
     </div>
     <div class="flex items-center space-x-3">
       {% if node.status == "running" %}
@@ -52,14 +50,14 @@
   <!-- Metrics Cards -->
   <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
     <div class="rounded-lg p-6 bg-[#242424] border border-dark-border">
-      <div class="flex items-center justify-between">
+      <div class="flex items-center justify-between mb-4">
         <div class="flex-1">
           <p class="text-sm font-medium mb-2 text-text-secondary">CPU Usage</p>
           <p class="text-4xl font-semibold text-text-primary">
             {{ node.cpu_usage_percent }}
           </p>
           <p class="text-sm text-text-muted mt-1">
-            Average over last 5 minutes
+            {{ node.cpu_used_cores }} / {{ node.cpu_cores }} vCPU cores
           </p>
         </div>
         <div class="rounded-lg p-3 bg-accent-blue/15">
@@ -77,10 +75,17 @@
           </svg>
         </div>
       </div>
+      <!-- Progress Bar -->
+      <div class="w-full bg-dark-hover rounded-full h-3 overflow-hidden">
+        <div
+          class="h-3 rounded-full transition-all duration-300 bg-gradient-to-r from-accent-blue to-accent-blue"
+          style="width: {{ node.cpu_usage_percent }}"
+        ></div>
+      </div>
     </div>
 
     <div class="rounded-lg p-6 bg-[#242424] border border-dark-border">
-      <div class="flex items-center justify-between">
+      <div class="flex items-center justify-between mb-4">
         <div class="flex-1">
           <p class="text-sm font-medium mb-2 text-text-secondary">
             Memory Usage
@@ -106,6 +111,13 @@
             ></path>
           </svg>
         </div>
+      </div>
+      <!-- Progress Bar -->
+      <div class="w-full bg-dark-hover rounded-full h-3 overflow-hidden">
+        <div
+          class="h-3 rounded-full transition-all duration-300 bg-gradient-to-r from-accent-green to-accent-green"
+          style="width: {{ node.memory_usage_percent }}"
+        ></div>
       </div>
     </div>
   </div>
@@ -186,27 +198,27 @@
               Name
             </th>
             <th
-              class="px-6 py-3 text-left text-sm font-medium text-text-secondary"
+              class="px-6 py-3 text-center text-sm font-medium text-text-secondary"
             >
               Namespace
             </th>
             <th
-              class="px-6 py-3 text-left text-sm font-medium text-text-secondary"
+              class="px-6 py-3 text-center text-sm font-medium text-text-secondary"
             >
               Status
             </th>
             <th
-              class="px-6 py-3 text-left text-sm font-medium text-text-secondary"
+              class="px-6 py-3 text-center text-sm font-medium text-text-secondary"
             >
               Restarts
             </th>
             <th
-              class="px-6 py-3 text-left text-sm font-medium text-text-secondary"
+              class="px-6 py-3 text-center text-sm font-medium text-text-secondary"
             >
               CPU
             </th>
             <th
-              class="px-6 py-3 text-left text-sm font-medium text-text-secondary"
+              class="px-6 py-3 text-center text-sm font-medium text-text-secondary"
             >
               Memory
             </th>
@@ -215,21 +227,22 @@
         <tbody>
           {% for pod in node.pods %}
           <tr
-            class="border-b border-dark-border hover:bg-dark-hover transition"
+            class="border-b border-dark-border hover:bg-dark-hover transition cursor-pointer"
+            onclick="window.location='/clusters/{{ node.cluster_name }}/nodes/{{ node.name }}/pods/{{ pod.namespace }}/{{ pod.name }}'"
           >
             <td class="px-6 py-4">
-              <span class="text-base font-medium font-mono text-text-primary"
+              <span class="text-base font-medium font-mono text-text-primary block truncate max-w-xs"
                 >{{ pod.name }}</span
               >
             </td>
-            <td class="px-6 py-4">
+            <td class="px-6 py-4 text-center">
               <span
                 class="inline-flex items-center px-2.5 py-1 rounded-md text-sm font-medium bg-accent-blue/15 text-accent-blue"
               >
                 {{ pod.namespace }}
               </span>
             </td>
-            <td class="px-6 py-4">
+            <td class="px-6 py-4 text-center">
               {% if pod.status == "Running" %}
               <span
                 class="inline-flex items-center px-2.5 py-1 rounded-md text-sm font-medium bg-accent-green/15 text-accent-green"
@@ -260,7 +273,7 @@
               </span>
               {% endif %}
             </td>
-            <td class="px-6 py-4">
+            <td class="px-6 py-4 text-center">
               {% if pod.restarts > 0 %}
               <span class="text-base font-medium text-[#F59E0B]"
                 >{{ pod.restarts }}</span
@@ -271,12 +284,12 @@
               >
               {% endif %}
             </td>
-            <td class="px-6 py-4">
+            <td class="px-6 py-4 text-center">
               <span class="text-base font-mono text-text-primaryAlt"
                 >{{ pod.cpu }}</span
               >
             </td>
-            <td class="px-6 py-4">
+            <td class="px-6 py-4 text-center">
               <span class="text-base font-mono text-text-primaryAlt"
                 >{{ pod.memory }}</span
               >

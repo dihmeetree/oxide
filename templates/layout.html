@@ -160,11 +160,6 @@
         if ('scrollRestoration' in history) {
             history.scrollRestoration = 'auto';
         }
-        // Hide content until fully loaded to prevent flash
-        document.documentElement.style.visibility = 'hidden';
-        window.addEventListener('DOMContentLoaded', function() {
-            document.documentElement.style.visibility = 'visible';
-        });
     </script>
 </head>
 <body class="min-h-screen text-text-primary flex flex-col">
@@ -183,11 +178,14 @@
                         <a href="/clusters" class="px-4 py-2 rounded-md text-sm font-medium transition {% if active_page == "clusters" %}bg-accent-blue text-text-primary{% else %}text-text-primaryAlt hover:bg-[#252525] hover:text-text-primary{% endif %}">
                             Clusters
                         </a>
-                        <a href="/metrics" class="px-4 py-2 rounded-md text-sm font-medium transition {% if active_page == "metrics" %}bg-accent-blue text-text-primary{% else %}text-text-primaryAlt hover:bg-[#252525] hover:text-text-primary{% endif %}">
-                            Metrics
+                        <a href="/pods" class="px-4 py-2 rounded-md text-sm font-medium transition {% if active_page == "pods" %}bg-accent-blue text-text-primary{% else %}text-text-primaryAlt hover:bg-[#252525] hover:text-text-primary{% endif %}">
+                            Pods
                         </a>
                         <a href="/cilium" class="px-4 py-2 rounded-md text-sm font-medium transition {% if active_page == "cilium" %}bg-accent-blue text-text-primary{% else %}text-text-primaryAlt hover:bg-[#252525] hover:text-text-primary{% endif %}">
                             Cilium
+                        </a>
+                        <a href="/metrics" class="px-4 py-2 rounded-md text-sm font-medium transition {% if active_page == "metrics" %}bg-accent-blue text-text-primary{% else %}text-text-primaryAlt hover:bg-[#252525] hover:text-text-primary{% endif %}">
+                            Metrics
                         </a>
                     </div>
                 </div>

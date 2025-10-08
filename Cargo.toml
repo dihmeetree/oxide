@@ -35,7 +35,7 @@ urlencoding = "2.1"
 # Web framework for dashboard
 axum = "0.8.6"
 # HTML templating
-askama = "0.14.0"
+askama = { version = "0.14.0", features = ["serde_json"] }
 # Tower middleware for serving static files
 tower-http = { version = "0.6", features = ["fs", "trace"] }
 tower = "0.5"

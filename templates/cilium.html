@@ -8,29 +8,7 @@
     </p>
   </div>
 
-  <!-- Loading State -->
-  {% if !cache_ready %}
-  <div
-    class="rounded-lg p-12 text-center bg-[#242424] border border-dark-border"
-  >
-    <svg
-      class="w-16 h-16 mx-auto mb-4 animate-spin-slow stroke-accent-blue"
-      fill="none"
-      viewBox="0 0 24 24"
-      stroke-width="2"
-    >
-      <path
-        stroke-linecap="round"
-        stroke-linejoin="round"
-        d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-      ></path>
-    </svg>
-    <h3 class="text-xl font-semibold mb-2 text-text-primaryAlt">
-      Loading Cilium data...
-    </h3>
-    <p class="text-text-muted">Please wait while we fetch Cilium information</p>
-  </div>
-  {% else if cilium_pods.len() == 0 %}
+  {% if cilium_pods.len() == 0 %}
   <!-- No Cilium Found -->
   <div
     class="rounded-lg p-12 text-center bg-[#242424] border border-dark-border"
@@ -92,27 +70,30 @@
       <div class="flex items-center justify-between">
         <div>
           <p class="text-sm font-medium mb-2 text-text-secondary">Hubble</p>
-          <p class="text-4xl font-semibold text-text-primary">
+          <p class="text-4xl font-semibold {% if hubble_enabled %}text-accent-green{% else %}text-text-muted{% endif %}">
             {% if hubble_enabled %}Enabled{% else %}Disabled{% endif %}
           </p>
         </div>
-        <div class="rounded-lg p-3 bg-accent-blue/15">
+        <div class="rounded-lg p-3 {% if hubble_enabled %}bg-accent-green/15{% else %}bg-text-muted/15{% endif %}">
           <svg
-            class="w-8 h-8 stroke-accent-blue"
+            class="w-8 h-8 {% if hubble_enabled %}stroke-accent-green{% else %}stroke-text-muted{% endif %}"
             fill="none"
             viewBox="0 0 24 24"
             stroke-width="2"
           >
+            {% if hubble_enabled %}
             <path
               stroke-linecap="round"
               stroke-linejoin="round"
-              d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
+              d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
             ></path>
+            {% else %}
             <path
               stroke-linecap="round"
               stroke-linejoin="round"
-              d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"
+              d="M9.75 9.75l4.5 4.5m0-4.5l-4.5 4.5M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
             ></path>
+            {% endif %}
           </svg>
         </div>
       </div>
@@ -155,27 +136,37 @@
         <thead>
           <tr class="border-b border-dark-border">
             <th
-              class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-text-secondary"
+              class="px-6 py-3 text-left text-sm font-medium text-text-secondary"
             >
               Name
             </th>
             <th
-              class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-text-secondary"
+              class="px-6 py-3 text-center text-sm font-medium text-text-secondary"
             >
               Node
             </th>
             <th
-              class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-text-secondary"
+              class="px-6 py-3 text-center text-sm font-medium text-text-secondary"
             >
               Status
             </th>
             <th
-              class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-text-secondary"
+              class="px-6 py-3 text-center text-sm font-medium text-text-secondary"
+            >
+              CPU
+            </th>
+            <th
+              class="px-6 py-3 text-center text-sm font-medium text-text-secondary"
+            >
+              Memory
+            </th>
+            <th
+              class="px-6 py-3 text-center text-sm font-medium text-text-secondary"
             >
               Restarts
             </th>
             <th
-              class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-text-secondary"
+              class="px-6 py-3 text-center text-sm font-medium text-text-secondary"
             >
               Age
             </th>
@@ -183,19 +174,22 @@
         </thead>
         <tbody class="divide-y divide-dark-border">
           {% for pod in cilium_pods %}
-          <tr class="hover:bg-dark-hover transition">
+          <tr
+            class="hover:bg-dark-hover transition cursor-pointer"
+            onclick="window.location='/clusters/{{ pod.cluster_name }}/nodes/{{ pod.node }}/pods/kube-system/{{ pod.name }}'"
+          >
             <td class="px-6 py-4 whitespace-nowrap">
-              <span class="text-sm font-mono text-text-primary">{{
+              <span class="text-base font-medium font-mono text-text-primary">{{
                 pod.name
               }}</span>
             </td>
-            <td class="px-6 py-4 whitespace-nowrap">
-              <span class="text-sm text-text-secondary">{{ pod.node }}</span>
+            <td class="px-6 py-4 whitespace-nowrap text-center">
+              <span class="text-base text-text-secondary">{{ pod.node }}</span>
             </td>
-            <td class="px-6 py-4 whitespace-nowrap">
+            <td class="px-6 py-4 whitespace-nowrap text-center">
               {% if pod.status == "Running" %}
               <span
-                class="inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-medium bg-accent-green/15 text-accent-green border border-accent-green/30"
+                class="inline-flex items-center px-2.5 py-1 rounded-md text-sm font-medium bg-accent-green/15 text-accent-green"
               >
                 <span
                   class="w-1.5 h-1.5 rounded-full mr-1.5 bg-accent-green"
@@ -204,19 +198,25 @@
               </span>
               {% else %}
               <span
-                class="inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-medium bg-text-muted/15 text-text-muted border border-text-muted/30"
+                class="inline-flex items-center px-2.5 py-1 rounded-md text-sm font-medium bg-text-muted/15 text-text-muted"
               >
                 {{ pod.status }}
               </span>
               {% endif %}
             </td>
-            <td class="px-6 py-4 whitespace-nowrap">
-              <span class="text-sm text-text-secondary">{{
+            <td class="px-6 py-4 whitespace-nowrap text-center">
+              <span class="text-base font-mono text-text-primaryAlt">{{ pod.cpu }}</span>
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-center">
+              <span class="text-base font-mono text-text-primaryAlt">{{ pod.memory }}</span>
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-center">
+              <span class="text-base text-text-secondary">{{
                 pod.restarts
               }}</span>
             </td>
-            <td class="px-6 py-4 whitespace-nowrap">
-              <span class="text-sm text-text-secondary">{{ pod.age }}</span>
+            <td class="px-6 py-4 whitespace-nowrap text-center">
+              <span class="text-base text-text-secondary">{{ pod.age }}</span>
             </td>
           </tr>
           {% endfor %}
@@ -261,6 +261,614 @@
       </dl>
     </div>
   </div>
+
+  <!-- CPU Usage Chart -->
+  <div class="rounded-lg p-6 bg-[#242424] border border-dark-border">
+    <div class="flex items-center justify-between mb-4">
+      <h3 class="text-xl font-semibold text-text-primary">Cilium CPU Usage History</h3>
+      <button
+        onclick="refreshCiliumMetrics()"
+        class="p-2 rounded-lg text-text-muted hover:text-text-primary bg-dark-hover hover:bg-dark-hoverAlt transition"
+        title="Refresh"
+      >
+        <svg
+          class="w-5 h-5"
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+          stroke-width="2"
+        >
+          <path
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+          ></path>
+        </svg>
+      </button>
+    </div>
+    <div class="relative h-80">
+      <canvas id="cpuChart"></canvas>
+    </div>
+    <div id="cpuLegend" class="mt-4 max-h-32 overflow-y-auto scrollbar-thin scrollbar-thumb-dark-border scrollbar-track-dark-bg"></div>
+  </div>
+
+  <!-- Memory Usage Chart -->
+  <div class="rounded-lg p-6 bg-[#242424] border border-dark-border">
+    <div class="flex items-center justify-between mb-4">
+      <h3 class="text-xl font-semibold text-text-primary">Cilium Memory Usage History</h3>
+      <button
+        onclick="refreshCiliumMetrics()"
+        class="p-2 rounded-lg text-text-muted hover:text-text-primary bg-dark-hover hover:bg-dark-hoverAlt transition"
+        title="Refresh"
+      >
+        <svg
+          class="w-5 h-5"
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+          stroke-width="2"
+        >
+          <path
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+          ></path>
+        </svg>
+      </button>
+    </div>
+    <div class="relative h-80">
+      <canvas id="memoryChart"></canvas>
+    </div>
+    <div id="memoryLegend" class="mt-4 max-h-32 overflow-y-auto scrollbar-thin scrollbar-thumb-dark-border scrollbar-track-dark-bg"></div>
+  </div>
   {% endif %}
 </div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script>
+  // Override scroll restoration hiding immediately
+  document.documentElement.style.visibility = "visible";
+
+  let cpuChart = null;
+  let memoryChart = null;
+
+  // Color palette for consistent pod colors
+  const colors = [
+    '#60A5FA', '#34D399', '#FBBF24', '#F87171', '#A78BFA',
+    '#FB923C', '#2DD4BF', '#FB7185', '#4ADE80', '#FACC15'
+  ];
+  let podColorMap = {}; // Store consistent colors for each pod
+
+  // Generate HTML legend for charts
+  function generateLegend(chart, containerId, chartType) {
+    const legendContainer = document.getElementById(containerId);
+    if (!legendContainer) return;
+
+    let legendHTML = '<div class="flex flex-wrap gap-3">';
+    chart.data.datasets.forEach((dataset, i) => {
+      const isVisible = chart.isDatasetVisible(i);
+      legendHTML += `
+        <button onclick="toggleDataset('${chartType}', ${i})"
+          class="flex items-center gap-2 px-3 py-1.5 rounded-md transition ${isVisible ? 'bg-dark-hover' : 'bg-dark-bg opacity-50'}">
+          <span class="w-2 h-2 rounded-full" style="background-color: ${dataset.borderColor}"></span>
+          <span class="text-sm text-text-primary">${dataset.label}</span>
+        </button>
+      `;
+    });
+    legendHTML += '</div>';
+    legendContainer.innerHTML = legendHTML;
+  }
+
+  // Toggle dataset visibility with isolate/show all behavior
+  function toggleDataset(chartType, index) {
+    let chart, containerId;
+    switch(chartType) {
+      case 'ciliumCpu':
+        chart = cpuChart;
+        containerId = 'cpuLegend';
+        break;
+      case 'ciliumMemory':
+        chart = memoryChart;
+        containerId = 'memoryLegend';
+        break;
+    }
+
+    if (!chart) return;
+
+    const isCurrentlyVisible = chart.isDatasetVisible(index);
+    let visibleCount = 0;
+    for (let i = 0; i < chart.data.datasets.length; i++) {
+      if (chart.isDatasetVisible(i)) visibleCount++;
+    }
+
+    // If only one visible and clicked, show all; otherwise show only clicked
+    if (visibleCount === 1 && isCurrentlyVisible) {
+      chart.data.datasets.forEach((dataset, i) => {
+        chart.setDatasetVisibility(i, true);
+      });
+    } else {
+      chart.data.datasets.forEach((dataset, i) => {
+        chart.setDatasetVisibility(i, i === index);
+      });
+    }
+    chart.update();
+    generateLegend(chart, containerId, chartType);
+  }
+
+  async function fetchCiliumMetrics() {
+    try {
+      const response = await fetch('/api/cilium/metrics');
+      const data = await response.json();
+      return data;
+    } catch (error) {
+      console.error('Failed to fetch Cilium metrics:', error);
+      return null;
+    }
+  }
+
+  async function initCharts(initialData) {
+    let data;
+    if (initialData && initialData.timestamps && initialData.timestamps.length > 0) {
+      // Use server-provided data
+      data = initialData;
+    } else {
+      // Fetch from API
+      data = await fetchCiliumMetrics();
+      if (!data || !data.timestamps || data.timestamps.length === 0) {
+        return;
+      }
+    }
+
+    // Format timestamps to local time
+    const labels = data.timestamps.map(ts => {
+      const date = new Date(ts * 1000);
+      return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    });
+
+    // Assign consistent colors to pods
+    data.pods.forEach((pod) => {
+      if (!podColorMap[pod.name]) {
+        podColorMap[pod.name] = colors[Object.keys(podColorMap).length % colors.length];
+      }
+    });
+
+    // CPU Chart
+    const cpuCtx = document.getElementById('cpuChart').getContext('2d');
+    const cpuDatasets = data.pods.map((pod) => ({
+      label: pod.name,
+      data: pod.cpu_history,
+      borderColor: podColorMap[pod.name],
+      backgroundColor: podColorMap[pod.name] + '20',
+      borderWidth: 2,
+      fill: true,
+      tension: 0.4,
+      pointRadius: 0,
+      pointHoverRadius: 5,
+    }));
+
+    // Calculate total CPU request and limit across all pods
+    let totalCpuRequest = 0;
+    let totalCpuLimit = 0;
+    data.pods.forEach(pod => {
+      if (pod.cpu_request > 0) totalCpuRequest += pod.cpu_request;
+      if (pod.cpu_limit > 0) totalCpuLimit += pod.cpu_limit;
+    });
+
+    // Add CPU request line if exists
+    if (totalCpuRequest > 0) {
+      cpuDatasets.push({
+        label: 'Total CPU Request',
+        data: Array(data.timestamps.length).fill(totalCpuRequest),
+        borderColor: '#FBBF24',
+        backgroundColor: 'transparent',
+        borderWidth: 2,
+        borderDash: [5, 5],
+        fill: false,
+        pointRadius: 0,
+        pointHoverRadius: 0,
+      });
+    }
+
+    // Add CPU limit line if exists
+    if (totalCpuLimit > 0) {
+      cpuDatasets.push({
+        label: 'Total CPU Limit',
+        data: Array(data.timestamps.length).fill(totalCpuLimit),
+        borderColor: '#FF4D4D',
+        backgroundColor: 'transparent',
+        borderWidth: 2,
+        borderDash: [5, 5],
+        fill: false,
+        pointRadius: 0,
+        pointHoverRadius: 0,
+      });
+    }
+
+    cpuChart = new Chart(cpuCtx, {
+      type: 'line',
+      data: {
+        labels: labels,
+        datasets: cpuDatasets,
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: false,
+        plugins: {
+          legend: {
+            display: false,
+          },
+          tooltip: {
+            enabled: true,
+            mode: 'point',
+            intersect: true,
+            backgroundColor: '#1A1A1A',
+            titleColor: '#FFFFFF',
+            titleFont: {
+              size: 14,
+              weight: '600',
+              family: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+            },
+            bodyColor: '#E5E5E5',
+            bodyFont: {
+              size: 13,
+              weight: '500',
+            },
+            borderColor: '#404040',
+            borderWidth: 1,
+            padding: 16,
+            displayColors: true,
+            boxWidth: 10,
+            boxHeight: 10,
+            boxPadding: 6,
+            cornerRadius: 8,
+            caretSize: 6,
+            caretPadding: 12,
+            callbacks: {
+              title: function (context) {
+                return 'Time: ' + context[0].label;
+              },
+              label: function (context) {
+                const value = context.parsed.y.toFixed(0);
+                return ' ' + context.dataset.label + ': ' + value + 'm';
+              },
+              labelTextColor: function (context) {
+                return context.dataset.borderColor;
+              },
+            },
+          },
+        },
+        scales: {
+          x: {
+            display: true,
+            grid: {
+              color: '#313131',
+            },
+            ticks: {
+              color: '#AAAAAA',
+            },
+          },
+          y: {
+            display: true,
+            beginAtZero: true,
+            grid: {
+              color: '#313131',
+            },
+            ticks: {
+              color: '#AAAAAA',
+              callback: function (value) {
+                return value.toFixed(0) + 'm';
+              },
+            },
+          },
+        },
+        interaction: {
+          mode: 'nearest',
+          axis: 'x',
+          intersect: false,
+        },
+      },
+    });
+
+    generateLegend(cpuChart, 'cpuLegend', 'ciliumCpu');
+
+    // Memory Chart
+    const memCtx = document.getElementById('memoryChart').getContext('2d');
+    const memDatasets = data.pods.map((pod) => ({
+      label: pod.name,
+      data: pod.memory_history,
+      borderColor: podColorMap[pod.name],
+      backgroundColor: podColorMap[pod.name] + '20',
+      borderWidth: 2,
+      fill: true,
+      tension: 0.4,
+      pointRadius: 0,
+      pointHoverRadius: 5,
+    }));
+
+    // Calculate total memory request and limit across all pods
+    let totalMemoryRequest = 0;
+    let totalMemoryLimit = 0;
+    data.pods.forEach(pod => {
+      if (pod.memory_request > 0) totalMemoryRequest += pod.memory_request;
+      if (pod.memory_limit > 0) totalMemoryLimit += pod.memory_limit;
+    });
+
+    // Add memory request line if exists
+    if (totalMemoryRequest > 0) {
+      memDatasets.push({
+        label: 'Total Memory Request',
+        data: Array(data.timestamps.length).fill(totalMemoryRequest),
+        borderColor: '#FBBF24',
+        backgroundColor: 'transparent',
+        borderWidth: 2,
+        borderDash: [5, 5],
+        fill: false,
+        pointRadius: 0,
+        pointHoverRadius: 0,
+      });
+    }
+
+    // Add memory limit line if exists
+    if (totalMemoryLimit > 0) {
+      memDatasets.push({
+        label: 'Total Memory Limit',
+        data: Array(data.timestamps.length).fill(totalMemoryLimit),
+        borderColor: '#FF4D4D',
+        backgroundColor: 'transparent',
+        borderWidth: 2,
+        borderDash: [5, 5],
+        fill: false,
+        pointRadius: 0,
+        pointHoverRadius: 0,
+      });
+    }
+
+    memoryChart = new Chart(memCtx, {
+      type: 'line',
+      data: {
+        labels: labels,
+        datasets: memDatasets,
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: false,
+        plugins: {
+          legend: {
+            display: false,
+          },
+          tooltip: {
+            enabled: true,
+            mode: 'point',
+            intersect: true,
+            backgroundColor: '#1A1A1A',
+            titleColor: '#FFFFFF',
+            titleFont: {
+              size: 14,
+              weight: '600',
+              family: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+            },
+            bodyColor: '#E5E5E5',
+            bodyFont: {
+              size: 13,
+              weight: '500',
+            },
+            borderColor: '#404040',
+            borderWidth: 1,
+            padding: 16,
+            displayColors: true,
+            boxWidth: 10,
+            boxHeight: 10,
+            boxPadding: 6,
+            cornerRadius: 8,
+            caretSize: 6,
+            caretPadding: 12,
+            callbacks: {
+              title: function (context) {
+                return 'Time: ' + context[0].label;
+              },
+              label: function (context) {
+                const value = context.parsed.y.toFixed(1);
+                return ' ' + context.dataset.label + ': ' + value + ' MiB';
+              },
+              labelTextColor: function (context) {
+                return context.dataset.borderColor;
+              },
+            },
+          },
+        },
+        scales: {
+          x: {
+            display: true,
+            grid: {
+              color: '#313131',
+            },
+            ticks: {
+              color: '#AAAAAA',
+            },
+          },
+          y: {
+            display: true,
+            beginAtZero: true,
+            grid: {
+              color: '#313131',
+            },
+            ticks: {
+              color: '#AAAAAA',
+              callback: function (value) {
+                return value.toFixed(0) + ' MiB';
+              },
+            },
+          },
+        },
+        interaction: {
+          mode: 'nearest',
+          axis: 'x',
+          intersect: false,
+        },
+      },
+    });
+
+    generateLegend(memoryChart, 'memoryLegend', 'ciliumMemory');
+  }
+
+  // Refresh metrics function
+  async function refreshCiliumMetrics() {
+    {% if cilium_pods.len() > 0 %}
+    const data = await fetchCiliumMetrics();
+    if (!data || !cpuChart || !memoryChart) return;
+
+    const labels = data.timestamps.map(ts => {
+      const date = new Date(ts * 1000);
+      return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    });
+
+    // Assign colors to any new pods
+    data.pods.forEach((pod) => {
+      if (!podColorMap[pod.name]) {
+        podColorMap[pod.name] = colors[Object.keys(podColorMap).length % colors.length];
+      }
+    });
+
+    // Capture current visibility state
+    const cpuVisibility = cpuChart.data.datasets.map((ds, i) => cpuChart.isDatasetVisible(i));
+    const memVisibility = memoryChart.data.datasets.map((ds, i) => memoryChart.isDatasetVisible(i));
+
+    // Calculate total CPU request and limit
+    let totalCpuRequest = 0;
+    let totalCpuLimit = 0;
+    data.pods.forEach(pod => {
+      if (pod.cpu_request > 0) totalCpuRequest += pod.cpu_request;
+      if (pod.cpu_limit > 0) totalCpuLimit += pod.cpu_limit;
+    });
+
+    cpuChart.data.labels = labels;
+    const cpuDatasets = data.pods.map((pod, i) => {
+      return {
+        label: pod.name,
+        data: pod.cpu_history,
+        borderColor: podColorMap[pod.name],
+        backgroundColor: podColorMap[pod.name] + '20',
+        borderWidth: 2,
+        fill: true,
+        tension: 0.4,
+        pointRadius: 0,
+        pointHoverRadius: 5,
+        hidden: i < cpuVisibility.length ? !cpuVisibility[i] : false,
+      };
+    });
+
+    // Add CPU request line
+    if (totalCpuRequest > 0) {
+      cpuDatasets.push({
+        label: 'Total CPU Request',
+        data: Array(data.timestamps.length).fill(totalCpuRequest),
+        borderColor: '#FBBF24',
+        backgroundColor: 'transparent',
+        borderWidth: 2,
+        borderDash: [5, 5],
+        fill: false,
+        pointRadius: 0,
+        pointHoverRadius: 0,
+        hidden: data.pods.length < cpuVisibility.length ? !cpuVisibility[data.pods.length] : false,
+      });
+    }
+
+    // Add CPU limit line
+    if (totalCpuLimit > 0) {
+      const limitIndex = data.pods.length + (totalCpuRequest > 0 ? 1 : 0);
+      cpuDatasets.push({
+        label: 'Total CPU Limit',
+        data: Array(data.timestamps.length).fill(totalCpuLimit),
+        borderColor: '#FF4D4D',
+        backgroundColor: 'transparent',
+        borderWidth: 2,
+        borderDash: [5, 5],
+        fill: false,
+        pointRadius: 0,
+        pointHoverRadius: 0,
+        hidden: limitIndex < cpuVisibility.length ? !cpuVisibility[limitIndex] : false,
+      });
+    }
+
+    cpuChart.data.datasets = cpuDatasets;
+    cpuChart.update();
+    generateLegend(cpuChart, 'cpuLegend', 'ciliumCpu');
+
+    // Calculate total memory request and limit
+    let totalMemoryRequest = 0;
+    let totalMemoryLimit = 0;
+    data.pods.forEach(pod => {
+      if (pod.memory_request > 0) totalMemoryRequest += pod.memory_request;
+      if (pod.memory_limit > 0) totalMemoryLimit += pod.memory_limit;
+    });
+
+    memoryChart.data.labels = labels;
+    const memDatasets = data.pods.map((pod, i) => {
+      return {
+        label: pod.name,
+        data: pod.memory_history,
+        borderColor: podColorMap[pod.name],
+        backgroundColor: podColorMap[pod.name] + '20',
+        borderWidth: 2,
+        fill: true,
+        tension: 0.4,
+        pointRadius: 0,
+        pointHoverRadius: 5,
+        hidden: i < memVisibility.length ? !memVisibility[i] : false,
+      };
+    });
+
+    // Add memory request line
+    if (totalMemoryRequest > 0) {
+      memDatasets.push({
+        label: 'Total Memory Request',
+        data: Array(data.timestamps.length).fill(totalMemoryRequest),
+        borderColor: '#FBBF24',
+        backgroundColor: 'transparent',
+        borderWidth: 2,
+        borderDash: [5, 5],
+        fill: false,
+        pointRadius: 0,
+        pointHoverRadius: 0,
+        hidden: data.pods.length < memVisibility.length ? !memVisibility[data.pods.length] : false,
+      });
+    }
+
+    // Add memory limit line
+    if (totalMemoryLimit > 0) {
+      const limitIndex = data.pods.length + (totalMemoryRequest > 0 ? 1 : 0);
+      memDatasets.push({
+        label: 'Total Memory Limit',
+        data: Array(data.timestamps.length).fill(totalMemoryLimit),
+        borderColor: '#FF4D4D',
+        backgroundColor: 'transparent',
+        borderWidth: 2,
+        borderDash: [5, 5],
+        fill: false,
+        pointRadius: 0,
+        pointHoverRadius: 0,
+        hidden: limitIndex < memVisibility.length ? !memVisibility[limitIndex] : false,
+      });
+    }
+
+    memoryChart.data.datasets = memDatasets;
+    memoryChart.update();
+    generateLegend(memoryChart, 'memoryLegend', 'ciliumMemory');
+    {% endif %}
+  }
+
+  // Initialize on page load
+  document.addEventListener('DOMContentLoaded', function() {
+    {% if cilium_pods.len() > 0 %}
+    const serverData = {{ metrics_json|safe }};
+    initCharts(serverData);
+    {% endif %}
+  });
+
+  // Auto-refresh every 10 seconds
+  setInterval(refreshCiliumMetrics, 10000);
+</script>
+
 {% endblock %}

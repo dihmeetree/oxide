@@ -57,6 +57,10 @@ impl DashboardServer {
             .route("/clusters/{name}", get(routes::cluster_detail))
             .route("/clusters/{cluster}/nodes/{node}", get(routes::node_detail))
             .route(
+                "/clusters/{cluster}/nodes/{node}/pods/{namespace}/{pod}",
+                get(routes::pod_detail),
+            )
+            .route(
                 "/clusters/{name}/scale",
                 axum::routing::post(routes::cluster_scale),
             )
@@ -69,9 +73,15 @@ impl DashboardServer {
                 axum::routing::post(routes::cluster_delete),
             )
             .route("/metrics", get(routes::metrics))
+            .route("/pods", get(routes::pods_list))
             .route("/cilium", get(routes::cilium))
             .route("/api/clusters", get(routes::api_clusters_list))
             .route("/api/metrics", get(routes::api_metrics))
+            .route("/api/cilium/metrics", get(routes::api_cilium_metrics))
+            .route(
+                "/api/pods/{namespace}/{pod}/metrics",
+                get(routes::api_pod_metrics),
+            )
             .nest_service("/static", ServeDir::new("static"))
             .with_state(AppState {
                 config_path: self.config_path,
