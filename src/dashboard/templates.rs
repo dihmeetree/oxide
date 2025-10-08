@@ -10,6 +10,7 @@ pub struct IndexTemplate {
     pub total_nodes: usize,
     pub active_page: String,
     pub version: String,
+    pub firing_alerts_count: usize,
 }
 
 /// Clusters list page
@@ -19,6 +20,7 @@ pub struct ClustersTemplate {
     pub clusters: Vec<ClusterInfo>,
     pub active_page: String,
     pub version: String,
+    pub firing_alerts_count: usize,
 }
 
 /// Create cluster form page
@@ -27,6 +29,7 @@ pub struct ClustersTemplate {
 pub struct CreateClusterTemplate {
     pub active_page: String,
     pub version: String,
+    pub firing_alerts_count: usize,
 }
 
 /// Cluster detail page
@@ -36,6 +39,7 @@ pub struct ClusterDetailTemplate {
     pub cluster: ClusterDetail,
     pub active_page: String,
     pub version: String,
+    pub firing_alerts_count: usize,
 }
 
 /// Cluster information for display
@@ -82,6 +86,7 @@ pub struct NodeDetailTemplate {
     pub node: NodeDetail,
     pub active_page: String,
     pub version: String,
+    pub firing_alerts_count: usize,
 }
 
 /// Detailed node information with pods
@@ -114,6 +119,7 @@ pub struct MetricsTemplate {
     pub metrics_json: String,
     pub node_names: Vec<String>,
     pub pod_names: Vec<String>,
+    pub firing_alerts_count: usize,
 }
 
 /// Cilium page
@@ -128,6 +134,7 @@ pub struct CiliumTemplate {
     pub ipv6_enabled: bool,
     pub metrics_json: String,
     pub pod_names: Vec<String>,
+    pub firing_alerts_count: usize,
 }
 
 /// Alerts page
@@ -139,6 +146,7 @@ pub struct AlertsTemplate {
     pub alerts: Vec<crate::prometheus::Alert>,
     pub firing_count: usize,
     pub pending_count: usize,
+    pub firing_alerts_count: usize,
 }
 
 /// Cilium pod information
@@ -168,6 +176,7 @@ pub struct PodsTemplate {
     pub failed_count: usize,
     pub active_page: String,
     pub version: String,
+    pub firing_alerts_count: usize,
 }
 
 /// Pod detail page
@@ -178,6 +187,7 @@ pub struct PodDetailTemplate {
     pub metrics_json: String,
     pub active_page: String,
     pub version: String,
+    pub firing_alerts_count: usize,
 }
 
 /// Detailed pod information with metrics
@@ -222,6 +232,7 @@ pub struct NodesTemplate {
     pub node_names: Vec<String>,
     pub active_page: String,
     pub version: String,
+    pub firing_alerts_count: usize,
 }
 
 /// Node information with cluster name
