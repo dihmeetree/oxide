@@ -69,6 +69,7 @@ impl DashboardServer {
                 axum::routing::post(routes::cluster_delete),
             )
             .route("/metrics", get(routes::metrics))
+            .route("/cilium", get(routes::cilium))
             .route("/api/clusters", get(routes::api_clusters_list))
             .route("/api/metrics", get(routes::api_metrics))
             .nest_service("/static", ServeDir::new("static"))

@@ -113,3 +113,26 @@ pub struct MetricsTemplate {
     pub has_data: bool,
     pub metrics_json: String,
 }
+
+/// Cilium page
+#[derive(Template)]
+#[template(path = "cilium.html")]
+pub struct CiliumTemplate {
+    pub active_page: String,
+    pub version: String,
+    pub cache_ready: bool,
+    pub cilium_pods: Vec<CiliumPod>,
+    pub cilium_version: String,
+    pub hubble_enabled: bool,
+    pub ipv6_enabled: bool,
+}
+
+/// Cilium pod information
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CiliumPod {
+    pub name: String,
+    pub node: String,
+    pub status: String,
+    pub restarts: u32,
+    pub age: String,
+}

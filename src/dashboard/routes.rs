@@ -11,8 +11,8 @@ use tracing::{error, info};
 
 use super::server::AppState;
 use super::templates::{
-    ClusterDetailTemplate, ClustersTemplate, CreateClusterTemplate, IndexTemplate, MetricsTemplate,
-    NodeDetailTemplate,
+    CiliumTemplate, ClusterDetailTemplate, ClustersTemplate, CreateClusterTemplate, IndexTemplate,
+    MetricsTemplate, NodeDetailTemplate,
 };
 use crate::config::ClusterConfig;
 
@@ -512,4 +512,128 @@ struct MetricsNode {
     name: String,
     cpu_history: Vec<f64>,
     memory_history: Vec<f64>,
+}
+
+/// Cilium page
+pub async fn cilium(State(state): State<AppState>) -> impl IntoResponse {
+    let cache_ready = state.cache.is_ready().await;
+
+    if !cache_ready {
+        let template = CiliumTemplate {
+            active_page: "cilium".to_string(),
+            version: env!("CARGO_PKG_VERSION").to_string(),
+            cache_ready: false,
+            cilium_pods: vec![],
+            cilium_version: "N/A".to_string(),
+            hubble_enabled: false,
+            ipv6_enabled: false,
+        };
+        return Html(template.render().unwrap());
+    }
+
+    // Get Cilium pods from kube-system namespace
+    let kubeconfig = state.output_dir.join("kubeconfig");
+
+    let (cilium_pods, cilium_version, hubble_enabled, ipv6_enabled) = if kubeconfig.exists() {
+        match fetch_cilium_info(&kubeconfig).await {
+            Ok(info) => info,
+            Err(e) => {
+                error!("Failed to fetch Cilium info: {}", e);
+                (vec![], "N/A".to_string(), false, false)
+            }
+        }
+    } else {
+        (vec![], "N/A".to_string(), false, false)
+    };
+
+    let template = CiliumTemplate {
+        active_page: "cilium".to_string(),
+        version: env!("CARGO_PKG_VERSION").to_string(),
+        cache_ready: true,
+        cilium_pods,
+        cilium_version,
+        hubble_enabled,
+        ipv6_enabled,
+    };
+    Html(template.render().unwrap())
+}
+
+/// Fetch Cilium pod information
+async fn fetch_cilium_info(
+    kubeconfig: &std::path::Path,
+) -> Result<(Vec<super::templates::CiliumPod>, String, bool, bool), anyhow::Error> {
+    use tokio::process::Command;
+
+    // Get Cilium pods using kubectl
+    let output = Command::new("kubectl")
+        .arg("--kubeconfig")
+        .arg(kubeconfig)
+        .arg("get")
+        .arg("pods")
+        .arg("-n")
+        .arg("kube-system")
+        .arg("-l")
+        .arg("k8s-app=cilium")
+        .arg("-o")
+        .arg("json")
+        .output()
+        .await?;
+
+    if !output.status.success() {
+        anyhow::bail!(
+            "kubectl get pods failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    let pods_json: serde_json::Value = serde_json::from_slice(&output.stdout)?;
+
+    let mut cilium_pods = Vec::new();
+
+    if let Some(items) = pods_json["items"].as_array() {
+        for pod in items {
+            let name = pod["metadata"]["name"]
+                .as_str()
+                .unwrap_or("unknown")
+                .to_string();
+            let node = pod["spec"]["nodeName"]
+                .as_str()
+                .unwrap_or("N/A")
+                .to_string();
+            let status = pod["status"]["phase"]
+                .as_str()
+                .unwrap_or("Unknown")
+                .to_string();
+
+            // Count restarts
+            let mut restarts = 0u32;
+            if let Some(container_statuses) = pod["status"]["containerStatuses"].as_array() {
+                for container in container_statuses {
+                    if let Some(restart_count) = container["restartCount"].as_u64() {
+                        restarts += restart_count as u32;
+                    }
+                }
+            }
+
+            // Calculate age (simple format for now)
+            let age = "N/A".to_string(); // TODO: Calculate from creationTimestamp
+
+            cilium_pods.push(super::templates::CiliumPod {
+                name,
+                node,
+                status,
+                restarts,
+                age,
+            });
+        }
+    }
+
+    // Get Cilium version (hardcoded for now, could parse from pod image)
+    let cilium_version = "1.16.5".to_string();
+
+    // Get Hubble and IPv6 status (hardcoded for now)
+    let hubble_enabled = true;
+    let ipv6_enabled = false;
+
+    Ok((cilium_pods, cilium_version, hubble_enabled, ipv6_enabled))
 }
