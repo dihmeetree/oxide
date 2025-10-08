@@ -631,16 +631,11 @@ pub async fn api_metrics(
         let json_cache = state.cache.get_metrics_json_cache().await;
         let json_string = json_cache.as_ref();
 
-        // If cache is empty or not ready, fall through to fetch fresh data
-        if json_string.is_empty() || json_string == "{}" {
-            tracing::warn!("Cache returned empty JSON, falling through to fresh fetch");
-        } else {
-            return (
-                [(axum::http::header::CONTENT_TYPE, "application/json")],
-                json_string.to_string(),
-            )
-                .into_response();
-        }
+        return (
+            [(axum::http::header::CONTENT_TYPE, "application/json")],
+            json_string.to_string(),
+        )
+            .into_response();
     }
 
     // For ranges other than 1h, fetch fresh data from Prometheus

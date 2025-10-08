@@ -1,10 +1,13 @@
 /// Cluster data cache with background refresh
 use anyhow::Result;
 use dashmap::DashMap;
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
 use tracing::{error, info};
+
+use crate::dashboard::templates::CiliumPod;
 
 /// Calculate human-readable age from ISO 8601 timestamp
 fn calculate_age(timestamp: &str) -> String {
@@ -446,202 +449,12 @@ impl ClusterCache {
         }
 
         // Pre-serialize metrics JSON for API responses (outside of write lock)
-        let metrics_json_cache = {
-            use serde::Serialize;
-
-            #[derive(Serialize)]
-            struct MetricsResponse {
-                timestamps: Vec<i64>,
-                nodes: Vec<MetricsNode>,
-                pods: Vec<MetricsPod>,
-            }
-
-            #[derive(Serialize)]
-            struct MetricsNode {
-                name: String,
-                cpu_history: Vec<f64>,
-                memory_history: Vec<f64>,
-            }
-
-            #[derive(Serialize)]
-            struct MetricsPod {
-                name: String,
-                namespace: String,
-                cpu_history: Vec<f64>,
-                memory_history: Vec<f64>,
-            }
-
-            if !node_metrics_history.is_empty() {
-                let results: Vec<_> = node_metrics_history.iter().collect();
-
-                // Collect all unique timestamps from CPU history
-                // We use CPU as the baseline since both metrics should align
-                let mut all_timestamps = std::collections::BTreeSet::new();
-                for (_, history) in &results {
-                    for (ts, _) in &history.cpu_history {
-                        all_timestamps.insert(*ts);
-                    }
-                }
-                let timestamps: Vec<i64> = all_timestamps.into_iter().collect();
-
-                // Build nodes
-                let nodes: Vec<MetricsNode> = results
-                    .iter()
-                    .map(|(name, history)| {
-                        let cpu_history: Vec<f64> = timestamps
-                            .iter()
-                            .map(|ts| {
-                                history
-                                    .cpu_history
-                                    .iter()
-                                    .find(|(t, _)| t == ts)
-                                    .map(|(_, val)| *val)
-                                    .unwrap_or(0.0)
-                            })
-                            .collect();
-
-                        let memory_history: Vec<f64> = timestamps
-                            .iter()
-                            .map(|ts| {
-                                // Try exact match first
-                                if let Some((_, val)) =
-                                    history.memory_history.iter().find(|(t, _)| t == ts)
-                                {
-                                    return *val;
-                                }
-                                // If no exact match, find nearest timestamp within 2 seconds
-                                history
-                                    .memory_history
-                                    .iter()
-                                    .filter(|(t, _)| (*t - *ts).abs() <= 2)
-                                    .min_by_key(|(t, _)| (*t - *ts).abs())
-                                    .map(|(_, val)| *val)
-                                    .unwrap_or(0.0)
-                            })
-                            .collect();
-
-                        MetricsNode {
-                            name: (*name).clone(),
-                            cpu_history,
-                            memory_history,
-                        }
-                    })
-                    .collect();
-
-                // Build pods
-                let pods: Vec<MetricsPod> = pod_metrics_history
-                    .iter()
-                    .map(|(key, history)| {
-                        let parts: Vec<&str> = key.split('/').collect();
-                        let namespace = parts.first().unwrap_or(&"unknown").to_string();
-                        let name = parts.get(1).unwrap_or(&"unknown").to_string();
-
-                        let cpu_history: Vec<f64> = history
-                            .cpu_history
-                            .iter()
-                            .map(|(_, val)| val * 10.0)
-                            .collect();
-                        let memory_history: Vec<f64> =
-                            history.memory_history.iter().map(|(_, val)| *val).collect();
-
-                        MetricsPod {
-                            name,
-                            namespace,
-                            cpu_history,
-                            memory_history,
-                        }
-                    })
-                    .collect();
-
-                let response = MetricsResponse {
-                    timestamps,
-                    nodes,
-                    pods,
-                };
-                Arc::from(
-                    serde_json::to_string(&response)
-                        .unwrap_or_else(|_| "{}".to_string())
-                        .as_str(),
-                )
-            } else {
-                Arc::from("{}")
-            }
-        };
+        let metrics_json_cache =
+            build_metrics_json_cache(&node_metrics_history, &pod_metrics_history);
 
         // Pre-serialize Cilium metrics JSON
-        let cilium_metrics_json_cache = {
-            use serde::Serialize;
-
-            #[derive(Serialize)]
-            struct CiliumMetrics {
-                timestamps: Vec<i64>,
-                pods: Vec<CiliumPodMetrics>,
-            }
-
-            #[derive(Serialize)]
-            struct CiliumPodMetrics {
-                name: String,
-                node: String,
-                cpu_history: Vec<f64>,
-                memory_history: Vec<f64>,
-                cpu_request: f64,
-                cpu_limit: f64,
-                memory_request: f64,
-                memory_limit: f64,
-            }
-
-            // Filter for Cilium pods
-            let cilium_pod_metrics: Vec<_> = pod_metrics_history
-                .iter()
-                .filter(|(key, _)| key.starts_with("kube-system/cilium-"))
-                .collect();
-
-            if !cilium_pod_metrics.is_empty() {
-                let mut all_timestamps = std::collections::BTreeSet::new();
-                for (_, history) in &cilium_pod_metrics {
-                    for (ts, _) in &history.cpu_history {
-                        all_timestamps.insert(*ts);
-                    }
-                }
-                let timestamps: Vec<i64> = all_timestamps.into_iter().collect();
-
-                let pods: Vec<CiliumPodMetrics> = cilium_pod_metrics
-                    .iter()
-                    .filter_map(|(key, history)| {
-                        let pod_name = key.strip_prefix("kube-system/")?;
-                        let cilium_pod = cilium_pods.iter().find(|p| p.name == pod_name)?;
-
-                        let cpu_history: Vec<f64> = history
-                            .cpu_history
-                            .iter()
-                            .map(|(_, val)| val * 10.0)
-                            .collect();
-                        let memory_history: Vec<f64> =
-                            history.memory_history.iter().map(|(_, val)| *val).collect();
-
-                        Some(CiliumPodMetrics {
-                            name: cilium_pod.name.clone(),
-                            node: cilium_pod.node.clone(),
-                            cpu_history,
-                            memory_history,
-                            cpu_request: cilium_pod.cpu_request,
-                            cpu_limit: cilium_pod.cpu_limit,
-                            memory_request: cilium_pod.memory_request,
-                            memory_limit: cilium_pod.memory_limit,
-                        })
-                    })
-                    .collect();
-
-                let response = CiliumMetrics { timestamps, pods };
-                Arc::from(
-                    serde_json::to_string(&response)
-                        .unwrap_or_else(|_| "{}".to_string())
-                        .as_str(),
-                )
-            } else {
-                Arc::from("{}")
-            }
-        };
+        let cilium_metrics_json_cache =
+            build_cilium_metrics_json_cache(&pod_metrics_history, &cilium_pods);
 
         // Update cache
         let mut data = self.inner.write().await;
@@ -755,6 +568,12 @@ impl ClusterCache {
             }
         }
 
+        // Build JSON caches before updating data
+        let metrics_json_cache =
+            build_metrics_json_cache(&node_metrics_history, &pod_metrics_history);
+        let cilium_metrics_json_cache =
+            build_cilium_metrics_json_cache(&pod_metrics_history, &cilium_pods);
+
         // Update cache with Kubernetes/Prometheus data
         let mut data = self.inner.write().await;
         data.pod_details = Arc::new(pod_details.into_iter().collect());
@@ -765,6 +584,8 @@ impl ClusterCache {
         data.hubble_enabled = hubble_enabled;
         data.ipv6_enabled = ipv6_enabled;
         data.alerts = alerts;
+        data.metrics_json_cache = metrics_json_cache;
+        data.cilium_metrics_json_cache = cilium_metrics_json_cache;
         data.last_update = Instant::now();
 
         info!(
@@ -822,6 +643,209 @@ impl ClusterCache {
                 }
             }
         });
+    }
+}
+
+/// Build metrics JSON cache from node and pod metrics history
+fn build_metrics_json_cache(
+    node_metrics_history: &HashMap<String, crate::prometheus::NodeMetricsHistory>,
+    pod_metrics_history: &HashMap<String, crate::prometheus::NodeMetricsHistory>,
+) -> Arc<str> {
+    use serde::Serialize;
+
+    #[derive(Serialize)]
+    struct MetricsResponse {
+        timestamps: Vec<i64>,
+        nodes: Vec<MetricsNode>,
+        pods: Vec<MetricsPod>,
+    }
+
+    #[derive(Serialize)]
+    struct MetricsNode {
+        name: String,
+        cpu_history: Vec<f64>,
+        memory_history: Vec<f64>,
+    }
+
+    #[derive(Serialize)]
+    struct MetricsPod {
+        name: String,
+        namespace: String,
+        cpu_history: Vec<f64>,
+        memory_history: Vec<f64>,
+    }
+
+    if !node_metrics_history.is_empty() {
+        let results: Vec<_> = node_metrics_history.iter().collect();
+
+        // Collect all unique timestamps from CPU history
+        let mut all_timestamps = std::collections::BTreeSet::new();
+        for (_, history) in &results {
+            for (ts, _) in &history.cpu_history {
+                all_timestamps.insert(*ts);
+            }
+        }
+        let timestamps: Vec<i64> = all_timestamps.into_iter().collect();
+
+        // Build nodes
+        let nodes: Vec<MetricsNode> = results
+            .iter()
+            .map(|(name, history)| {
+                let cpu_history: Vec<f64> = timestamps
+                    .iter()
+                    .map(|ts| {
+                        history
+                            .cpu_history
+                            .iter()
+                            .find(|(t, _)| t == ts)
+                            .map(|(_, val)| *val)
+                            .unwrap_or(0.0)
+                    })
+                    .collect();
+
+                let memory_history: Vec<f64> = timestamps
+                    .iter()
+                    .map(|ts| {
+                        // Try exact match first
+                        if let Some((_, val)) = history.memory_history.iter().find(|(t, _)| t == ts)
+                        {
+                            return *val;
+                        }
+                        // If no exact match, find nearest timestamp within 2 seconds
+                        history
+                            .memory_history
+                            .iter()
+                            .filter(|(t, _)| (*t - *ts).abs() <= 2)
+                            .min_by_key(|(t, _)| (*t - *ts).abs())
+                            .map(|(_, val)| *val)
+                            .unwrap_or(0.0)
+                    })
+                    .collect();
+
+                MetricsNode {
+                    name: (*name).clone(),
+                    cpu_history,
+                    memory_history,
+                }
+            })
+            .collect();
+
+        // Build pods
+        let pods: Vec<MetricsPod> = pod_metrics_history
+            .iter()
+            .map(|(key, history)| {
+                let parts: Vec<&str> = key.split('/').collect();
+                let namespace = parts.first().unwrap_or(&"unknown").to_string();
+                let name = parts.get(1).unwrap_or(&"unknown").to_string();
+
+                let cpu_history: Vec<f64> = history
+                    .cpu_history
+                    .iter()
+                    .map(|(_, val)| val * 10.0)
+                    .collect();
+                let memory_history: Vec<f64> =
+                    history.memory_history.iter().map(|(_, val)| *val).collect();
+
+                MetricsPod {
+                    name,
+                    namespace,
+                    cpu_history,
+                    memory_history,
+                }
+            })
+            .collect();
+
+        let response = MetricsResponse {
+            timestamps,
+            nodes,
+            pods,
+        };
+        Arc::from(
+            serde_json::to_string(&response)
+                .unwrap_or_else(|_| "{}".to_string())
+                .as_str(),
+        )
+    } else {
+        Arc::from("{}")
+    }
+}
+
+/// Build Cilium metrics JSON cache
+fn build_cilium_metrics_json_cache(
+    pod_metrics_history: &HashMap<String, crate::prometheus::NodeMetricsHistory>,
+    cilium_pods: &[CiliumPod],
+) -> Arc<str> {
+    use serde::Serialize;
+
+    #[derive(Serialize)]
+    struct CiliumMetrics {
+        timestamps: Vec<i64>,
+        pods: Vec<CiliumPodMetrics>,
+    }
+
+    #[derive(Serialize)]
+    struct CiliumPodMetrics {
+        name: String,
+        cpu_history: Vec<f64>,
+        memory_history: Vec<f64>,
+        cpu_request: f64,
+        cpu_limit: f64,
+        memory_request: f64,
+        memory_limit: f64,
+    }
+
+    if !pod_metrics_history.is_empty() {
+        // Collect all unique timestamps
+        let mut all_timestamps = std::collections::BTreeSet::new();
+        for history in pod_metrics_history.values() {
+            for (ts, _) in &history.cpu_history {
+                all_timestamps.insert(*ts);
+            }
+        }
+        let timestamps: Vec<i64> = all_timestamps.into_iter().collect();
+
+        // Build pods metrics
+        let pods_metrics: Vec<CiliumPodMetrics> = cilium_pods
+            .iter()
+            .map(|cilium_pod| {
+                let key = format!("kube-system/{}", cilium_pod.name);
+                let history = pod_metrics_history.get(&key);
+
+                let cpu_history: Vec<f64> = if let Some(hist) = history {
+                    hist.cpu_history.iter().map(|(_, val)| val * 10.0).collect()
+                } else {
+                    vec![0.0; timestamps.len()]
+                };
+
+                let memory_history: Vec<f64> = if let Some(hist) = history {
+                    hist.memory_history.iter().map(|(_, val)| *val).collect()
+                } else {
+                    vec![0.0; timestamps.len()]
+                };
+
+                CiliumPodMetrics {
+                    name: cilium_pod.name.clone(),
+                    cpu_history,
+                    memory_history,
+                    cpu_request: cilium_pod.cpu_request,
+                    cpu_limit: cilium_pod.cpu_limit,
+                    memory_request: cilium_pod.memory_request,
+                    memory_limit: cilium_pod.memory_limit,
+                }
+            })
+            .collect();
+
+        let response = CiliumMetrics {
+            timestamps,
+            pods: pods_metrics,
+        };
+        Arc::from(
+            serde_json::to_string(&response)
+                .unwrap_or_else(|_| "{}".to_string())
+                .as_str(),
+        )
+    } else {
+        Arc::from("{}")
     }
 }
 
