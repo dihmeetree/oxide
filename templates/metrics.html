@@ -954,8 +954,11 @@
       });
     });
 
-    // Update CPU chart - preserve visibility state
+    // Capture visibility states before making any changes
     const cpuVisibility = cpuChart.data.datasets.map((ds, i) => cpuChart.isDatasetVisible(i));
+    const memoryVisibility = memoryChart.data.datasets.map((ds, i) => memoryChart.isDatasetVisible(i));
+
+    // Update CPU chart - preserve visibility state
     cpuChart.data.labels = formattedTimestamps;
     cpuChart.data.datasets = data.nodes.map((node, i) => ({
       label: node.name,
@@ -973,7 +976,6 @@
     generateLegend(cpuChart, 'nodeCpuLegend', 'nodeCpu');
 
     // Update memory chart - preserve visibility state
-    const memoryVisibility = memoryChart.data.datasets.map((ds, i) => memoryChart.isDatasetVisible(i));
     memoryChart.data.labels = formattedTimestamps;
     memoryChart.data.datasets = data.nodes.map((node, i) => ({
       label: node.name,
@@ -1008,8 +1010,11 @@
         }
       });
 
-      // Update pod CPU chart - preserve visibility state
+      // Capture pod visibility states before making any changes
       const podCpuVisibility = podCpuChart.data.datasets.map((ds, i) => podCpuChart.isDatasetVisible(i));
+      const podMemoryVisibility = podMemoryChart.data.datasets.map((ds, i) => podMemoryChart.isDatasetVisible(i));
+
+      // Update pod CPU chart - preserve visibility state
       podCpuChart.data.labels = formattedTimestamps;
       podCpuChart.data.datasets = data.pods.map((pod, i) => ({
         label: `${pod.namespace}/${pod.name}`,
@@ -1026,7 +1031,6 @@
       podCpuChart.update();
 
       // Update pod memory chart - preserve visibility state
-      const podMemoryVisibility = podMemoryChart.data.datasets.map((ds, i) => podMemoryChart.isDatasetVisible(i));
       podMemoryChart.data.labels = formattedTimestamps;
       podMemoryChart.data.datasets = data.pods.map((pod, i) => ({
         label: `${pod.namespace}/${pod.name}`,
