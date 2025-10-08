@@ -199,6 +199,10 @@ Oxide includes a built-in web dashboard for managing your clusters through a mod
   <img src="https://i.imgur.com/ncmbkgp.png" alt="Oxide Dashboard" width="850">
 </p>
 
+<p align="center">
+  <img src="https://i.imgur.com/3l1NRP5.png" alt="Oxide Dashboard Metrics" width="850">
+</p>
+
 ```bash
 # Start the dashboard server (default port: 3000)
 oxide dashboard
