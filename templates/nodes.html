@@ -286,7 +286,7 @@
       <div class="flex items-center justify-between mb-4">
         <h3 class="text-xl font-semibold text-text-primary">Node CPU Usage</h3>
         <button
-          onclick="window.location.reload()"
+          onclick="refreshMetrics()"
           class="p-2 rounded-lg text-text-muted hover:text-text-primary bg-dark-hover hover:bg-dark-hoverAlt transition"
           title="Refresh"
         >
@@ -316,7 +316,7 @@
       <div class="flex items-center justify-between mb-4">
         <h3 class="text-xl font-semibold text-text-primary">Node Memory Usage</h3>
         <button
-          onclick="window.location.reload()"
+          onclick="refreshMetrics()"
           class="p-2 rounded-lg text-text-muted hover:text-text-primary bg-dark-hover hover:bg-dark-hoverAlt transition"
           title="Refresh"
         >
@@ -579,6 +579,75 @@
     // Generate legends
     generateLegend(cpuChart, 'nodeCpuLegend', 'nodeCpu');
     generateLegend(memoryChart, 'nodeMemoryLegend', 'nodeMemory');
+  }
+
+  // Refresh metrics from API
+  async function refreshMetrics() {
+    try {
+      const response = await fetch('/api/metrics');
+      const data = await response.json();
+
+      if (!data || !data.nodes || data.nodes.length === 0) {
+        return;
+      }
+
+      // Sort nodes by name for consistent ordering
+      data.nodes.sort((a, b) => a.name.localeCompare(b.name));
+
+      // Assign colors to any new nodes (preserve existing mappings)
+      data.nodes.forEach((node) => {
+        if (!nodeColorMap[node.name]) {
+          nodeColorMap[node.name] = colors[Object.keys(nodeColorMap).length % colors.length];
+        }
+      });
+
+      // Format timestamps
+      const formattedTimestamps = data.timestamps.map((ts) => {
+        const date = new Date(ts * 1000);
+        return date.toLocaleTimeString("en-US", {
+          hour: "2-digit",
+          minute: "2-digit",
+        });
+      });
+
+      // Update CPU chart - preserve visibility state
+      const cpuVisibility = cpuChart.data.datasets.map((ds, i) => cpuChart.isDatasetVisible(i));
+      cpuChart.data.labels = formattedTimestamps;
+      cpuChart.data.datasets = data.nodes.map((node, i) => ({
+        label: node.name,
+        data: node.cpu_history,
+        borderColor: nodeColorMap[node.name],
+        backgroundColor: nodeColorMap[node.name] + (isStacked ? "80" : "20"),
+        borderWidth: 2,
+        fill: isStacked,
+        tension: 0.4,
+        pointRadius: 0,
+        pointHoverRadius: 5,
+        hidden: i < cpuVisibility.length ? !cpuVisibility[i] : false,
+      }));
+      cpuChart.update();
+      generateLegend(cpuChart, 'nodeCpuLegend', 'nodeCpu');
+
+      // Update memory chart - preserve visibility state
+      const memoryVisibility = memoryChart.data.datasets.map((ds, i) => memoryChart.isDatasetVisible(i));
+      memoryChart.data.labels = formattedTimestamps;
+      memoryChart.data.datasets = data.nodes.map((node, i) => ({
+        label: node.name,
+        data: node.memory_history,
+        borderColor: nodeColorMap[node.name],
+        backgroundColor: nodeColorMap[node.name] + (isStacked ? "80" : "20"),
+        borderWidth: 2,
+        fill: isStacked,
+        tension: 0.4,
+        pointRadius: 0,
+        pointHoverRadius: 5,
+        hidden: i < memoryVisibility.length ? !memoryVisibility[i] : false,
+      }));
+      memoryChart.update();
+      generateLegend(memoryChart, 'nodeMemoryLegend', 'nodeMemory');
+    } catch (error) {
+      console.error('Failed to refresh metrics:', error);
+    }
   }
 
   // Initialize on page load
