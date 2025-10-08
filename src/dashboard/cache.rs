@@ -219,6 +219,12 @@ impl ClusterCache {
         data.pod_details.values().cloned().collect()
     }
 
+    /// Get all node details from cache
+    pub async fn get_all_node_details(&self) -> Vec<super::templates::NodeDetail> {
+        let data = self.inner.read().await;
+        data.node_details.values().cloned().collect()
+    }
+
     /// Get all pod metrics history from cache
     pub async fn get_pod_metrics_history(
         &self,

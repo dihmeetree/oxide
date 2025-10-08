@@ -12,7 +12,8 @@ use tracing::{error, info};
 use super::server::AppState;
 use super::templates::{
     CiliumPod, CiliumTemplate, ClusterDetailTemplate, ClustersTemplate, CreateClusterTemplate,
-    IndexTemplate, MetricsTemplate, NodeDetailTemplate, PodDetailTemplate, PodsTemplate,
+    IndexTemplate, MetricsTemplate, NodeDetailTemplate, NodeInfoWithCluster, NodesTemplate,
+    PodDetailTemplate, PodsTemplate,
 };
 use crate::config::ClusterConfig;
 
@@ -696,6 +697,64 @@ pub async fn pods_list(State(state): State<AppState>) -> impl IntoResponse {
         pending_count,
         failed_count,
         active_page: "pods".to_string(),
+        version: env!("CARGO_PKG_VERSION").to_string(),
+    };
+    Html(template.render().unwrap()).into_response()
+}
+
+/// Nodes list page
+pub async fn nodes_list(State(state): State<AppState>) -> impl IntoResponse {
+    let cache_ready = state.cache.is_ready().await;
+
+    if !cache_ready {
+        return preloader_page().into_response();
+    }
+
+    let node_details = state.cache.get_all_node_details().await;
+
+    // Convert NodeDetail to NodeInfoWithCluster
+    let mut nodes: Vec<NodeInfoWithCluster> = node_details
+        .into_iter()
+        .map(|node| NodeInfoWithCluster {
+            cluster_name: node.cluster_name,
+            name: node.name,
+            role: node.role,
+            ip: node.ip,
+            private_ip: node.private_ip,
+            status: node.status,
+            server_type: node.server_type,
+            created: node.created,
+            cpu_usage_percent: node.cpu_usage_percent,
+            memory_usage_percent: node.memory_usage_percent,
+        })
+        .collect();
+
+    // Calculate counts
+    let control_plane_count = nodes.iter().filter(|n| n.role == "Control Plane").count();
+    let worker_count = nodes.iter().filter(|n| n.role == "Worker").count();
+    let running_count = nodes.iter().filter(|n| n.status == "running").count();
+
+    // Sort by cluster name, then by role (control plane first), then by name
+    nodes.sort_by(|a, b| {
+        a.cluster_name
+            .cmp(&b.cluster_name)
+            .then_with(|| {
+                // Control Plane before Worker
+                match (&a.role as &str, &b.role as &str) {
+                    ("Control Plane", "Worker") => std::cmp::Ordering::Less,
+                    ("Worker", "Control Plane") => std::cmp::Ordering::Greater,
+                    _ => std::cmp::Ordering::Equal,
+                }
+            })
+            .then_with(|| a.name.cmp(&b.name))
+    });
+
+    let template = NodesTemplate {
+        nodes,
+        control_plane_count,
+        worker_count,
+        running_count,
+        active_page: "nodes".to_string(),
         version: env!("CARGO_PKG_VERSION").to_string(),
     };
     Html(template.render().unwrap()).into_response()

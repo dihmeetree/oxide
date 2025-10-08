@@ -74,6 +74,7 @@ impl DashboardServer {
             )
             .route("/metrics", get(routes::metrics))
             .route("/pods", get(routes::pods_list))
+            .route("/nodes", get(routes::nodes_list))
             .route("/cilium", get(routes::cilium))
             .route("/api/clusters", get(routes::api_clusters_list))
             .route("/api/metrics", get(routes::api_metrics))

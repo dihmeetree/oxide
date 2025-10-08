@@ -1,0 +1,283 @@
+{% extends "layout.html" %} {% block content %}
+<div class="space-y-6">
+  <!-- Header -->
+  <div>
+    <h2 class="text-3xl font-semibold text-text-primary">All Nodes</h2>
+    <p class="mt-1 text-base text-text-secondary">
+      Complete list of nodes across all clusters
+    </p>
+  </div>
+
+  {% if nodes.is_empty() %}
+  <!-- No Nodes Found -->
+  <div
+    class="rounded-lg p-12 text-center bg-[#242424] border border-dark-border"
+  >
+    <svg
+      class="w-16 h-16 mx-auto mb-4"
+      fill="none"
+      stroke="currentColor"
+      viewBox="0 0 24 24"
+      stroke-width="1.5"
+    >
+      <path
+        class="stroke-text-muted"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01"
+      ></path>
+    </svg>
+    <h3 class="text-xl font-semibold mb-2 text-text-primaryAlt">
+      No nodes found
+    </h3>
+    <p class="text-text-muted">
+      No nodes are currently running in any cluster
+    </p>
+  </div>
+  {% else %}
+  <!-- Summary Cards -->
+  <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
+    <!-- Total Nodes -->
+    <div class="rounded-lg p-6 bg-[#242424] border border-dark-border">
+      <div class="flex items-center justify-between">
+        <div>
+          <p class="text-sm font-medium mb-2 text-text-secondary">
+            Total Nodes
+          </p>
+          <p class="text-4xl font-semibold text-text-primary">
+            {{ nodes.len() }}
+          </p>
+        </div>
+        <div class="rounded-lg p-3 bg-accent-blue/15">
+          <svg
+            class="w-8 h-8 stroke-accent-blue"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke-width="2"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01"
+            ></path>
+          </svg>
+        </div>
+      </div>
+    </div>
+
+    <!-- Control Plane Nodes -->
+    <div class="rounded-lg p-6 bg-[#242424] border border-dark-border">
+      <div class="flex items-center justify-between">
+        <div>
+          <p class="text-sm font-medium mb-2 text-text-secondary">Control Plane</p>
+          <p class="text-4xl font-semibold text-accent-blue">
+            {{ control_plane_count }}
+          </p>
+        </div>
+        <div class="rounded-lg p-3 bg-accent-blue/15">
+          <svg
+            class="w-8 h-8 stroke-accent-blue"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke-width="2"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z"
+            ></path>
+          </svg>
+        </div>
+      </div>
+    </div>
+
+    <!-- Worker Nodes -->
+    <div class="rounded-lg p-6 bg-[#242424] border border-dark-border">
+      <div class="flex items-center justify-between">
+        <div>
+          <p class="text-sm font-medium mb-2 text-text-secondary">Workers</p>
+          <p class="text-4xl font-semibold text-text-primary">
+            {{ worker_count }}
+          </p>
+        </div>
+        <div class="rounded-lg p-3 bg-text-secondary/15">
+          <svg
+            class="w-8 h-8 stroke-text-secondary"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke-width="2"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"
+            ></path>
+          </svg>
+        </div>
+      </div>
+    </div>
+
+    <!-- Running Nodes -->
+    <div class="rounded-lg p-6 bg-[#242424] border border-dark-border">
+      <div class="flex items-center justify-between">
+        <div>
+          <p class="text-sm font-medium mb-2 text-text-secondary">Running</p>
+          <p class="text-4xl font-semibold text-accent-green">
+            {{ running_count }}
+          </p>
+        </div>
+        <div class="rounded-lg p-3 bg-accent-green/15">
+          <svg
+            class="w-8 h-8 stroke-accent-green"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke-width="2"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
+            ></path>
+          </svg>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Nodes Table -->
+  <div class="rounded-lg bg-[#242424] border border-dark-border">
+    <div class="p-6 border-b border-dark-border">
+      <h3 class="text-xl font-semibold text-text-primary">All Nodes</h3>
+    </div>
+    <div class="overflow-x-auto">
+      <table class="w-full">
+        <thead>
+          <tr class="border-b border-dark-border">
+            <th
+              class="px-6 py-3 text-left text-sm font-medium text-text-secondary"
+            >
+              Name
+            </th>
+            <th
+              class="px-6 py-3 text-center text-sm font-medium text-text-secondary"
+            >
+              Cluster
+            </th>
+            <th
+              class="px-6 py-3 text-center text-sm font-medium text-text-secondary"
+            >
+              Role
+            </th>
+            <th
+              class="px-6 py-3 text-center text-sm font-medium text-text-secondary"
+            >
+              CPU
+            </th>
+            <th
+              class="px-6 py-3 text-center text-sm font-medium text-text-secondary"
+            >
+              Memory
+            </th>
+            <th
+              class="px-6 py-3 text-center text-sm font-medium text-text-secondary"
+            >
+              Public IP
+            </th>
+            <th
+              class="px-6 py-3 text-center text-sm font-medium text-text-secondary"
+            >
+              Private IP
+            </th>
+            <th
+              class="px-6 py-3 text-center text-sm font-medium text-text-secondary"
+            >
+              Type
+            </th>
+            <th
+              class="px-6 py-3 text-center text-sm font-medium text-text-secondary"
+            >
+              Status
+            </th>
+            <th
+              class="px-6 py-3 text-center text-sm font-medium text-text-secondary"
+            >
+              Created
+            </th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-dark-border">
+          {% for node in nodes %}
+          <tr
+            class="hover:bg-dark-hover transition cursor-pointer"
+            onclick="window.location='/clusters/{{ node.cluster_name }}/nodes/{{ node.name }}'"
+          >
+            <td class="px-6 py-4">
+              <span class="text-base font-medium font-mono text-text-primary block truncate max-w-xs">{{
+                node.name
+              }}</span>
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-center">
+              <span class="text-base text-text-secondary">{{
+                node.cluster_name
+              }}</span>
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-center">
+              {% if node.role == "Control Plane" %}
+              <span
+                class="inline-flex items-center px-2.5 py-1 rounded-md text-sm font-medium bg-accent-blue/15 text-accent-blue"
+              >
+                {{ node.role }}
+              </span>
+              {% else %}
+              <span
+                class="inline-flex items-center px-2.5 py-1 rounded-md text-sm font-medium bg-text-secondary/15 text-text-secondary"
+              >
+                {{ node.role }}
+              </span>
+              {% endif %}
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-center">
+              <span class="text-base font-mono text-text-primaryAlt">{{ node.cpu_usage_percent }}</span>
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-center">
+              <span class="text-base font-mono text-text-primaryAlt">{{ node.memory_usage_percent }}</span>
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-center">
+              <span class="text-base font-mono text-text-primaryAlt">{{ node.ip }}</span>
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-center">
+              <span class="text-base font-mono text-text-primaryAlt">{{ node.private_ip }}</span>
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-center">
+              <span class="text-base text-text-primaryAlt">{{ node.server_type }}</span>
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-center">
+              {% if node.status == "running" %}
+              <span
+                class="inline-flex items-center px-2.5 py-1 rounded-md text-sm font-medium bg-accent-green/15 text-accent-green"
+              >
+                <span
+                  class="w-1.5 h-1.5 rounded-full mr-1.5 bg-accent-green"
+                ></span>
+                Running
+              </span>
+              {% else %}
+              <span
+                class="inline-flex items-center px-2.5 py-1 rounded-md text-sm font-medium bg-text-muted/15 text-text-muted"
+              >
+                {{ node.status }}
+              </span>
+              {% endif %}
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-center">
+              <span class="text-base text-text-secondary">{{ node.created }}</span>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

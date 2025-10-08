@@ -195,3 +195,30 @@ pub struct ContainerInfo {
     pub ready: bool,
     pub restart_count: u32,
 }
+
+/// Nodes list page
+#[derive(Template)]
+#[template(path = "nodes.html")]
+pub struct NodesTemplate {
+    pub nodes: Vec<NodeInfoWithCluster>,
+    pub control_plane_count: usize,
+    pub worker_count: usize,
+    pub running_count: usize,
+    pub active_page: String,
+    pub version: String,
+}
+
+/// Node information with cluster name
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NodeInfoWithCluster {
+    pub cluster_name: String,
+    pub name: String,
+    pub role: String,
+    pub ip: String,
+    pub private_ip: String,
+    pub status: String,
+    pub server_type: String,
+    pub created: String,
+    pub cpu_usage_percent: String,
+    pub memory_usage_percent: String,
+}
