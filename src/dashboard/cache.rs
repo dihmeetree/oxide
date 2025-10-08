@@ -79,6 +79,86 @@ fn parse_memory_resource(value: &str) -> Option<f64> {
     }
 }
 
+/// Update Envoy pod resources from pod details
+fn update_envoy_pod_resources(
+    envoy_pods: &mut [super::templates::EnvoyPod],
+    pod_details: &HashMap<String, super::templates::PodDetail>,
+) {
+    for envoy_pod in envoy_pods {
+        let key = format!("{}/{}", envoy_pod.namespace, envoy_pod.name);
+        if let Some(pod_detail) = pod_details.get(&key) {
+            envoy_pod.cpu = pod_detail.cpu.clone();
+            envoy_pod.memory = pod_detail.memory.clone();
+
+            // Calculate total requests and limits from all containers
+            let mut cpu_req_total = 0.0;
+            let mut cpu_lim_total = 0.0;
+            let mut mem_req_total = 0.0;
+            let mut mem_lim_total = 0.0;
+
+            for container in &pod_detail.containers {
+                if let Some(val) = parse_cpu_resource(&container.cpu_request) {
+                    cpu_req_total += val;
+                }
+                if let Some(val) = parse_cpu_resource(&container.cpu_limit) {
+                    cpu_lim_total += val;
+                }
+                if let Some(val) = parse_memory_resource(&container.memory_request) {
+                    mem_req_total += val;
+                }
+                if let Some(val) = parse_memory_resource(&container.memory_limit) {
+                    mem_lim_total += val;
+                }
+            }
+
+            envoy_pod.cpu_request = cpu_req_total;
+            envoy_pod.cpu_limit = cpu_lim_total;
+            envoy_pod.memory_request = mem_req_total;
+            envoy_pod.memory_limit = mem_lim_total;
+        }
+    }
+}
+
+/// Update Cilium pod resources from pod details
+fn update_cilium_pod_resources(
+    cilium_pods: &mut [CiliumPod],
+    pod_details: &HashMap<String, super::templates::PodDetail>,
+) {
+    for cilium_pod in cilium_pods {
+        let key = format!("kube-system/{}", cilium_pod.name);
+        if let Some(pod_detail) = pod_details.get(&key) {
+            cilium_pod.cpu = pod_detail.cpu.clone();
+            cilium_pod.memory = pod_detail.memory.clone();
+
+            // Calculate total requests and limits from all containers
+            let mut cpu_req_total = 0.0;
+            let mut cpu_lim_total = 0.0;
+            let mut mem_req_total = 0.0;
+            let mut mem_lim_total = 0.0;
+
+            for container in &pod_detail.containers {
+                if let Some(val) = parse_cpu_resource(&container.cpu_request) {
+                    cpu_req_total += val;
+                }
+                if let Some(val) = parse_cpu_resource(&container.cpu_limit) {
+                    cpu_lim_total += val;
+                }
+                if let Some(val) = parse_memory_resource(&container.memory_request) {
+                    mem_req_total += val;
+                }
+                if let Some(val) = parse_memory_resource(&container.memory_limit) {
+                    mem_lim_total += val;
+                }
+            }
+
+            cilium_pod.cpu_request = cpu_req_total;
+            cilium_pod.cpu_limit = cpu_lim_total;
+            cilium_pod.memory_request = mem_req_total;
+            cilium_pod.memory_limit = mem_lim_total;
+        }
+    }
+}
+
 use super::templates::{ClusterDetail, ClusterInfo, NodeDetail};
 use crate::config::ClusterConfig;
 use crate::hcloud::client::HetznerCloudClient;
@@ -92,26 +172,27 @@ pub struct ClusterCache {
 }
 
 struct CacheData {
-    clusters: Vec<ClusterInfo>,
-    servers: Vec<Server>,
+    clusters: Arc<[ClusterInfo]>,
+    servers: Arc<[Server]>,
     node_details: Arc<DashMap<String, NodeDetail>>,
     node_metrics_history:
         Arc<std::collections::HashMap<String, crate::prometheus::NodeMetricsHistory>>,
     pod_details: Arc<DashMap<String, super::templates::PodDetail>>,
     pod_metrics_history:
         Arc<std::collections::HashMap<String, crate::prometheus::NodeMetricsHistory>>,
-    cilium_pods: Vec<super::templates::CiliumPod>,
+    cilium_pods: Arc<[super::templates::CiliumPod]>,
     cilium_version: Arc<str>,
     hubble_enabled: bool,
     ipv6_enabled: bool,
-    alerts: Vec<crate::prometheus::Alert>,
+    envoy_pods: Arc<[super::templates::EnvoyPod]>,
+    envoy_version: Arc<str>,
+    envoy_metrics_history: Arc<crate::prometheus::EnvoyMetricsHistory>,
+    alerts: Arc<[crate::prometheus::Alert]>,
     last_update: Instant,
     is_ready: bool,
-    // Pre-serialized JSON for API responses (TODO: implement caching)
-    #[allow(dead_code)]
     metrics_json_cache: Arc<str>,
-    #[allow(dead_code)]
     cilium_metrics_json_cache: Arc<str>,
+    envoy_metrics_json_cache: Arc<str>,
 }
 
 impl ClusterCache {
@@ -119,29 +200,34 @@ impl ClusterCache {
     pub fn new() -> Self {
         Self {
             inner: Arc::new(RwLock::new(CacheData {
-                clusters: Vec::new(),
-                servers: Vec::new(),
+                clusters: Arc::from([]),
+                servers: Arc::from([]),
                 node_details: Arc::new(DashMap::new()),
                 node_metrics_history: Arc::new(std::collections::HashMap::new()),
                 pod_details: Arc::new(DashMap::new()),
                 pod_metrics_history: Arc::new(std::collections::HashMap::new()),
-                cilium_pods: Vec::new(),
+                cilium_pods: Arc::from([]),
                 cilium_version: Arc::from("N/A"),
                 hubble_enabled: false,
                 ipv6_enabled: false,
-                alerts: Vec::new(),
+                envoy_pods: Arc::from([]),
+                envoy_version: Arc::from("N/A"),
+                envoy_metrics_history: Arc::new(crate::prometheus::EnvoyMetricsHistory::default()),
+                alerts: Arc::from([]),
                 last_update: Instant::now(),
                 is_ready: false,
                 metrics_json_cache: Arc::from("{}"),
                 cilium_metrics_json_cache: Arc::from("{}"),
+                envoy_metrics_json_cache: Arc::from("{}"),
             })),
         }
     }
 
     /// Get all clusters from cache
-    pub async fn get_clusters(&self) -> Vec<ClusterInfo> {
+    #[inline]
+    pub async fn get_clusters(&self) -> Arc<[ClusterInfo]> {
         let data = self.inner.read().await;
-        data.clusters.clone()
+        Arc::clone(&data.clusters)
     }
 
     /// Get detailed cluster info from cache
@@ -269,12 +355,13 @@ impl ClusterCache {
 
     /// Get Cilium pod information from cache
     #[allow(dead_code)]
+    #[inline]
     pub async fn get_cilium_data(
         &self,
-    ) -> (Vec<super::templates::CiliumPod>, Arc<str>, bool, bool) {
+    ) -> (Arc<[super::templates::CiliumPod]>, Arc<str>, bool, bool) {
         let data = self.inner.read().await;
         (
-            data.cilium_pods.clone(),
+            Arc::clone(&data.cilium_pods),
             Arc::clone(&data.cilium_version),
             data.hubble_enabled,
             data.ipv6_enabled,
@@ -282,9 +369,10 @@ impl ClusterCache {
     }
 
     /// Get all alerts from cache
-    pub async fn get_alerts(&self) -> Vec<crate::prometheus::Alert> {
+    #[inline]
+    pub async fn get_alerts(&self) -> Arc<[crate::prometheus::Alert]> {
         let data = self.inner.read().await;
-        data.alerts.clone()
+        Arc::clone(&data.alerts)
     }
 
     /// Process Cilium data with a closure to avoid cloning
@@ -303,6 +391,7 @@ impl ClusterCache {
     }
 
     /// Process both Cilium data and pod metrics history together to avoid multiple locks
+    #[allow(dead_code)]
     pub async fn with_cilium_and_pod_metrics<F, R>(&self, f: F) -> R
     where
         F: FnOnce(
@@ -349,6 +438,22 @@ impl ClusterCache {
         Arc::clone(&data.cilium_metrics_json_cache)
     }
 
+    /// Get Envoy data from cache
+    #[inline]
+    pub async fn get_envoy_data(&self) -> (Arc<[super::templates::EnvoyPod]>, Arc<str>) {
+        let data = self.inner.read().await;
+        (
+            Arc::clone(&data.envoy_pods),
+            Arc::clone(&data.envoy_version),
+        )
+    }
+
+    /// Get pre-serialized Envoy metrics JSON from cache
+    pub async fn get_envoy_metrics_json_cache(&self) -> Arc<str> {
+        let data = self.inner.read().await;
+        Arc::clone(&data.envoy_metrics_json_cache)
+    }
+
     /// Get cache age
     #[allow(dead_code)]
     pub async fn cache_age(&self) -> Duration {
@@ -383,11 +488,12 @@ impl ClusterCache {
         // Fetch all Kubernetes/Prometheus data in parallel
         info!("Fetching Kubernetes and Prometheus data in parallel...");
         let (
-            node_details,
+            mut node_details,
             mut pod_details,
             pod_metrics_history,
             node_metrics_history,
             cilium_data,
+            envoy_data,
             alerts,
         ) = tokio::join!(
             fetch_all_node_details(&servers, config_path),
@@ -395,58 +501,202 @@ impl ClusterCache {
             fetch_all_pod_metrics_history(config_path),
             fetch_all_node_metrics_history(&servers, config_path),
             fetch_cilium_data(config_path, &config, &config.cluster_name),
+            fetch_envoy_data(config_path, &config.cluster_name),
             fetch_alerts(config_path)
         );
 
         // Unpack Cilium data
         let (mut cilium_pods, cilium_version, hubble_enabled, ipv6_enabled) = cilium_data;
 
+        // Unpack Envoy data
+        let (mut envoy_pods, envoy_version, envoy_metrics_history) = envoy_data;
+
         // Update pod details with latest metrics from history
         for (key, history) in &pod_metrics_history {
             if let Some(pod_detail) = pod_details.get_mut(key) {
+                // Calculate total limits and requests from containers
+                let mut total_cpu_limit = 0.0;
+                let mut total_cpu_request = 0.0;
+                let mut total_memory_limit = 0.0;
+                let mut total_memory_request = 0.0;
+
+                for container in &pod_detail.containers {
+                    // Parse CPU limit/request (handle "m" suffix and plain numbers)
+                    if let Ok(limit) = container.cpu_limit.trim_end_matches('m').parse::<f64>() {
+                        total_cpu_limit += limit;
+                    }
+                    if let Ok(request) = container.cpu_request.trim_end_matches('m').parse::<f64>()
+                    {
+                        total_cpu_request += request;
+                    }
+
+                    // Parse memory limit/request (handle "Mi" and "Gi" suffixes)
+                    if let Some(val) = container.memory_limit.strip_suffix("Gi") {
+                        if let Ok(gib) = val.parse::<f64>() {
+                            total_memory_limit += gib * 1024.0;
+                        }
+                    } else if let Some(val) = container.memory_limit.strip_suffix("Mi") {
+                        if let Ok(mib) = val.parse::<f64>() {
+                            total_memory_limit += mib;
+                        }
+                    }
+
+                    if let Some(val) = container.memory_request.strip_suffix("Gi") {
+                        if let Ok(gib) = val.parse::<f64>() {
+                            total_memory_request += gib * 1024.0;
+                        }
+                    } else if let Some(val) = container.memory_request.strip_suffix("Mi") {
+                        if let Ok(mib) = val.parse::<f64>() {
+                            total_memory_request += mib;
+                        }
+                    }
+                }
+
+                // Update CPU usage and calculate percentage
                 if let Some(&(_, cpu_value)) = history.cpu_history.last() {
-                    pod_detail.cpu = format!("{}m", (cpu_value * 10.0) as u64);
+                    let cpu_usage_m = (cpu_value * 10.0) as u64;
+                    pod_detail.cpu = format!("{}m", cpu_usage_m);
+
+                    // Calculate percentage based on limit (fallback to request if no limit)
+                    let cpu_percent = if total_cpu_limit > 0.0 {
+                        (cpu_usage_m as f64 / total_cpu_limit * 100.0) as u64
+                    } else if total_cpu_request > 0.0 {
+                        (cpu_usage_m as f64 / total_cpu_request * 100.0) as u64
+                    } else {
+                        0
+                    };
+                    pod_detail.cpu_percent = format!("{}%", cpu_percent);
                 }
+
+                // Update memory usage and calculate percentage
                 if let Some(&(_, mem_value)) = history.memory_history.last() {
-                    pod_detail.memory = format!("{}Mi", mem_value as u64);
+                    let mem_usage_mi = mem_value as u64;
+                    pod_detail.memory = format!("{}Mi", mem_usage_mi);
+
+                    // Calculate percentage based on limit (fallback to request if no limit)
+                    let memory_percent = if total_memory_limit > 0.0 {
+                        (mem_usage_mi as f64 / total_memory_limit * 100.0) as u64
+                    } else if total_memory_request > 0.0 {
+                        (mem_usage_mi as f64 / total_memory_request * 100.0) as u64
+                    } else {
+                        0
+                    };
+                    pod_detail.memory_percent = format!("{}%", memory_percent);
                 }
+
+                // Set limit/request strings
+                pod_detail.cpu_limit = if total_cpu_limit > 0.0 {
+                    format!("{}m", total_cpu_limit as u64)
+                } else {
+                    "N/A".to_string()
+                };
+                pod_detail.cpu_request = if total_cpu_request > 0.0 {
+                    format!("{}m", total_cpu_request as u64)
+                } else {
+                    "N/A".to_string()
+                };
+                pod_detail.memory_limit = if total_memory_limit > 0.0 {
+                    format!("{}Mi", total_memory_limit as u64)
+                } else {
+                    "N/A".to_string()
+                };
+                pod_detail.memory_request = if total_memory_request > 0.0 {
+                    format!("{}Mi", total_memory_request as u64)
+                } else {
+                    "N/A".to_string()
+                };
+            }
+        }
+
+        // Update pods that don't have metrics history yet (set limits/requests from containers)
+        for pod_detail in pod_details.values_mut() {
+            // Skip if already updated (cpu_limit won't be "N/A")
+            if pod_detail.cpu_limit != "N/A" {
+                continue;
+            }
+
+            // Calculate total limits and requests from containers
+            let mut total_cpu_limit = 0.0;
+            let mut total_cpu_request = 0.0;
+            let mut total_memory_limit = 0.0;
+            let mut total_memory_request = 0.0;
+
+            for container in &pod_detail.containers {
+                // Parse CPU limit/request
+                if let Ok(limit) = container.cpu_limit.trim_end_matches('m').parse::<f64>() {
+                    total_cpu_limit += limit;
+                }
+                if let Ok(request) = container.cpu_request.trim_end_matches('m').parse::<f64>() {
+                    total_cpu_request += request;
+                }
+
+                // Parse memory limit/request
+                if let Some(val) = container.memory_limit.strip_suffix("Gi") {
+                    if let Ok(gib) = val.parse::<f64>() {
+                        total_memory_limit += gib * 1024.0;
+                    }
+                } else if let Some(val) = container.memory_limit.strip_suffix("Mi") {
+                    if let Ok(mib) = val.parse::<f64>() {
+                        total_memory_limit += mib;
+                    }
+                }
+
+                if let Some(val) = container.memory_request.strip_suffix("Gi") {
+                    if let Ok(gib) = val.parse::<f64>() {
+                        total_memory_request += gib * 1024.0;
+                    }
+                } else if let Some(val) = container.memory_request.strip_suffix("Mi") {
+                    if let Ok(mib) = val.parse::<f64>() {
+                        total_memory_request += mib;
+                    }
+                }
+            }
+
+            // Set limit/request strings
+            pod_detail.cpu_limit = if total_cpu_limit > 0.0 {
+                format!("{}m", total_cpu_limit as u64)
+            } else {
+                "N/A".to_string()
+            };
+            pod_detail.cpu_request = if total_cpu_request > 0.0 {
+                format!("{}m", total_cpu_request as u64)
+            } else {
+                "N/A".to_string()
+            };
+            pod_detail.memory_limit = if total_memory_limit > 0.0 {
+                format!("{}Mi", total_memory_limit as u64)
+            } else {
+                "N/A".to_string()
+            };
+            pod_detail.memory_request = if total_memory_request > 0.0 {
+                format!("{}Mi", total_memory_request as u64)
+            } else {
+                "N/A".to_string()
+            };
+        }
+
+        // Update node details with metrics history
+        for (node_name, history) in &node_metrics_history {
+            if let Some(node_detail) = node_details.get_mut(node_name) {
+                // Extract just the values (not timestamps) and convert to percentages
+                node_detail.cpu_history = history
+                    .cpu_history
+                    .iter()
+                    .map(|(_, value)| *value)
+                    .collect();
+                node_detail.memory_history = history
+                    .memory_history
+                    .iter()
+                    .map(|(_, value)| *value)
+                    .collect();
             }
         }
 
         // Update Cilium pods with CPU and memory from pod_details
-        for cilium_pod in &mut cilium_pods {
-            let key = format!("kube-system/{}", cilium_pod.name);
-            if let Some(pod_detail) = pod_details.get(&key) {
-                cilium_pod.cpu = pod_detail.cpu.clone();
-                cilium_pod.memory = pod_detail.memory.clone();
+        update_cilium_pod_resources(&mut cilium_pods, &pod_details);
 
-                // Calculate total requests and limits from all containers
-                let mut cpu_req_total = 0.0;
-                let mut cpu_lim_total = 0.0;
-                let mut mem_req_total = 0.0;
-                let mut mem_lim_total = 0.0;
-
-                for container in &pod_detail.containers {
-                    if let Some(val) = parse_cpu_resource(&container.cpu_request) {
-                        cpu_req_total += val;
-                    }
-                    if let Some(val) = parse_cpu_resource(&container.cpu_limit) {
-                        cpu_lim_total += val;
-                    }
-                    if let Some(val) = parse_memory_resource(&container.memory_request) {
-                        mem_req_total += val;
-                    }
-                    if let Some(val) = parse_memory_resource(&container.memory_limit) {
-                        mem_lim_total += val;
-                    }
-                }
-
-                cilium_pod.cpu_request = cpu_req_total;
-                cilium_pod.cpu_limit = cpu_lim_total;
-                cilium_pod.memory_request = mem_req_total;
-                cilium_pod.memory_limit = mem_lim_total;
-            }
-        }
+        // Update Envoy pods with CPU and memory from pod_details
+        update_envoy_pod_resources(&mut envoy_pods, &pod_details);
 
         // Pre-serialize metrics JSON for API responses (outside of write lock)
         let metrics_json_cache =
@@ -456,21 +706,28 @@ impl ClusterCache {
         let cilium_metrics_json_cache =
             build_cilium_metrics_json_cache(&pod_metrics_history, &cilium_pods);
 
+        // Pre-serialize Envoy metrics JSON
+        let envoy_metrics_json_cache = build_envoy_metrics_json_cache(&envoy_metrics_history);
+
         // Update cache
         let mut data = self.inner.write().await;
-        data.clusters = clusters;
-        data.servers = servers;
+        data.clusters = Arc::from(clusters.into_boxed_slice());
+        data.servers = Arc::from(servers.into_boxed_slice());
         data.node_details = Arc::new(node_details.into_iter().collect());
         data.pod_details = Arc::new(pod_details.into_iter().collect());
         data.pod_metrics_history = Arc::new(pod_metrics_history);
         data.node_metrics_history = Arc::new(node_metrics_history);
-        data.cilium_pods = cilium_pods;
+        data.cilium_pods = Arc::from(cilium_pods.into_boxed_slice());
         data.cilium_version = Arc::from(cilium_version.as_str());
         data.hubble_enabled = hubble_enabled;
         data.ipv6_enabled = ipv6_enabled;
-        data.alerts = alerts;
+        data.envoy_pods = Arc::from(envoy_pods.into_boxed_slice());
+        data.envoy_version = Arc::from(envoy_version.as_str());
+        data.envoy_metrics_history = Arc::new(envoy_metrics_history);
+        data.alerts = Arc::from(alerts.into_boxed_slice());
         data.metrics_json_cache = metrics_json_cache;
         data.cilium_metrics_json_cache = cilium_metrics_json_cache;
+        data.envoy_metrics_json_cache = envoy_metrics_json_cache;
         data.last_update = Instant::now();
         data.is_ready = true;
 
@@ -509,83 +766,173 @@ impl ClusterCache {
         let config: ClusterConfig = serde_yaml::from_str(&config_str)?;
 
         // Fetch all Kubernetes/Prometheus data in parallel
-        info!("Fetching pods, metrics, Cilium data, and alerts...");
-        let (mut pod_details, pod_metrics_history, node_metrics_history, cilium_data, alerts) = tokio::join!(
+        info!("Fetching pods, metrics, Cilium data, Envoy data, and alerts...");
+        let (
+            mut pod_details,
+            pod_metrics_history,
+            node_metrics_history,
+            cilium_data,
+            envoy_data,
+            alerts,
+        ) = tokio::join!(
             fetch_all_pod_details(config_path, &cluster_name),
             fetch_all_pod_metrics_history(config_path),
             fetch_all_node_metrics_history(&servers, config_path),
             fetch_cilium_data(config_path, &config, &cluster_name),
+            fetch_envoy_data(config_path, &cluster_name),
             fetch_alerts(config_path)
         );
 
         // Unpack Cilium data
         let (mut cilium_pods, cilium_version, hubble_enabled, ipv6_enabled) = cilium_data;
 
+        // Unpack Envoy data
+        let (mut envoy_pods, envoy_version, envoy_metrics_history) = envoy_data;
+
         // Update pod details with latest metrics from history
         for (key, history) in &pod_metrics_history {
             if let Some(pod_detail) = pod_details.get_mut(key) {
+                // Calculate total limits and requests from containers
+                let mut total_cpu_limit = 0.0;
+                let mut total_cpu_request = 0.0;
+                let mut total_memory_limit = 0.0;
+                let mut total_memory_request = 0.0;
+
+                for container in &pod_detail.containers {
+                    // Parse CPU limit/request (handle "m" suffix and plain numbers)
+                    if let Ok(limit) = container.cpu_limit.trim_end_matches('m').parse::<f64>() {
+                        total_cpu_limit += limit;
+                    }
+                    if let Ok(request) = container.cpu_request.trim_end_matches('m').parse::<f64>()
+                    {
+                        total_cpu_request += request;
+                    }
+
+                    // Parse memory limit/request (handle "Mi" and "Gi" suffixes)
+                    if let Some(val) = container.memory_limit.strip_suffix("Gi") {
+                        if let Ok(gib) = val.parse::<f64>() {
+                            total_memory_limit += gib * 1024.0;
+                        }
+                    } else if let Some(val) = container.memory_limit.strip_suffix("Mi") {
+                        if let Ok(mib) = val.parse::<f64>() {
+                            total_memory_limit += mib;
+                        }
+                    }
+
+                    if let Some(val) = container.memory_request.strip_suffix("Gi") {
+                        if let Ok(gib) = val.parse::<f64>() {
+                            total_memory_request += gib * 1024.0;
+                        }
+                    } else if let Some(val) = container.memory_request.strip_suffix("Mi") {
+                        if let Ok(mib) = val.parse::<f64>() {
+                            total_memory_request += mib;
+                        }
+                    }
+                }
+
+                // Update CPU usage and calculate percentage
                 if let Some(&(_, cpu_value)) = history.cpu_history.last() {
-                    pod_detail.cpu = format!("{}m", (cpu_value * 10.0) as u64);
+                    let cpu_usage_m = (cpu_value * 10.0) as u64;
+                    pod_detail.cpu = format!("{}m", cpu_usage_m);
+
+                    // Calculate percentage based on limit (fallback to request if no limit)
+                    let cpu_percent = if total_cpu_limit > 0.0 {
+                        (cpu_usage_m as f64 / total_cpu_limit * 100.0) as u64
+                    } else if total_cpu_request > 0.0 {
+                        (cpu_usage_m as f64 / total_cpu_request * 100.0) as u64
+                    } else {
+                        0
+                    };
+                    pod_detail.cpu_percent = format!("{}%", cpu_percent);
                 }
+
+                // Update memory usage and calculate percentage
                 if let Some(&(_, mem_value)) = history.memory_history.last() {
-                    pod_detail.memory = format!("{}Mi", mem_value as u64);
+                    let mem_usage_mi = mem_value as u64;
+                    pod_detail.memory = format!("{}Mi", mem_usage_mi);
+
+                    // Calculate percentage based on limit (fallback to request if no limit)
+                    let memory_percent = if total_memory_limit > 0.0 {
+                        (mem_usage_mi as f64 / total_memory_limit * 100.0) as u64
+                    } else if total_memory_request > 0.0 {
+                        (mem_usage_mi as f64 / total_memory_request * 100.0) as u64
+                    } else {
+                        0
+                    };
+                    pod_detail.memory_percent = format!("{}%", memory_percent);
                 }
+
+                // Set limit/request strings
+                pod_detail.cpu_limit = if total_cpu_limit > 0.0 {
+                    format!("{}m", total_cpu_limit as u64)
+                } else {
+                    "N/A".to_string()
+                };
+                pod_detail.cpu_request = if total_cpu_request > 0.0 {
+                    format!("{}m", total_cpu_request as u64)
+                } else {
+                    "N/A".to_string()
+                };
+                pod_detail.memory_limit = if total_memory_limit > 0.0 {
+                    format!("{}Mi", total_memory_limit as u64)
+                } else {
+                    "N/A".to_string()
+                };
+                pod_detail.memory_request = if total_memory_request > 0.0 {
+                    format!("{}Mi", total_memory_request as u64)
+                } else {
+                    "N/A".to_string()
+                };
+            }
+        }
+
+        // Get existing node details from cache and update with metrics history
+        let mut node_details = self.get_node_details_map().await;
+        for (node_name, history) in &node_metrics_history {
+            if let Some(node_detail) = node_details.get_mut(node_name) {
+                // Extract just the values (not timestamps) and convert to percentages
+                node_detail.cpu_history = history
+                    .cpu_history
+                    .iter()
+                    .map(|(_, value)| *value)
+                    .collect();
+                node_detail.memory_history = history
+                    .memory_history
+                    .iter()
+                    .map(|(_, value)| *value)
+                    .collect();
             }
         }
 
         // Update Cilium pods with CPU and memory from pod_details
-        for cilium_pod in &mut cilium_pods {
-            let key = format!("kube-system/{}", cilium_pod.name);
-            if let Some(pod_detail) = pod_details.get(&key) {
-                cilium_pod.cpu = pod_detail.cpu.clone();
-                cilium_pod.memory = pod_detail.memory.clone();
+        update_cilium_pod_resources(&mut cilium_pods, &pod_details);
 
-                // Calculate total requests and limits from all containers
-                let mut cpu_req_total = 0.0;
-                let mut cpu_lim_total = 0.0;
-                let mut mem_req_total = 0.0;
-                let mut mem_lim_total = 0.0;
-
-                for container in &pod_detail.containers {
-                    if let Some(val) = parse_cpu_resource(&container.cpu_request) {
-                        cpu_req_total += val;
-                    }
-                    if let Some(val) = parse_cpu_resource(&container.cpu_limit) {
-                        cpu_lim_total += val;
-                    }
-                    if let Some(val) = parse_memory_resource(&container.memory_request) {
-                        mem_req_total += val;
-                    }
-                    if let Some(val) = parse_memory_resource(&container.memory_limit) {
-                        mem_lim_total += val;
-                    }
-                }
-
-                cilium_pod.cpu_request = cpu_req_total;
-                cilium_pod.cpu_limit = cpu_lim_total;
-                cilium_pod.memory_request = mem_req_total;
-                cilium_pod.memory_limit = mem_lim_total;
-            }
-        }
+        // Update Envoy pods with CPU and memory from pod_details
+        update_envoy_pod_resources(&mut envoy_pods, &pod_details);
 
         // Build JSON caches before updating data
         let metrics_json_cache =
             build_metrics_json_cache(&node_metrics_history, &pod_metrics_history);
         let cilium_metrics_json_cache =
             build_cilium_metrics_json_cache(&pod_metrics_history, &cilium_pods);
+        let envoy_metrics_json_cache = build_envoy_metrics_json_cache(&envoy_metrics_history);
 
         // Update cache with Kubernetes/Prometheus data
         let mut data = self.inner.write().await;
         data.pod_details = Arc::new(pod_details.into_iter().collect());
         data.pod_metrics_history = Arc::new(pod_metrics_history);
         data.node_metrics_history = Arc::new(node_metrics_history);
-        data.cilium_pods = cilium_pods;
+        data.cilium_pods = Arc::from(cilium_pods.into_boxed_slice());
         data.cilium_version = Arc::from(cilium_version.as_str());
         data.hubble_enabled = hubble_enabled;
         data.ipv6_enabled = ipv6_enabled;
-        data.alerts = alerts;
+        data.envoy_pods = Arc::from(envoy_pods.into_boxed_slice());
+        data.envoy_version = Arc::from(envoy_version.as_str());
+        data.envoy_metrics_history = Arc::new(envoy_metrics_history);
+        data.alerts = Arc::from(alerts.into_boxed_slice());
         data.metrics_json_cache = metrics_json_cache;
         data.cilium_metrics_json_cache = cilium_metrics_json_cache;
+        data.envoy_metrics_json_cache = envoy_metrics_json_cache;
         data.last_update = Instant::now();
 
         info!(
@@ -647,6 +994,7 @@ impl ClusterCache {
 }
 
 /// Build metrics JSON cache from node and pod metrics history
+#[inline]
 fn build_metrics_json_cache(
     node_metrics_history: &HashMap<String, crate::prometheus::NodeMetricsHistory>,
     pod_metrics_history: &HashMap<String, crate::prometheus::NodeMetricsHistory>,
@@ -654,6 +1002,7 @@ fn build_metrics_json_cache(
     use serde::Serialize;
 
     #[derive(Serialize)]
+    #[serde(rename_all = "camelCase")]
     struct MetricsResponse {
         timestamps: Vec<i64>,
         nodes: Vec<MetricsNode>,
@@ -678,11 +1027,18 @@ fn build_metrics_json_cache(
     if !node_metrics_history.is_empty() {
         let results: Vec<_> = node_metrics_history.iter().collect();
 
-        // Collect all unique timestamps from CPU history
+        // Collect all unique timestamps, rounded to nearest minute to avoid duplicates
         let mut all_timestamps = std::collections::BTreeSet::new();
         for (_, history) in &results {
             for (ts, _) in &history.cpu_history {
-                all_timestamps.insert(*ts);
+                // Round to nearest minute (60 seconds)
+                let rounded = (*ts / 60) * 60;
+                all_timestamps.insert(rounded);
+            }
+            for (ts, _) in &history.memory_history {
+                // Round to nearest minute (60 seconds)
+                let rounded = (*ts / 60) * 60;
+                all_timestamps.insert(rounded);
             }
         }
         let timestamps: Vec<i64> = all_timestamps.into_iter().collect();
@@ -697,7 +1053,8 @@ fn build_metrics_json_cache(
                         history
                             .cpu_history
                             .iter()
-                            .find(|(t, _)| t == ts)
+                            .filter(|(t, _)| (*t - *ts).abs() <= 60)
+                            .min_by_key(|(t, _)| (*t - *ts).abs())
                             .map(|(_, val)| *val)
                             .unwrap_or(0.0)
                     })
@@ -706,16 +1063,10 @@ fn build_metrics_json_cache(
                 let memory_history: Vec<f64> = timestamps
                     .iter()
                     .map(|ts| {
-                        // Try exact match first
-                        if let Some((_, val)) = history.memory_history.iter().find(|(t, _)| t == ts)
-                        {
-                            return *val;
-                        }
-                        // If no exact match, find nearest timestamp within 2 seconds
                         history
                             .memory_history
                             .iter()
-                            .filter(|(t, _)| (*t - *ts).abs() <= 2)
+                            .filter(|(t, _)| (*t - *ts).abs() <= 60)
                             .min_by_key(|(t, _)| (*t - *ts).abs())
                             .map(|(_, val)| *val)
                             .unwrap_or(0.0)
@@ -771,6 +1122,7 @@ fn build_metrics_json_cache(
 }
 
 /// Build Cilium metrics JSON cache
+#[inline]
 fn build_cilium_metrics_json_cache(
     pod_metrics_history: &HashMap<String, crate::prometheus::NodeMetricsHistory>,
     cilium_pods: &[CiliumPod],
@@ -778,6 +1130,7 @@ fn build_cilium_metrics_json_cache(
     use serde::Serialize;
 
     #[derive(Serialize)]
+    #[serde(rename_all = "camelCase")]
     struct CiliumMetrics {
         timestamps: Vec<i64>,
         pods: Vec<CiliumPodMetrics>,
@@ -788,18 +1141,29 @@ fn build_cilium_metrics_json_cache(
         name: String,
         cpu_history: Vec<f64>,
         memory_history: Vec<f64>,
+        #[serde(rename = "cpuRequest")]
         cpu_request: f64,
+        #[serde(rename = "cpuLimit")]
         cpu_limit: f64,
+        #[serde(rename = "memoryRequest")]
         memory_request: f64,
+        #[serde(rename = "memoryLimit")]
         memory_limit: f64,
     }
 
     if !pod_metrics_history.is_empty() {
-        // Collect all unique timestamps
+        // Collect all unique timestamps, rounded to nearest minute to avoid duplicates
         let mut all_timestamps = std::collections::BTreeSet::new();
         for history in pod_metrics_history.values() {
             for (ts, _) in &history.cpu_history {
-                all_timestamps.insert(*ts);
+                // Round to nearest minute (60 seconds)
+                let rounded = (*ts / 60) * 60;
+                all_timestamps.insert(rounded);
+            }
+            for (ts, _) in &history.memory_history {
+                // Round to nearest minute (60 seconds)
+                let rounded = (*ts / 60) * 60;
+                all_timestamps.insert(rounded);
             }
         }
         let timestamps: Vec<i64> = all_timestamps.into_iter().collect();
@@ -811,16 +1175,36 @@ fn build_cilium_metrics_json_cache(
                 let key = format!("kube-system/{}", cilium_pod.name);
                 let history = pod_metrics_history.get(&key);
 
-                let cpu_history: Vec<f64> = if let Some(hist) = history {
-                    hist.cpu_history.iter().map(|(_, val)| val * 10.0).collect()
-                } else {
-                    vec![0.0; timestamps.len()]
-                };
+                let (cpu_history, memory_history) = if let Some(hist) = history {
+                    // Align CPU data to rounded timestamps (find nearest within 60 seconds)
+                    let cpu_aligned: Vec<f64> = timestamps
+                        .iter()
+                        .map(|ts| {
+                            hist.cpu_history
+                                .iter()
+                                .filter(|(t, _)| (*t - *ts).abs() <= 60)
+                                .min_by_key(|(t, _)| (*t - *ts).abs())
+                                .map(|(_, val)| val * 10.0)
+                                .unwrap_or(0.0)
+                        })
+                        .collect();
 
-                let memory_history: Vec<f64> = if let Some(hist) = history {
-                    hist.memory_history.iter().map(|(_, val)| *val).collect()
+                    // Align memory data to rounded timestamps (find nearest within 60 seconds)
+                    let memory_aligned: Vec<f64> = timestamps
+                        .iter()
+                        .map(|ts| {
+                            hist.memory_history
+                                .iter()
+                                .filter(|(t, _)| (*t - *ts).abs() <= 60)
+                                .min_by_key(|(t, _)| (*t - *ts).abs())
+                                .map(|(_, val)| *val)
+                                .unwrap_or(0.0)
+                        })
+                        .collect();
+
+                    (cpu_aligned, memory_aligned)
                 } else {
-                    vec![0.0; timestamps.len()]
+                    (vec![0.0; timestamps.len()], vec![0.0; timestamps.len()])
                 };
 
                 CiliumPodMetrics {
@@ -838,6 +1222,137 @@ fn build_cilium_metrics_json_cache(
         let response = CiliumMetrics {
             timestamps,
             pods: pods_metrics,
+        };
+        Arc::from(
+            serde_json::to_string(&response)
+                .unwrap_or_else(|_| "{}".to_string())
+                .as_str(),
+        )
+    } else {
+        Arc::from("{}")
+    }
+}
+
+/// Build Envoy metrics JSON cache for API responses
+#[inline]
+fn build_envoy_metrics_json_cache(
+    envoy_metrics_history: &crate::prometheus::EnvoyMetricsHistory,
+) -> Arc<str> {
+    use serde::Serialize;
+
+    #[derive(Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct EnvoyMetrics {
+        timestamps: Vec<i64>,
+        rps_history: Vec<f64>,
+        status_2xx_history: Vec<f64>,
+        status_3xx_history: Vec<f64>,
+        status_4xx_history: Vec<f64>,
+        status_5xx_history: Vec<f64>,
+    }
+
+    if !envoy_metrics_history.rps_history.is_empty() {
+        // Collect all unique timestamps, rounded to nearest minute
+        let mut all_timestamps = std::collections::BTreeSet::new();
+        for (ts, _) in &envoy_metrics_history.rps_history {
+            let rounded = (*ts / 60) * 60;
+            all_timestamps.insert(rounded);
+        }
+        for (ts, _) in &envoy_metrics_history.status_2xx_history {
+            let rounded = (*ts / 60) * 60;
+            all_timestamps.insert(rounded);
+        }
+        for (ts, _) in &envoy_metrics_history.status_3xx_history {
+            let rounded = (*ts / 60) * 60;
+            all_timestamps.insert(rounded);
+        }
+        for (ts, _) in &envoy_metrics_history.status_4xx_history {
+            let rounded = (*ts / 60) * 60;
+            all_timestamps.insert(rounded);
+        }
+        for (ts, _) in &envoy_metrics_history.status_5xx_history {
+            let rounded = (*ts / 60) * 60;
+            all_timestamps.insert(rounded);
+        }
+        let timestamps: Vec<i64> = all_timestamps.into_iter().collect();
+
+        // Align RPS data to rounded timestamps
+        let rps_aligned: Vec<f64> = timestamps
+            .iter()
+            .map(|ts| {
+                envoy_metrics_history
+                    .rps_history
+                    .iter()
+                    .filter(|(t, _)| (*t - *ts).abs() <= 60)
+                    .min_by_key(|(t, _)| (*t - *ts).abs())
+                    .map(|(_, val)| *val)
+                    .unwrap_or(0.0)
+            })
+            .collect();
+
+        // Align 2xx data
+        let status_2xx_aligned: Vec<f64> = timestamps
+            .iter()
+            .map(|ts| {
+                envoy_metrics_history
+                    .status_2xx_history
+                    .iter()
+                    .filter(|(t, _)| (*t - *ts).abs() <= 60)
+                    .min_by_key(|(t, _)| (*t - *ts).abs())
+                    .map(|(_, val)| *val)
+                    .unwrap_or(0.0)
+            })
+            .collect();
+
+        // Align 3xx data
+        let status_3xx_aligned: Vec<f64> = timestamps
+            .iter()
+            .map(|ts| {
+                envoy_metrics_history
+                    .status_3xx_history
+                    .iter()
+                    .filter(|(t, _)| (*t - *ts).abs() <= 60)
+                    .min_by_key(|(t, _)| (*t - *ts).abs())
+                    .map(|(_, val)| *val)
+                    .unwrap_or(0.0)
+            })
+            .collect();
+
+        // Align 4xx data
+        let status_4xx_aligned: Vec<f64> = timestamps
+            .iter()
+            .map(|ts| {
+                envoy_metrics_history
+                    .status_4xx_history
+                    .iter()
+                    .filter(|(t, _)| (*t - *ts).abs() <= 60)
+                    .min_by_key(|(t, _)| (*t - *ts).abs())
+                    .map(|(_, val)| *val)
+                    .unwrap_or(0.0)
+            })
+            .collect();
+
+        // Align 5xx data
+        let status_5xx_aligned: Vec<f64> = timestamps
+            .iter()
+            .map(|ts| {
+                envoy_metrics_history
+                    .status_5xx_history
+                    .iter()
+                    .filter(|(t, _)| (*t - *ts).abs() <= 60)
+                    .min_by_key(|(t, _)| (*t - *ts).abs())
+                    .map(|(_, val)| *val)
+                    .unwrap_or(0.0)
+            })
+            .collect();
+
+        let response = EnvoyMetrics {
+            timestamps,
+            rps_history: rps_aligned,
+            status_2xx_history: status_2xx_aligned,
+            status_3xx_history: status_3xx_aligned,
+            status_4xx_history: status_4xx_aligned,
+            status_5xx_history: status_5xx_aligned,
         };
         Arc::from(
             serde_json::to_string(&response)
@@ -1042,6 +1557,8 @@ async fn fetch_all_node_details(
                         memory_usage_percent,
                         memory_used_gb,
                         memory_total_gb,
+                        cpu_history: Vec::new(),
+                        memory_history: Vec::new(),
                     },
                 )
             }
@@ -1352,6 +1869,162 @@ async fn fetch_cilium_data(
     (cilium_pods, cilium_version, hubble_enabled, ipv6_enabled)
 }
 
+/// Fetch Envoy pod information and metrics
+async fn fetch_envoy_data(
+    config_path: &std::path::Path,
+    cluster_name: &str,
+) -> (
+    Vec<super::templates::EnvoyPod>,
+    String,
+    crate::prometheus::EnvoyMetricsHistory,
+) {
+    use tokio::process::Command;
+
+    let output_dir = config_path
+        .parent()
+        .and_then(|p| p.parent())
+        .map(|p| p.join("output"))
+        .unwrap_or_else(|| std::path::PathBuf::from("output"));
+
+    let kubeconfig = output_dir.join("kubeconfig");
+
+    // Check if kubeconfig exists
+    if !kubeconfig.exists() {
+        info!("Kubeconfig not found, skipping Envoy data fetch");
+        return (
+            vec![],
+            "N/A".to_string(),
+            crate::prometheus::EnvoyMetricsHistory::default(),
+        );
+    }
+
+    // Get Envoy pods using kubectl (looking for pods with envoy in the name across all namespaces)
+    let output = match Command::new("kubectl")
+        .arg("--kubeconfig")
+        .arg(&kubeconfig)
+        .arg("get")
+        .arg("pods")
+        .arg("--all-namespaces")
+        .arg("-o")
+        .arg("json")
+        .output()
+        .await
+    {
+        Ok(o) => o,
+        Err(e) => {
+            error!("Failed to get Envoy pods: {}", e);
+            return (
+                vec![],
+                "N/A".to_string(),
+                crate::prometheus::EnvoyMetricsHistory::default(),
+            );
+        }
+    };
+
+    if !output.status.success() {
+        error!("kubectl get pods failed for Envoy");
+        return (
+            vec![],
+            "N/A".to_string(),
+            crate::prometheus::EnvoyMetricsHistory::default(),
+        );
+    }
+
+    let mut envoy_pods = Vec::new();
+    let mut envoy_version = "N/A".to_string();
+
+    // Parse pod list
+    if let Ok(pod_list) = serde_json::from_slice::<serde_json::Value>(&output.stdout) {
+        if let Some(items) = pod_list["items"].as_array() {
+            for pod in items {
+                let name = pod["metadata"]["name"]
+                    .as_str()
+                    .unwrap_or("unknown")
+                    .to_string();
+
+                // Only include pods with "envoy" in the name
+                if !name.contains("envoy") {
+                    continue;
+                }
+
+                let namespace = pod["metadata"]["namespace"]
+                    .as_str()
+                    .unwrap_or("default")
+                    .to_string();
+                let node = pod["spec"]["nodeName"]
+                    .as_str()
+                    .unwrap_or("N/A")
+                    .to_string();
+                let status = pod["status"]["phase"]
+                    .as_str()
+                    .unwrap_or("Unknown")
+                    .to_string();
+                let restarts = pod["status"]["containerStatuses"]
+                    .as_array()
+                    .and_then(|containers| containers.first())
+                    .and_then(|container| container["restartCount"].as_u64())
+                    .unwrap_or(0) as u32;
+
+                let created_at = pod["metadata"]["creationTimestamp"]
+                    .as_str()
+                    .unwrap_or_default();
+                let age = if !created_at.is_empty() {
+                    calculate_age(created_at)
+                } else {
+                    "N/A".to_string()
+                };
+
+                envoy_pods.push(super::templates::EnvoyPod {
+                    name,
+                    namespace,
+                    node,
+                    cluster_name: cluster_name.to_string(),
+                    status,
+                    cpu: "0m".to_string(),
+                    memory: "0Mi".to_string(),
+                    cpu_request: 0.0,
+                    cpu_limit: 0.0,
+                    memory_request: 0.0,
+                    memory_limit: 0.0,
+                    restarts,
+                    age,
+                });
+
+                // Extract version from first pod's container image
+                if envoy_version == "N/A" {
+                    if let Some(containers) = pod["spec"]["containers"].as_array() {
+                        if let Some(first_container) = containers.first() {
+                            if let Some(image) = first_container["image"].as_str() {
+                                // Extract version from image (e.g., "envoyproxy/envoy:v1.28.0@sha256:..." -> "v1.28.0")
+                                // First remove the @sha256 part if present
+                                let image_without_sha = image.split('@').next().unwrap_or(image);
+                                // Then extract the tag after the last colon
+                                if let Some(version_part) = image_without_sha.split(':').next_back()
+                                {
+                                    // Extract just the semantic version part (v1.33.9 from v1.33.9-1757932127-3c04e8f2f1027d106b96f8ef4a0215e81dbaaece)
+                                    let clean_version =
+                                        version_part.split('-').next().unwrap_or(version_part);
+                                    envoy_version = clean_version.to_string();
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Fetch Envoy metrics history from Prometheus
+    let metrics_history = crate::prometheus::query_envoy_metrics_range(&kubeconfig, "1h", "1m")
+        .await
+        .unwrap_or_else(|e| {
+            error!("Failed to fetch Envoy metrics: {}", e);
+            crate::prometheus::EnvoyMetricsHistory::default()
+        });
+
+    (envoy_pods, envoy_version, metrics_history)
+}
+
 /// Fetch Prometheus alerts
 async fn fetch_alerts(config_path: &std::path::Path) -> Vec<crate::prometheus::Alert> {
     // Get the output directory from config path
@@ -1559,6 +2232,12 @@ async fn fetch_all_pod_details(
                 ip: pod_ip,
                 cpu: "N/A".to_string(),
                 memory: "N/A".to_string(),
+                cpu_limit: "N/A".to_string(),
+                cpu_request: "N/A".to_string(),
+                memory_limit: "N/A".to_string(),
+                memory_request: "N/A".to_string(),
+                cpu_percent: "0%".to_string(),
+                memory_percent: "0%".to_string(),
                 labels,
                 containers,
             };

@@ -11,8 +11,8 @@ use tracing::{error, info};
 
 use super::server::AppState;
 use super::templates::{
-    AlertsTemplate, CiliumPod, CiliumTemplate, ClusterDetailTemplate, ClustersTemplate,
-    CreateClusterTemplate, IndexTemplate, MetricsTemplate, NodeDetailTemplate, NodeInfoWithCluster,
+    AlertsTemplate, CiliumTemplate, ClusterDetailTemplate, ClustersTemplate, CreateClusterTemplate,
+    EnvoyTemplate, IndexTemplate, MetricsTemplate, NodeDetailTemplate, NodeInfoWithCluster,
     NodesTemplate, PodDetailTemplate, PodsTemplate,
 };
 use crate::config::ClusterConfig;
@@ -86,7 +86,7 @@ fn preloader_page() -> Html<String> {
                 <div class="spinner-container">
                     <div class="spinner-ring animate-spin-slow"></div>
                 </div>
-                <h2 style="font-size: 1.75rem; font-weight: 600; margin-bottom: 12px; color: #E5E5E5;">Populating cache...</h2>
+                <h2 style="font-size: 1.75rem; font-weight: 600; margin-bottom: 12px; color: #E5E5E5;">Cache Populating...</h2>
                 <p style="color: #888888; font-size: 0.875rem;">Refreshing in <span id="countdown" style="display: inline-block; min-width: 1ch; text-align: center;">5</span> seconds...</p>
             </div>
             <script>
@@ -104,7 +104,7 @@ fn preloader_page() -> Html<String> {
     "#.to_string())
 }
 
-/// Home page
+/// Render the home/index page with cluster overview
 pub async fn index(State(state): State<AppState>) -> impl IntoResponse {
     let cache_ready = state.cache.is_ready().await;
 
@@ -125,7 +125,7 @@ pub async fn index(State(state): State<AppState>) -> impl IntoResponse {
     Html(template.render().unwrap()).into_response()
 }
 
-/// Clusters list page
+/// Render the clusters list page
 pub async fn clusters_list(State(state): State<AppState>) -> impl IntoResponse {
     let cache_ready = state.cache.is_ready().await;
 
@@ -136,7 +136,7 @@ pub async fn clusters_list(State(state): State<AppState>) -> impl IntoResponse {
     let clusters = state.cache.get_clusters().await;
     let firing_alerts_count = get_firing_alerts_count(&state.cache).await;
     let template = ClustersTemplate {
-        clusters,
+        clusters: clusters.to_vec(),
         active_page: "clusters".to_string(),
         version: env!("CARGO_PKG_VERSION").to_string(),
         firing_alerts_count,
@@ -182,9 +182,29 @@ pub async fn node_detail(
 ) -> impl IntoResponse {
     match state.cache.get_node_detail(&cluster_name, &node_name).await {
         Some(node) => {
+            // Get metrics history from cache to build JSON
+            let node_metrics_history = state.cache.get_node_metrics_history().await;
+            let metrics_json = if let Some(history) = node_metrics_history.get(&node_name) {
+                let timestamps: Vec<i64> = history.cpu_history.iter().map(|(ts, _)| *ts).collect();
+                let cpu_history: Vec<f64> =
+                    history.cpu_history.iter().map(|(_, val)| *val).collect();
+                let memory_history: Vec<f64> =
+                    history.memory_history.iter().map(|(_, val)| *val).collect();
+
+                serde_json::json!({
+                    "timestamps": timestamps,
+                    "cpu_history": cpu_history,
+                    "memory_history": memory_history,
+                })
+                .to_string()
+            } else {
+                "{}".to_string()
+            };
+
             let firing_alerts_count = get_firing_alerts_count(&state.cache).await;
             let template = NodeDetailTemplate {
                 node,
+                metrics_json,
                 active_page: "nodes".to_string(),
                 version: env!("CARGO_PKG_VERSION").to_string(),
                 firing_alerts_count,
@@ -218,16 +238,45 @@ pub async fn pod_detail(
                 .await
                 .unwrap_or_default();
 
-            // Build metrics JSON
+            // Build metrics JSON with properly aligned timestamps
             let mut all_timestamps = std::collections::BTreeSet::new();
             for (ts, _) in &metrics.cpu_history {
                 all_timestamps.insert(*ts);
             }
 
             let timestamps: Vec<i64> = all_timestamps.iter().copied().collect();
-            let cpu_history: Vec<f64> = metrics.cpu_history.iter().map(|(_, val)| *val).collect();
-            let memory_history: Vec<f64> =
-                metrics.memory_history.iter().map(|(_, val)| *val).collect();
+
+            // Align CPU data to unique timestamps
+            let cpu_history: Vec<f64> = timestamps
+                .iter()
+                .map(|ts| {
+                    metrics
+                        .cpu_history
+                        .iter()
+                        .find(|(t, _)| t == ts)
+                        .map(|(_, val)| *val)
+                        .unwrap_or(0.0)
+                })
+                .collect();
+
+            // Align memory data to unique timestamps (with 2-second tolerance)
+            let memory_history: Vec<f64> = timestamps
+                .iter()
+                .map(|ts| {
+                    // Try exact match first
+                    if let Some((_, val)) = metrics.memory_history.iter().find(|(t, _)| t == ts) {
+                        return *val;
+                    }
+                    // If no exact match, find nearest timestamp within 2 seconds
+                    metrics
+                        .memory_history
+                        .iter()
+                        .filter(|(t, _)| (*t - *ts).abs() <= 2)
+                        .min_by_key(|(t, _)| (*t - *ts).abs())
+                        .map(|(_, val)| *val)
+                        .unwrap_or(0.0)
+                })
+                .collect();
 
             let metrics_json = serde_json::json!({
                 "timestamps": timestamps,
@@ -307,40 +356,64 @@ pub async fn clusters_create(
     Redirect::to("/clusters")
 }
 
-/// API endpoint: List clusters as JSON
+/// API endpoint to list all clusters as JSON
 pub async fn api_clusters_list(State(state): State<AppState>) -> impl IntoResponse {
     let clusters = state.cache.get_clusters().await;
-    Json(clusters)
+    Json(clusters.to_vec())
 }
 
-/// API endpoint: Get pod metrics
+/// API endpoint to retrieve historical metrics for a specific pod
 pub async fn api_pod_metrics(
     State(state): State<AppState>,
     axum::extract::Path((namespace, pod_name)): axum::extract::Path<(String, String)>,
-    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+    axum::extract::Query(_params): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> impl IntoResponse {
-    let time_range = params.get("range").map(|s| s.as_str()).unwrap_or("1h");
-    let kubeconfig = state.output_dir.join("kubeconfig");
+    // Get metrics from cache only (no live Prometheus queries)
+    let history = state
+        .cache
+        .get_pod_metrics(&namespace, &pod_name)
+        .await
+        .unwrap_or_default();
 
-    let history = crate::prometheus::query_pod_metrics_range(
-        &namespace,
-        &pod_name,
-        &kubeconfig,
-        time_range,
-        "1m",
-    )
-    .await
-    .unwrap_or_default();
-
-    // Collect timestamps and values
+    // Collect unique timestamps and align data
     let mut all_timestamps = std::collections::BTreeSet::new();
     for (ts, _) in &history.cpu_history {
         all_timestamps.insert(*ts);
     }
 
     let timestamps: Vec<i64> = all_timestamps.iter().copied().collect();
-    let cpu_history: Vec<f64> = history.cpu_history.iter().map(|(_, val)| *val).collect();
-    let memory_history: Vec<f64> = history.memory_history.iter().map(|(_, val)| *val).collect();
+
+    // Align CPU data to unique timestamps
+    let cpu_history: Vec<f64> = timestamps
+        .iter()
+        .map(|ts| {
+            history
+                .cpu_history
+                .iter()
+                .find(|(t, _)| t == ts)
+                .map(|(_, val)| *val)
+                .unwrap_or(0.0)
+        })
+        .collect();
+
+    // Align memory data to unique timestamps (with 2-second tolerance)
+    let memory_history: Vec<f64> = timestamps
+        .iter()
+        .map(|ts| {
+            // Try exact match first
+            if let Some((_, val)) = history.memory_history.iter().find(|(t, _)| t == ts) {
+                return *val;
+            }
+            // If no exact match, find nearest timestamp within 2 seconds
+            history
+                .memory_history
+                .iter()
+                .filter(|(t, _)| (*t - *ts).abs() <= 2)
+                .min_by_key(|(t, _)| (*t - *ts).abs())
+                .map(|(_, val)| *val)
+                .unwrap_or(0.0)
+        })
+        .collect();
 
     Json(serde_json::json!({
         "timestamps": timestamps,
@@ -581,26 +654,9 @@ pub async fn metrics(State(state): State<AppState>) -> impl IntoResponse {
     let mut pod_names: Vec<String> = pod_metrics_history.keys().cloned().collect();
     pod_names.sort();
 
-    // Build metrics response
+    // Build metrics response - use pre-serialized JSON from cache for better performance
     let metrics_json = if has_data {
-        let results: Vec<(String, crate::prometheus::NodeMetricsHistory)> = node_metrics_history
-            .iter()
-            .map(|(k, v)| (k.clone(), v.clone()))
-            .collect();
-
-        // Collect timestamps and build node metrics using helpers
-        let timestamps = collect_timestamps(&results);
-        let nodes = build_node_metrics(results);
-
-        // Build pods data using helper
-        let pods = build_pod_metrics(pod_metrics_history);
-
-        let response = MetricsResponse {
-            timestamps,
-            nodes,
-            pods,
-        };
-        serde_json::to_string(&response).unwrap_or_else(|_| "{}".to_string())
+        state.cache.get_metrics_json_cache().await.to_string()
     } else {
         "{}".to_string()
     };
@@ -618,7 +674,7 @@ pub async fn metrics(State(state): State<AppState>) -> impl IntoResponse {
     Html(template.render().unwrap()).into_response()
 }
 
-/// API: Get metrics data for graphs
+/// API endpoint to retrieve metrics data for rendering graphs
 pub async fn api_metrics(
     State(state): State<AppState>,
     axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
@@ -638,50 +694,84 @@ pub async fn api_metrics(
             .into_response();
     }
 
-    // For ranges other than 1h, fetch fresh data from Prometheus
-    let results: Vec<(String, crate::prometheus::NodeMetricsHistory)> = if time_range != "1h" {
-        let node_details = state.cache.get_node_details_map().await;
-        let kubeconfig = state.output_dir.join("kubeconfig");
+    // For custom time ranges, build fresh response from Prometheus
+    // For now, we only support 1h range via cache for optimal performance
+    // Custom ranges would require fetching fresh data from Prometheus
+    let node_details = state.cache.get_node_details_map().await;
+    let kubeconfig = state.output_dir.join("kubeconfig");
 
-        let fetch_tasks: Vec<_> = node_details
-            .iter()
-            .map(|(name, detail)| {
-                let private_ip = detail.private_ip.clone();
-                let name = name.clone();
-                let kubeconfig = kubeconfig.clone();
-                let time_range = time_range.to_string();
-                async move {
-                    let history = crate::prometheus::query_node_metrics_range(
-                        &private_ip,
-                        &kubeconfig,
-                        &time_range,
-                        "1m",
-                    )
-                    .await
-                    .unwrap_or_default();
+    let fetch_tasks: Vec<_> = node_details
+        .iter()
+        .map(|(name, detail)| {
+            let private_ip = detail.private_ip.clone();
+            let name = name.clone();
+            let kubeconfig = kubeconfig.clone();
+            let time_range = time_range.to_string();
+            async move {
+                let history = crate::prometheus::query_node_metrics_range(
+                    &private_ip,
+                    &kubeconfig,
+                    &time_range,
+                    "1m",
+                )
+                .await
+                .unwrap_or_default();
 
-                    (name, history)
-                }
-            })
-            .collect();
+                (name, history)
+            }
+        })
+        .collect();
 
-        futures::future::join_all(fetch_tasks).await
-    } else {
-        // Use cached 1h data
-        let metrics_history = state.cache.get_node_metrics_history().await;
-        metrics_history
-            .iter()
-            .map(|(k, v)| (k.clone(), v.clone()))
-            .collect()
-    };
+    let node_results: Vec<(String, crate::prometheus::NodeMetricsHistory)> =
+        futures::future::join_all(fetch_tasks).await;
 
-    // Collect timestamps and build node metrics using helpers
-    let timestamps = collect_timestamps(&results);
-    let nodes = build_node_metrics(results);
+    // Build timestamps from node results
+    let mut all_timestamps = std::collections::BTreeSet::new();
+    for (_, history) in &node_results {
+        for (ts, _) in &history.cpu_history {
+            all_timestamps.insert(*ts);
+        }
+    }
+    let timestamps: Vec<i64> = all_timestamps.into_iter().collect();
 
-    // Get pod metrics history (fetch separately as node metrics may come from Prometheus)
+    // Build node metrics
+    let nodes: Vec<MetricsNode> = node_results
+        .into_iter()
+        .map(|(name, history)| {
+            let cpu_history: Vec<f64> = history.cpu_history.iter().map(|(_, val)| *val).collect();
+            let memory_history: Vec<f64> =
+                history.memory_history.iter().map(|(_, val)| *val).collect();
+            MetricsNode {
+                name,
+                cpu_history,
+                memory_history,
+            }
+        })
+        .collect();
+
+    // Get pod metrics from cache (always use 1h for pods)
     let pod_metrics_history = state.cache.get_pod_metrics_history().await;
-    let pods = build_pod_metrics(pod_metrics_history);
+    let pods: Vec<MetricsPod> = pod_metrics_history
+        .iter()
+        .map(|(key, history)| {
+            let parts: Vec<&str> = key.split('/').collect();
+            let namespace = parts.first().unwrap_or(&"unknown").to_string();
+            let name = parts.get(1).unwrap_or(&"unknown").to_string();
+            let cpu_history: Vec<f64> = history
+                .cpu_history
+                .iter()
+                .map(|(_, val)| val * 10.0)
+                .collect();
+            let memory_history: Vec<f64> =
+                history.memory_history.iter().map(|(_, val)| *val).collect();
+            MetricsPod {
+                name,
+                namespace,
+                cpu_history,
+                memory_history,
+            }
+        })
+        .collect();
 
     let response = MetricsResponse {
         timestamps,
@@ -738,13 +828,32 @@ pub async fn pods_list(State(state): State<AppState>) -> impl IntoResponse {
         .filter(|p| p.status == "Failed" || p.status == "Error" || p.status == "CrashLoopBackOff")
         .count();
 
-    // Sort by CPU usage (highest to lowest)
+    // Sort by status priority (Pending first, then Running, then others), then by CPU usage
     pods.sort_by(|a, b| {
-        let cpu_a = a.cpu.trim_end_matches('m').parse::<f64>().unwrap_or(-1.0);
-        let cpu_b = b.cpu.trim_end_matches('m').parse::<f64>().unwrap_or(-1.0);
-        cpu_b
-            .partial_cmp(&cpu_a)
-            .unwrap_or(std::cmp::Ordering::Equal)
+        // Status priority: Pending (0), Running (1), others (2)
+        let priority_a = match a.status.as_str() {
+            "Pending" => 0,
+            "Running" => 1,
+            _ => 2,
+        };
+        let priority_b = match b.status.as_str() {
+            "Pending" => 0,
+            "Running" => 1,
+            _ => 2,
+        };
+
+        // First compare by priority
+        match priority_a.cmp(&priority_b) {
+            std::cmp::Ordering::Equal => {
+                // If same priority, sort by CPU usage (highest to lowest)
+                let cpu_a = a.cpu.trim_end_matches('m').parse::<f64>().unwrap_or(-1.0);
+                let cpu_b = b.cpu.trim_end_matches('m').parse::<f64>().unwrap_or(-1.0);
+                cpu_b
+                    .partial_cmp(&cpu_a)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            }
+            other => other,
+        }
     });
 
     let firing_alerts_count = get_firing_alerts_count(&state.cache).await;
@@ -814,13 +923,30 @@ pub async fn nodes_list(State(state): State<AppState>) -> impl IntoResponse {
     let mut node_names: Vec<String> = node_metrics_history.keys().cloned().collect();
     node_names.sort();
 
+    // Build node-only metrics JSON (exclude pod metrics)
     let metrics_json = if !node_metrics_history.is_empty() {
-        let results: Vec<(String, crate::prometheus::NodeMetricsHistory)> = node_metrics_history
+        let mut all_timestamps = std::collections::BTreeSet::new();
+        for history in node_metrics_history.values() {
+            for (ts, _) in &history.cpu_history {
+                all_timestamps.insert(*ts);
+            }
+        }
+        let timestamps: Vec<i64> = all_timestamps.into_iter().collect();
+
+        let metrics_nodes: Vec<MetricsNode> = node_metrics_history
             .iter()
-            .map(|(k, v)| (k.clone(), v.clone()))
+            .map(|(name, history)| {
+                let cpu_history: Vec<f64> =
+                    history.cpu_history.iter().map(|(_, val)| *val).collect();
+                let memory_history: Vec<f64> =
+                    history.memory_history.iter().map(|(_, val)| *val).collect();
+                MetricsNode {
+                    name: name.clone(),
+                    cpu_history,
+                    memory_history,
+                }
+            })
             .collect();
-        let timestamps = collect_timestamps(&results);
-        let metrics_nodes = build_node_metrics(results);
 
         let response = NodeMetricsResponse {
             timestamps,
@@ -846,135 +972,6 @@ pub async fn nodes_list(State(state): State<AppState>) -> impl IntoResponse {
     Html(template.render().unwrap()).into_response()
 }
 
-/// Build pod metrics from history data
-fn build_pod_metrics(
-    pod_metrics_history: std::sync::Arc<
-        std::collections::HashMap<String, crate::prometheus::NodeMetricsHistory>,
-    >,
-) -> Vec<MetricsPod> {
-    pod_metrics_history
-        .iter()
-        .map(|(key, history)| {
-            let parts: Vec<&str> = key.split('/').collect();
-            let namespace = parts.first().unwrap_or(&"unknown").to_string();
-            let name = parts.get(1).unwrap_or(&"unknown").to_string();
-
-            // Convert CPU from percentage to millicores (multiply by 10)
-            let cpu_history: Vec<f64> = history
-                .cpu_history
-                .iter()
-                .map(|(_, val)| val * 10.0)
-                .collect();
-            let memory_history: Vec<f64> =
-                history.memory_history.iter().map(|(_, val)| *val).collect();
-
-            MetricsPod {
-                name,
-                namespace,
-                cpu_history,
-                memory_history,
-            }
-        })
-        .collect()
-}
-
-/// Build node metrics from history data
-fn build_node_metrics(
-    results: Vec<(String, crate::prometheus::NodeMetricsHistory)>,
-) -> Vec<MetricsNode> {
-    results
-        .into_iter()
-        .map(|(name, history)| {
-            let cpu_history: Vec<f64> = history.cpu_history.iter().map(|(_, val)| *val).collect();
-            let memory_history: Vec<f64> =
-                history.memory_history.iter().map(|(_, val)| *val).collect();
-
-            MetricsNode {
-                name,
-                cpu_history,
-                memory_history,
-            }
-        })
-        .collect()
-}
-
-/// Collect unique timestamps from node metrics history
-fn collect_timestamps(results: &[(String, crate::prometheus::NodeMetricsHistory)]) -> Vec<i64> {
-    let mut all_timestamps = std::collections::BTreeSet::new();
-    for (_, history) in results {
-        for (ts, _) in &history.cpu_history {
-            all_timestamps.insert(*ts);
-        }
-    }
-    all_timestamps.iter().copied().collect()
-}
-
-/// Build Cilium metrics JSON from cache data
-fn build_cilium_metrics_json(
-    pod_metrics_history: &std::collections::HashMap<String, crate::prometheus::NodeMetricsHistory>,
-    cilium_pods: &[CiliumPod],
-) -> serde_json::Value {
-    // Filter for only Cilium pods (in kube-system namespace with cilium- prefix)
-    let cilium_metrics: Vec<(&String, &crate::prometheus::NodeMetricsHistory)> =
-        pod_metrics_history
-            .iter()
-            .filter(|(key, _)| key.starts_with("kube-system/cilium-"))
-            .collect();
-
-    if cilium_metrics.is_empty() {
-        return serde_json::json!({
-            "timestamps": [],
-            "pods": []
-        });
-    }
-
-    // Get timestamps from the first pod (all should have same timestamps)
-    let timestamps: Vec<i64> = cilium_metrics
-        .first()
-        .map(|(_, history)| history.cpu_history.iter().map(|(ts, _)| *ts).collect())
-        .unwrap_or_default();
-
-    // Build pods metrics data
-    let pods_metrics: Vec<serde_json::Value> = cilium_metrics
-        .iter()
-        .map(|(key, history)| {
-            let parts: Vec<&str> = key.split('/').collect();
-            let name = parts.get(1).unwrap_or(&"unknown");
-
-            // Convert CPU from percentage to millicores (multiply by 10)
-            let cpu_history: Vec<f64> = history
-                .cpu_history
-                .iter()
-                .map(|(_, val)| val * 10.0)
-                .collect();
-            let memory_history: Vec<f64> =
-                history.memory_history.iter().map(|(_, val)| *val).collect();
-
-            // Find matching cilium_pod for request/limit data
-            let cilium_pod = cilium_pods.iter().find(|p| p.name == *name);
-            let cpu_request = cilium_pod.map(|p| p.cpu_request).unwrap_or(0.0);
-            let cpu_limit = cilium_pod.map(|p| p.cpu_limit).unwrap_or(0.0);
-            let memory_request = cilium_pod.map(|p| p.memory_request).unwrap_or(0.0);
-            let memory_limit = cilium_pod.map(|p| p.memory_limit).unwrap_or(0.0);
-
-            serde_json::json!({
-                "name": name,
-                "cpu_history": cpu_history,
-                "memory_history": memory_history,
-                "cpu_request": cpu_request,
-                "cpu_limit": cpu_limit,
-                "memory_request": memory_request,
-                "memory_limit": memory_limit,
-            })
-        })
-        .collect();
-
-    serde_json::json!({
-        "timestamps": timestamps,
-        "pods": pods_metrics,
-    })
-}
-
 /// Cilium page
 pub async fn cilium(State(state): State<AppState>) -> impl IntoResponse {
     let cache_ready = state.cache.is_ready().await;
@@ -985,35 +982,82 @@ pub async fn cilium(State(state): State<AppState>) -> impl IntoResponse {
 
     let firing_alerts_count = get_firing_alerts_count(&state.cache).await;
 
-    // Build template using single lock - avoids cloning large HashMaps
-    let template = state
+    // Get pre-serialized metrics JSON from cache (same as API endpoint)
+    let metrics_json = state
         .cache
-        .with_cilium_and_pod_metrics(
-            |cilium_pods, cilium_version, hubble_enabled, ipv6_enabled, pod_metrics_history| {
-                let metrics_json = build_cilium_metrics_json(pod_metrics_history, cilium_pods);
+        .get_cilium_metrics_json_cache()
+        .await
+        .to_string();
 
-                // Extract pod names for server-side legend rendering (just the pod name, not namespace)
-                let mut pod_names: Vec<String> =
-                    cilium_pods.iter().map(|p| p.name.clone()).collect();
-                pod_names.sort();
+    // Get Cilium pod data for table display
+    let (cilium_pods, cilium_version, hubble_enabled, ipv6_enabled) =
+        state.cache.get_cilium_data().await;
 
-                CiliumTemplate {
-                    active_page: "cilium".to_string(),
-                    version: env!("CARGO_PKG_VERSION").to_string(),
-                    cilium_pods: cilium_pods.to_vec(), // Still need to clone for template
-                    cilium_version: cilium_version.to_string(),
-                    hubble_enabled,
-                    ipv6_enabled,
-                    metrics_json: serde_json::to_string(&metrics_json)
-                        .unwrap_or_else(|_| "{}".to_string()),
-                    pod_names,
-                    firing_alerts_count,
-                }
-            },
-        )
-        .await;
+    // Extract pod names for server-side legend rendering
+    let mut pod_names: Vec<String> = cilium_pods.iter().map(|p| p.name.clone()).collect();
+    pod_names.sort();
+
+    let template = CiliumTemplate {
+        active_page: "cilium".to_string(),
+        version: env!("CARGO_PKG_VERSION").to_string(),
+        cilium_pods: cilium_pods.to_vec(),
+        cilium_version: cilium_version.to_string(),
+        hubble_enabled,
+        ipv6_enabled,
+        metrics_json,
+        pod_names,
+        firing_alerts_count,
+    };
 
     Html(template.render().unwrap()).into_response()
+}
+
+/// Envoy page - shows Envoy L7 metrics
+pub async fn envoy(State(state): State<AppState>) -> impl IntoResponse {
+    let cache_ready = state.cache.is_ready().await;
+
+    if !cache_ready {
+        return preloader_page().into_response();
+    }
+
+    let firing_alerts_count = get_firing_alerts_count(&state.cache).await;
+
+    // Get pre-serialized metrics JSON from cache
+    let metrics_json = state.cache.get_envoy_metrics_json_cache().await.to_string();
+
+    // Get Envoy pod data for table display
+    let (envoy_pods, envoy_version) = state.cache.get_envoy_data().await;
+
+    let template = EnvoyTemplate {
+        active_page: "envoy".to_string(),
+        version: env!("CARGO_PKG_VERSION").to_string(),
+        pods: envoy_pods.to_vec(),
+        envoy_version: envoy_version.to_string(),
+        metrics_json,
+        firing_alerts_count,
+    };
+
+    Html(template.render().unwrap()).into_response()
+}
+
+/// API endpoint to get Envoy metrics JSON
+pub async fn api_envoy_metrics(State(state): State<AppState>) -> impl IntoResponse {
+    let cache_ready = state.cache.is_ready().await;
+
+    if !cache_ready {
+        return Json(serde_json::json!({
+            "error": "Cache not ready"
+        }))
+        .into_response();
+    }
+
+    // Use pre-serialized JSON cache
+    let json_cache = state.cache.get_envoy_metrics_json_cache().await;
+    (
+        [(axum::http::header::CONTENT_TYPE, "application/json")],
+        json_cache.to_string(),
+    )
+        .into_response()
 }
 
 /// Alerts page - shows all Prometheus alerts
@@ -1034,7 +1078,7 @@ pub async fn alerts(State(state): State<AppState>) -> impl IntoResponse {
     let template = AlertsTemplate {
         active_page: "alerts".to_string(),
         version: env!("CARGO_PKG_VERSION").to_string(),
-        alerts,
+        alerts: alerts.to_vec(),
         firing_count,
         pending_count,
         firing_alerts_count: firing_count,

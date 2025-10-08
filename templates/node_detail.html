@@ -188,7 +188,7 @@
       <p class="text-text-muted">No pods are currently running on this node</p>
     </div>
     {% else %}
-    <div class="overflow-x-auto">
+    <div class="overflow-x-auto max-h-[600px] overflow-y-auto">
       <table class="w-full">
         <thead>
           <tr class="border-b border-dark-border">
@@ -301,5 +301,255 @@
     </div>
     {% endif %}
   </div>
+
+  <!-- Metrics Charts -->
+  <div class="grid grid-cols-1 gap-6">
+    <!-- CPU Usage History Graph -->
+    <div class="rounded-lg p-6 bg-[#242424] border border-dark-border">
+      <div class="flex items-center justify-between mb-4">
+        <h3 class="text-xl font-semibold text-text-primary">CPU Usage History</h3>
+        <button
+          onclick="window.location.reload()"
+          class="p-2 rounded-lg text-text-muted hover:text-text-primary bg-dark-hover hover:bg-dark-hoverAlt transition"
+          title="Refresh"
+        >
+          <svg
+            class="w-5 h-5"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+            stroke-width="2"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+            ></path>
+          </svg>
+        </button>
+      </div>
+      <div class="relative h-80">
+        <canvas id="cpuChart"></canvas>
+      </div>
+    </div>
+
+    <!-- Memory Usage History Graph -->
+    <div class="rounded-lg p-6 bg-[#242424] border border-dark-border">
+      <div class="flex items-center justify-between mb-4">
+        <h3 class="text-xl font-semibold text-text-primary">Memory Usage History</h3>
+        <button
+          onclick="window.location.reload()"
+          class="p-2 rounded-lg text-text-muted hover:text-text-primary bg-dark-hover hover:bg-dark-hoverAlt transition"
+          title="Refresh"
+        >
+          <svg
+            class="w-5 h-5"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+            stroke-width="2"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+            ></path>
+          </svg>
+        </button>
+      </div>
+      <div class="relative h-80">
+        <canvas id="memoryChart"></canvas>
+      </div>
+    </div>
+  </div>
 </div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script>
+  // Override scroll restoration hiding immediately
+  document.documentElement.style.visibility = "visible";
+
+  const nodeName = "{{ node.name }}";
+  let cpuChart = null;
+  let memoryChart = null;
+
+  function initCharts(data) {
+    if (!data || !data.timestamps || data.timestamps.length === 0) {
+      return;
+    }
+
+    // Format timestamps to local time
+    const labels = data.timestamps.map(ts => {
+      const date = new Date(ts * 1000);
+      return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    });
+
+    // CPU Chart
+    const cpuCtx = document.getElementById('cpuChart').getContext('2d');
+    cpuChart = new Chart(cpuCtx, {
+      type: 'line',
+      data: {
+        labels: labels,
+        datasets: [{
+          label: nodeName,
+          data: data.cpu_history,
+          borderColor: '#60A5FA',
+          backgroundColor: '#60A5FA20',
+          borderWidth: 2,
+          fill: true,
+          tension: 0.4,
+          pointRadius: 0,
+          pointHoverRadius: 5,
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: false,
+        interaction: {
+          mode: 'index',
+          intersect: false,
+        },
+        plugins: {
+          legend: {
+            display: false
+          },
+          tooltip: {
+            backgroundColor: '#1f1f1f',
+            titleColor: '#E5E7EB',
+            bodyColor: '#E5E7EB',
+            borderColor: '#374151',
+            borderWidth: 1,
+            padding: 12,
+            displayColors: true,
+            callbacks: {
+              label: function(context) {
+                return context.dataset.label + ': ' + context.parsed.y.toFixed(2) + '%';
+              }
+            }
+          }
+        },
+        scales: {
+          x: {
+            grid: {
+              color: '#313131',
+              drawBorder: false,
+            },
+            ticks: {
+              color: '#AAAAAA',
+              maxRotation: 45,
+              minRotation: 45
+            }
+          },
+          y: {
+            beginAtZero: true,
+            max: 100,
+            grid: {
+              color: '#313131',
+              drawBorder: false,
+            },
+            ticks: {
+              color: '#AAAAAA',
+              callback: function(value) {
+                return value.toFixed(0) + '%';
+              }
+            },
+            title: {
+              display: true,
+              text: 'CPU Usage (%)',
+              color: '#AAAAAA'
+            }
+          }
+        }
+      }
+    });
+
+    // Memory Chart
+    const memoryCtx = document.getElementById('memoryChart').getContext('2d');
+    memoryChart = new Chart(memoryCtx, {
+      type: 'line',
+      data: {
+        labels: labels,
+        datasets: [{
+          label: nodeName,
+          data: data.memory_history,
+          borderColor: '#34D399',
+          backgroundColor: '#34D39920',
+          borderWidth: 2,
+          fill: true,
+          tension: 0.4,
+          pointRadius: 0,
+          pointHoverRadius: 5,
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: false,
+        interaction: {
+          mode: 'index',
+          intersect: false,
+        },
+        plugins: {
+          legend: {
+            display: false
+          },
+          tooltip: {
+            backgroundColor: '#1f1f1f',
+            titleColor: '#E5E7EB',
+            bodyColor: '#E5E7EB',
+            borderColor: '#374151',
+            borderWidth: 1,
+            padding: 12,
+            displayColors: true,
+            callbacks: {
+              label: function(context) {
+                return context.dataset.label + ': ' + context.parsed.y.toFixed(2) + '%';
+              }
+            }
+          }
+        },
+        scales: {
+          x: {
+            grid: {
+              color: '#313131',
+              drawBorder: false,
+            },
+            ticks: {
+              color: '#AAAAAA',
+              maxRotation: 45,
+              minRotation: 45
+            }
+          },
+          y: {
+            beginAtZero: true,
+            max: 100,
+            grid: {
+              color: '#313131',
+              drawBorder: false,
+            },
+            ticks: {
+              color: '#AAAAAA',
+              callback: function(value) {
+                return value.toFixed(0) + '%';
+              }
+            },
+            title: {
+              display: true,
+              text: 'Memory Usage (%)',
+              color: '#AAAAAA'
+            }
+          }
+        }
+      }
+    });
+  }
+
+  // Initialize charts on page load with server-rendered data
+  document.addEventListener('DOMContentLoaded', function() {
+    const serverData = {{ metrics_json|safe }};
+    initCharts(serverData);
+  });
+</script>
+
 {% endblock %}

@@ -131,7 +131,7 @@
     <div class="p-6 border-b border-dark-border">
       <h3 class="text-xl font-semibold text-text-primary">Cilium Pods</h3>
     </div>
-    <div class="overflow-x-auto">
+    <div class="overflow-x-auto max-h-[600px] overflow-y-auto">
       <table class="w-full">
         <thead>
           <tr class="border-b border-dark-border">
@@ -778,9 +778,15 @@
       }
     });
 
-    // Capture current visibility state
-    const cpuVisibility = cpuChart.data.datasets.map((ds, i) => cpuChart.isDatasetVisible(i));
-    const memVisibility = memoryChart.data.datasets.map((ds, i) => memoryChart.isDatasetVisible(i));
+    // Capture current visibility state by dataset label (pod name)
+    const cpuVisibilityMap = {};
+    cpuChart.data.datasets.forEach((ds, i) => {
+      cpuVisibilityMap[ds.label] = cpuChart.isDatasetVisible(i);
+    });
+    const memVisibilityMap = {};
+    memoryChart.data.datasets.forEach((ds, i) => {
+      memVisibilityMap[ds.label] = memoryChart.isDatasetVisible(i);
+    });
 
     // Calculate total CPU request and limit
     let totalCpuRequest = 0;
@@ -791,7 +797,7 @@
     });
 
     cpuChart.data.labels = labels;
-    const cpuDatasets = data.pods.map((pod, i) => {
+    const cpuDatasets = data.pods.map((pod) => {
       return {
         label: pod.name,
         data: pod.cpu_history,
@@ -802,7 +808,7 @@
         tension: 0.4,
         pointRadius: 0,
         pointHoverRadius: 5,
-        hidden: i < cpuVisibility.length ? !cpuVisibility[i] : false,
+        hidden: cpuVisibilityMap.hasOwnProperty(pod.name) ? !cpuVisibilityMap[pod.name] : false,
       };
     });
 
@@ -818,13 +824,12 @@
         fill: false,
         pointRadius: 0,
         pointHoverRadius: 0,
-        hidden: data.pods.length < cpuVisibility.length ? !cpuVisibility[data.pods.length] : false,
+        hidden: cpuVisibilityMap.hasOwnProperty('Total CPU Request') ? !cpuVisibilityMap['Total CPU Request'] : false,
       });
     }
 
     // Add CPU limit line
     if (totalCpuLimit > 0) {
-      const limitIndex = data.pods.length + (totalCpuRequest > 0 ? 1 : 0);
       cpuDatasets.push({
         label: 'Total CPU Limit',
         data: Array(data.timestamps.length).fill(totalCpuLimit),
@@ -835,7 +840,7 @@
         fill: false,
         pointRadius: 0,
         pointHoverRadius: 0,
-        hidden: limitIndex < cpuVisibility.length ? !cpuVisibility[limitIndex] : false,
+        hidden: cpuVisibilityMap.hasOwnProperty('Total CPU Limit') ? !cpuVisibilityMap['Total CPU Limit'] : false,
       });
     }
 
@@ -852,7 +857,7 @@
     });
 
     memoryChart.data.labels = labels;
-    const memDatasets = data.pods.map((pod, i) => {
+    const memDatasets = data.pods.map((pod) => {
       return {
         label: pod.name,
         data: pod.memory_history,
@@ -863,7 +868,7 @@
         tension: 0.4,
         pointRadius: 0,
         pointHoverRadius: 5,
-        hidden: i < memVisibility.length ? !memVisibility[i] : false,
+        hidden: memVisibilityMap.hasOwnProperty(pod.name) ? !memVisibilityMap[pod.name] : false,
       };
     });
 
@@ -879,13 +884,12 @@
         fill: false,
         pointRadius: 0,
         pointHoverRadius: 0,
-        hidden: data.pods.length < memVisibility.length ? !memVisibility[data.pods.length] : false,
+        hidden: memVisibilityMap.hasOwnProperty('Total Memory Request') ? !memVisibilityMap['Total Memory Request'] : false,
       });
     }
 
     // Add memory limit line
     if (totalMemoryLimit > 0) {
-      const limitIndex = data.pods.length + (totalMemoryRequest > 0 ? 1 : 0);
       memDatasets.push({
         label: 'Total Memory Limit',
         data: Array(data.timestamps.length).fill(totalMemoryLimit),
@@ -896,7 +900,7 @@
         fill: false,
         pointRadius: 0,
         pointHoverRadius: 0,
-        hidden: limitIndex < memVisibility.length ? !memVisibility[limitIndex] : false,
+        hidden: memVisibilityMap.hasOwnProperty('Total Memory Limit') ? !memVisibilityMap['Total Memory Limit'] : false,
       });
     }
 

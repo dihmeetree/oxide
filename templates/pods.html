@@ -149,7 +149,7 @@
     <div class="p-6 border-b border-dark-border">
       <h3 class="text-xl font-semibold text-text-primary">All Pods</h3>
     </div>
-    <div class="overflow-x-auto">
+    <div class="overflow-x-auto max-h-[600px] overflow-y-auto">
       <table class="w-full">
         <thead>
           <tr class="border-b border-dark-border">
@@ -198,8 +198,8 @@
         <tbody class="divide-y divide-dark-border">
           {% for pod in pods %}
           <tr
-            class="hover:bg-dark-hover transition cursor-pointer"
-            onclick="window.location='/clusters/{{ pod.cluster_name }}/nodes/{{ pod.node_name }}/pods/{{ pod.namespace }}/{{ pod.name }}'"
+            class="hover:bg-dark-hover transition {% if pod.node_name != "N/A" %}cursor-pointer{% endif %}"
+            {% if pod.node_name != "N/A" %}onclick="window.location='/clusters/{{ pod.cluster_name }}/nodes/{{ pod.node_name }}/pods/{{ pod.namespace }}/{{ pod.name }}'"{% endif %}
           >
             <td class="px-6 py-4">
               <span class="text-base font-medium font-mono text-text-primary block truncate max-w-xs">{{
@@ -234,6 +234,12 @@
               >
                 Pending
               </span>
+              {% else if pod.status == "Succeeded" %}
+              <span
+                class="inline-flex items-center px-2.5 py-1 rounded-md text-sm font-medium bg-text-muted/15 text-text-muted"
+              >
+                Succeeded
+              </span>
               {% else %}
               <span
                 class="inline-flex items-center px-2.5 py-1 rounded-md text-sm font-medium bg-[#FF4D4D]/15 text-[#FF4D4D]"
@@ -243,10 +249,16 @@
               {% endif %}
             </td>
             <td class="px-6 py-4 whitespace-nowrap text-center">
-              <span class="text-base font-mono text-text-primaryAlt">{{ pod.cpu }}</span>
+              <div class="flex flex-col">
+                <span class="text-base font-mono text-text-primary">{{ pod.cpu_percent }}</span>
+                <span class="text-xs font-mono text-text-muted">{{ pod.cpu }} / {{ pod.cpu_limit }}</span>
+              </div>
             </td>
             <td class="px-6 py-4 whitespace-nowrap text-center">
-              <span class="text-base font-mono text-text-primaryAlt">{{ pod.memory }}</span>
+              <div class="flex flex-col">
+                <span class="text-base font-mono text-text-primary">{{ pod.memory_percent }}</span>
+                <span class="text-xs font-mono text-text-muted">{{ pod.memory }} / {{ pod.memory_limit }}</span>
+              </div>
             </td>
             <td class="px-6 py-4 whitespace-nowrap text-center">
               <span class="text-base text-text-secondary">{{

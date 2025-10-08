@@ -1079,3 +1079,76 @@ pub async fn query_alerts(kubeconfig_path: &std::path::Path) -> Result<Vec<Alert
 
     Ok(alerts)
 }
+
+/// Envoy metrics history for L7 request metrics
+#[derive(Debug, Clone, Default)]
+pub struct EnvoyMetricsHistory {
+    pub rps_history: Vec<(i64, f64)>, // (timestamp, requests per second)
+    pub status_2xx_history: Vec<(i64, f64)>, // (timestamp, 2xx count)
+    pub status_3xx_history: Vec<(i64, f64)>, // (timestamp, 3xx count)
+    pub status_4xx_history: Vec<(i64, f64)>, // (timestamp, 4xx count)
+    pub status_5xx_history: Vec<(i64, f64)>, // (timestamp, 5xx count)
+}
+
+/// Query Envoy metrics for a time range
+pub async fn query_envoy_metrics_range(
+    kubeconfig_path: &std::path::Path,
+    duration: &str, // e.g., "1h"
+    step: &str,     // e.g., "1m"
+) -> Result<EnvoyMetricsHistory> {
+    // Get the Prometheus pod name
+    let output = CommandBuilder::new("kubectl")
+        .args([
+            "get",
+            "pods",
+            "-n",
+            "monitoring",
+            "-l",
+            "app.kubernetes.io/name=prometheus",
+            "-o",
+            "jsonpath={.items[0].metadata.name}",
+        ])
+        .kubeconfig(kubeconfig_path)
+        .context("Failed to get Prometheus pod name")
+        .output()
+        .await?;
+
+    if !output.success || output.stdout.is_empty() {
+        return Ok(EnvoyMetricsHistory::default());
+    }
+
+    let pod_name = output.stdout.trim();
+
+    // Query total requests per second using Hubble metrics
+    let rps_query = "sum(rate(hubble_http_requests_total[5m]))";
+    let rps_history =
+        query_prometheus_range(pod_name, rps_query, duration, step, kubeconfig_path).await?;
+
+    // Query 2xx responses per second
+    let status_2xx_query = "sum(rate(hubble_http_requests_total{status=~\"2..\"}[5m]))";
+    let status_2xx_history =
+        query_prometheus_range(pod_name, status_2xx_query, duration, step, kubeconfig_path).await?;
+
+    // Query 3xx responses per second
+    let status_3xx_query = "sum(rate(hubble_http_requests_total{status=~\"3..\"}[5m]))";
+    let status_3xx_history =
+        query_prometheus_range(pod_name, status_3xx_query, duration, step, kubeconfig_path).await?;
+
+    // Query 4xx responses per second
+    let status_4xx_query = "sum(rate(hubble_http_requests_total{status=~\"4..\"}[5m]))";
+    let status_4xx_history =
+        query_prometheus_range(pod_name, status_4xx_query, duration, step, kubeconfig_path).await?;
+
+    // Query 5xx responses per second
+    let status_5xx_query = "sum(rate(hubble_http_requests_total{status=~\"5..\"}[5m]))";
+    let status_5xx_history =
+        query_prometheus_range(pod_name, status_5xx_query, duration, step, kubeconfig_path).await?;
+
+    Ok(EnvoyMetricsHistory {
+        rps_history,
+        status_2xx_history,
+        status_3xx_history,
+        status_4xx_history,
+        status_5xx_history,
+    })
+}

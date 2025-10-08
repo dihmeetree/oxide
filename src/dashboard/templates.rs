@@ -84,6 +84,7 @@ pub struct NodeInfo {
 #[template(path = "node_detail.html")]
 pub struct NodeDetailTemplate {
     pub node: NodeDetail,
+    pub metrics_json: String,
     pub active_page: String,
     pub version: String,
     pub firing_alerts_count: usize,
@@ -107,6 +108,8 @@ pub struct NodeDetail {
     pub memory_usage_percent: String,
     pub memory_used_gb: String,
     pub memory_total_gb: String,
+    pub cpu_history: Vec<f64>,
+    pub memory_history: Vec<f64>,
 }
 
 /// Metrics page
@@ -166,6 +169,36 @@ pub struct CiliumPod {
     pub age: String,
 }
 
+/// Envoy pod information
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EnvoyPod {
+    pub name: String,
+    pub namespace: String,
+    pub node: String,
+    pub cluster_name: String,
+    pub status: String,
+    pub cpu: String,
+    pub memory: String,
+    pub cpu_request: f64,
+    pub cpu_limit: f64,
+    pub memory_request: f64,
+    pub memory_limit: f64,
+    pub restarts: u32,
+    pub age: String,
+}
+
+/// Envoy page
+#[derive(Template)]
+#[template(path = "envoy.html")]
+pub struct EnvoyTemplate {
+    pub pods: Vec<EnvoyPod>,
+    pub envoy_version: String,
+    pub active_page: String,
+    pub version: String,
+    pub metrics_json: String,
+    pub firing_alerts_count: usize,
+}
+
 /// Pods list page
 #[derive(Template)]
 #[template(path = "pods.html")]
@@ -203,6 +236,12 @@ pub struct PodDetail {
     pub ip: String,
     pub cpu: String,
     pub memory: String,
+    pub cpu_limit: String,
+    pub cpu_request: String,
+    pub memory_limit: String,
+    pub memory_request: String,
+    pub cpu_percent: String,
+    pub memory_percent: String,
     pub labels: Vec<(String, String)>,
     pub containers: Vec<ContainerInfo>,
 }

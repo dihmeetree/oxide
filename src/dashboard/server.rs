@@ -77,10 +77,12 @@ impl DashboardServer {
             .route("/pods", get(routes::pods_list))
             .route("/nodes", get(routes::nodes_list))
             .route("/cilium", get(routes::cilium))
+            .route("/envoy", get(routes::envoy))
             .route("/alerts", get(routes::alerts))
             .route("/api/clusters", get(routes::api_clusters_list))
             .route("/api/metrics", get(routes::api_metrics))
             .route("/api/cilium/metrics", get(routes::api_cilium_metrics))
+            .route("/api/envoy/metrics", get(routes::api_envoy_metrics))
             .route(
                 "/api/pods/{namespace}/{pod}/metrics",
                 get(routes::api_pod_metrics),
@@ -91,7 +93,14 @@ impl DashboardServer {
                 output_dir: self.output_dir,
                 cache,
             })
-            .layer(CompressionLayer::new())
+            // Enable compression with best settings for JSON/HTML
+            .layer(
+                CompressionLayer::new()
+                    .gzip(true)
+                    .br(true) // Brotli compression (better than gzip for text)
+                    .deflate(true)
+                    .zstd(true), // Zstandard (fastest decompression)
+            )
             .layer(TraceLayer::new_for_http());
 
         let listener = tokio::net::TcpListener::bind(&self.addr).await?;
@@ -101,10 +110,9 @@ impl DashboardServer {
     }
 }
 
-/// Shared application state
+/// Shared application state across all HTTP handlers
 #[derive(Clone)]
 pub struct AppState {
-    #[allow(dead_code)]
     pub config_path: PathBuf,
     pub output_dir: PathBuf,
     pub cache: ClusterCache,

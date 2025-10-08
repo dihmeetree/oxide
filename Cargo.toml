@@ -12,8 +12,10 @@ tokio = { version = "1.0", features = ["full"] }
 futures = "0.3"
 # Serialization
 serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
+serde_json = { version = "1.0", features = ["preserve_order", "raw_value"] }
 serde_yaml = "0.9"
+# High-performance SIMD JSON
+simd-json = "0.13"
 # Error handling
 anyhow = "1.0"
 # Logging
@@ -37,7 +39,7 @@ axum = "0.8.6"
 # HTML templating
 askama = { version = "0.14.0", features = ["serde_json"] }
 # Tower middleware for serving static files
-tower-http = { version = "0.6", features = ["fs", "trace", "compression-gzip"] }
+tower-http = { version = "0.6", features = ["fs", "trace", "compression-full"] }
 tower = "0.5"
 # Lock-free concurrent HashMap
 dashmap = "6.1"

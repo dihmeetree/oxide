@@ -1,0 +1,559 @@
+{% extends "layout.html" %} {% block content %}
+<div class="space-y-6">
+  <!-- Header -->
+  <div>
+    <h2 class="text-3xl font-semibold text-text-primary">Envoy</h2>
+    <p class="mt-1 text-base text-text-secondary">
+      L7 proxy metrics and request statistics
+    </p>
+  </div>
+
+  <!-- Envoy Info Cards -->
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+    <!-- Pods Running -->
+    <div class="rounded-lg p-6 bg-[#242424] border border-dark-border">
+      <div class="flex items-center justify-between">
+        <div>
+          <p class="text-sm font-medium mb-2 text-text-secondary">
+            Envoy Pods
+          </p>
+          <p class="text-4xl font-semibold text-text-primary">
+            {{ pods.len() }}
+          </p>
+        </div>
+        <div class="rounded-lg p-3 bg-accent-blue/15">
+          <svg
+            class="w-8 h-8 stroke-accent-blue"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke-width="2"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              d="M13 10V3L4 14h7v7l9-11h-7z"
+            ></path>
+          </svg>
+        </div>
+      </div>
+    </div>
+
+    <!-- Version -->
+    <div class="rounded-lg p-6 bg-[#242424] border border-dark-border">
+      <div class="flex items-center justify-between">
+        <div>
+          <p class="text-sm font-medium mb-2 text-text-secondary">Version</p>
+          <p class="text-4xl font-semibold text-text-primary">
+            {{ envoy_version }}
+          </p>
+        </div>
+        <div class="rounded-lg p-3 bg-accent-blue/15">
+          <svg
+            class="w-8 h-8 stroke-accent-blue"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke-width="2"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"
+            ></path>
+          </svg>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Envoy Pods Table -->
+  <div class="rounded-lg bg-[#242424] border border-dark-border">
+    <div class="p-6 border-b border-dark-border">
+      <h3 class="text-xl font-semibold text-text-primary">Envoy Pods</h3>
+    </div>
+    <div class="overflow-x-auto max-h-[600px] overflow-y-auto">
+      <table class="w-full">
+        <thead>
+          <tr class="border-b border-dark-border">
+            <th
+              class="px-6 py-3 text-left text-sm font-medium text-text-secondary"
+            >
+              Name
+            </th>
+            <th
+              class="px-6 py-3 text-center text-sm font-medium text-text-secondary"
+            >
+              Node
+            </th>
+            <th
+              class="px-6 py-3 text-center text-sm font-medium text-text-secondary"
+            >
+              Status
+            </th>
+            <th
+              class="px-6 py-3 text-center text-sm font-medium text-text-secondary"
+            >
+              CPU
+            </th>
+            <th
+              class="px-6 py-3 text-center text-sm font-medium text-text-secondary"
+            >
+              Memory
+            </th>
+            <th
+              class="px-6 py-3 text-center text-sm font-medium text-text-secondary"
+            >
+              Restarts
+            </th>
+            <th
+              class="px-6 py-3 text-center text-sm font-medium text-text-secondary"
+            >
+              Age
+            </th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-dark-border">
+          {% for pod in pods %}
+          <tr
+            class="hover:bg-dark-hover transition cursor-pointer"
+            onclick="window.location='/clusters/{{ pod.cluster_name }}/nodes/{{ pod.node }}/pods/{{ pod.namespace }}/{{ pod.name }}'"
+          >
+            <td class="px-6 py-4 whitespace-nowrap">
+              <span class="text-base font-medium font-mono text-text-primary">{{
+                pod.name
+              }}</span>
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-center">
+              <span class="text-base text-text-secondary">{{ pod.node }}</span>
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-center">
+              {% if pod.status == "Running" %}
+              <span
+                class="inline-flex items-center px-2.5 py-1 rounded-md text-sm font-medium bg-accent-green/15 text-accent-green"
+              >
+                <span
+                  class="w-1.5 h-1.5 rounded-full mr-1.5 bg-accent-green"
+                ></span>
+                Running
+              </span>
+              {% else %}
+              <span
+                class="inline-flex items-center px-2.5 py-1 rounded-md text-sm font-medium bg-text-muted/15 text-text-muted"
+              >
+                {{ pod.status }}
+              </span>
+              {% endif %}
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-center">
+              <span class="text-base font-mono text-text-primaryAlt">{{ pod.cpu }}</span>
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-center">
+              <span class="text-base font-mono text-text-primaryAlt">{{ pod.memory }}</span>
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-center">
+              <span class="text-base text-text-secondary">{{
+                pod.restarts
+              }}</span>
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-center">
+              <span class="text-base text-text-secondary">{{ pod.age }}</span>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Metrics Charts -->
+  <div class="grid grid-cols-1 gap-6">
+    <!-- Requests Per Second Chart -->
+    <div class="rounded-lg p-6 bg-[#242424] border border-dark-border">
+      <div class="flex items-center justify-between mb-4">
+        <h3 class="text-xl font-semibold text-text-primary">Requests Per Second</h3>
+        <button
+          onclick="refreshEnvoyMetrics()"
+          class="p-2 rounded-lg text-text-muted hover:text-text-primary bg-dark-hover hover:bg-dark-hoverAlt transition"
+          title="Refresh"
+        >
+          <svg
+            class="w-5 h-5"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+            stroke-width="2"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+            ></path>
+          </svg>
+        </button>
+      </div>
+      <div class="relative h-80">
+        <canvas id="rpsChart"></canvas>
+      </div>
+    </div>
+
+    <!-- Status Codes Chart -->
+    <div class="rounded-lg p-6 bg-[#242424] border border-dark-border">
+      <div class="flex items-center justify-between mb-4">
+        <h3 class="text-xl font-semibold text-text-primary">Requests by Status Code</h3>
+        <button
+          onclick="refreshEnvoyMetrics()"
+          class="p-2 rounded-lg text-text-muted hover:text-text-primary bg-dark-hover hover:bg-dark-hoverAlt transition"
+          title="Refresh"
+        >
+          <svg
+            class="w-5 h-5"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+            stroke-width="2"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+            ></path>
+          </svg>
+        </button>
+      </div>
+      <div class="relative h-80">
+        <canvas id="statusCodesChart"></canvas>
+      </div>
+      <div id="statusCodesLegend" class="mt-4">
+        <div class="flex flex-wrap gap-3">
+          <button
+            onclick="toggleStatusDataset(0)"
+            class="flex items-center gap-2 px-3 py-1.5 rounded-md transition bg-dark-hover"
+            data-chart="statusCodes"
+            data-index="0"
+          >
+            <span class="w-2 h-2 rounded-full bg-[#10B981]"></span>
+            <span class="text-sm text-text-primary">2xx</span>
+          </button>
+          <button
+            onclick="toggleStatusDataset(1)"
+            class="flex items-center gap-2 px-3 py-1.5 rounded-md transition bg-dark-hover"
+            data-chart="statusCodes"
+            data-index="1"
+          >
+            <span class="w-2 h-2 rounded-full bg-[#2776F3]"></span>
+            <span class="text-sm text-text-primary">3xx</span>
+          </button>
+          <button
+            onclick="toggleStatusDataset(2)"
+            class="flex items-center gap-2 px-3 py-1.5 rounded-md transition bg-dark-hover"
+            data-chart="statusCodes"
+            data-index="2"
+          >
+            <span class="w-2 h-2 rounded-full bg-[#F59E0B]"></span>
+            <span class="text-sm text-text-primary">4xx</span>
+          </button>
+          <button
+            onclick="toggleStatusDataset(3)"
+            class="flex items-center gap-2 px-3 py-1.5 rounded-md transition bg-dark-hover"
+            data-chart="statusCodes"
+            data-index="3"
+          >
+            <span class="w-2 h-2 rounded-full bg-[#FF4D4D]"></span>
+            <span class="text-sm text-text-primary">5xx</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script>
+  let rpsChart;
+  let statusCodesChart;
+
+  // Initialize charts
+  function initCharts(data) {
+    if (!data || !data.timestamps || data.timestamps.length === 0) {
+      return;
+    }
+
+    // Format timestamps
+    const formattedTimestamps = data.timestamps.map((ts) => {
+      const date = new Date(ts * 1000);
+      return date.toLocaleTimeString("en-US", {
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+    });
+
+    // RPS Chart
+    const rpsCtx = document.getElementById("rpsChart").getContext("2d");
+    if (rpsChart) {
+      rpsChart.destroy();
+    }
+    rpsChart = new Chart(rpsCtx, {
+      type: "line",
+      data: {
+        labels: formattedTimestamps,
+        datasets: [{
+          label: "Requests/sec",
+          data: data.rpsHistory,
+          borderColor: "#2776F3",
+          backgroundColor: "#2776F320",
+          borderWidth: 2,
+          fill: true,
+          tension: 0.4,
+          pointRadius: 0,
+          pointHoverRadius: 5,
+        }],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: false,
+        interaction: {
+          mode: "index",
+          intersect: false,
+        },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            backgroundColor: "#2A2A2A",
+            titleColor: "#F2F2F2",
+            bodyColor: "#E8E8E8",
+            borderColor: "#313131",
+            borderWidth: 1,
+            padding: 12,
+            callbacks: {
+              label: function (context) {
+                return "RPS: " + context.parsed.y.toFixed(2);
+              },
+            },
+          },
+        },
+        scales: {
+          x: {
+            grid: { color: "#313131", drawBorder: false },
+            ticks: { color: "#AAAAAA" },
+          },
+          y: {
+            beginAtZero: true,
+            grid: { color: "#313131", drawBorder: false },
+            ticks: { color: "#AAAAAA" },
+            title: {
+              display: true,
+              text: "Requests per Second",
+              color: "#AAAAAA",
+            },
+          },
+        },
+      },
+    });
+
+    // Status Codes Chart
+    const statusCtx = document.getElementById("statusCodesChart").getContext("2d");
+    if (statusCodesChart) {
+      statusCodesChart.destroy();
+    }
+    statusCodesChart = new Chart(statusCtx, {
+      type: "line",
+      data: {
+        labels: formattedTimestamps,
+        datasets: [
+          {
+            label: "2xx",
+            data: data.status2xxHistory,
+            borderColor: "#10B981",
+            backgroundColor: "#10B98120",
+            borderWidth: 2,
+            fill: true,
+            tension: 0.4,
+            pointRadius: 0,
+            pointHoverRadius: 5,
+          },
+          {
+            label: "3xx",
+            data: data.status3xxHistory,
+            borderColor: "#2776F3",
+            backgroundColor: "#2776F320",
+            borderWidth: 2,
+            fill: true,
+            tension: 0.4,
+            pointRadius: 0,
+            pointHoverRadius: 5,
+          },
+          {
+            label: "4xx",
+            data: data.status4xxHistory,
+            borderColor: "#F59E0B",
+            backgroundColor: "#F59E0B20",
+            borderWidth: 2,
+            fill: true,
+            tension: 0.4,
+            pointRadius: 0,
+            pointHoverRadius: 5,
+          },
+          {
+            label: "5xx",
+            data: data.status5xxHistory,
+            borderColor: "#FF4D4D",
+            backgroundColor: "#FF4D4D20",
+            borderWidth: 2,
+            fill: true,
+            tension: 0.4,
+            pointRadius: 0,
+            pointHoverRadius: 5,
+          },
+        ],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: false,
+        interaction: {
+          mode: "index",
+          intersect: false,
+        },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            backgroundColor: "#2A2A2A",
+            titleColor: "#F2F2F2",
+            bodyColor: "#E8E8E8",
+            borderColor: "#313131",
+            borderWidth: 1,
+            padding: 12,
+            callbacks: {
+              label: function (context) {
+                return context.dataset.label + ": " + context.parsed.y.toFixed(2);
+              },
+            },
+          },
+        },
+        scales: {
+          x: {
+            stacked: false,
+            grid: { color: "#313131", drawBorder: false },
+            ticks: { color: "#AAAAAA" },
+          },
+          y: {
+            stacked: false,
+            beginAtZero: true,
+            grid: { color: "#313131", drawBorder: false },
+            ticks: { color: "#AAAAAA" },
+            title: {
+              display: true,
+              text: "Requests per Second",
+              color: "#AAAAAA",
+            },
+          },
+        },
+      },
+    });
+  }
+
+  // Fetch Envoy metrics from API
+  async function fetchEnvoyMetrics() {
+    try {
+      const response = await fetch('/api/envoy/metrics');
+      const data = await response.json();
+      return data;
+    } catch (error) {
+      console.error('Failed to fetch Envoy metrics:', error);
+      return null;
+    }
+  }
+
+  // Refresh Envoy metrics
+  async function refreshEnvoyMetrics() {
+    const data = await fetchEnvoyMetrics();
+    if (!data || !data.timestamps || data.timestamps.length === 0) return;
+    if (!rpsChart || !statusCodesChart) return;
+
+    // Format timestamps
+    const formattedTimestamps = data.timestamps.map((ts) => {
+      const date = new Date(ts * 1000);
+      return date.toLocaleTimeString("en-US", {
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+    });
+
+    // Update RPS chart
+    rpsChart.data.labels = formattedTimestamps;
+    rpsChart.data.datasets[0].data = data.rpsHistory;
+    rpsChart.update();
+
+    // Update Status Codes chart - preserve visibility state
+    const visibilityMap = {};
+    statusCodesChart.data.datasets.forEach((ds, i) => {
+      visibilityMap[i] = statusCodesChart.isDatasetVisible(i);
+    });
+
+    statusCodesChart.data.labels = formattedTimestamps;
+    statusCodesChart.data.datasets[0].data = data.status2xxHistory;
+    statusCodesChart.data.datasets[1].data = data.status3xxHistory;
+    statusCodesChart.data.datasets[2].data = data.status4xxHistory;
+    statusCodesChart.data.datasets[3].data = data.status5xxHistory;
+
+    // Restore visibility state
+    statusCodesChart.data.datasets.forEach((ds, i) => {
+      if (visibilityMap.hasOwnProperty(i)) {
+        statusCodesChart.setDatasetVisibility(i, visibilityMap[i]);
+      }
+    });
+
+    statusCodesChart.update();
+  }
+
+  // Toggle dataset visibility
+  function toggleStatusDataset(index) {
+    if (!statusCodesChart) return;
+
+    const isCurrentlyVisible = statusCodesChart.isDatasetVisible(index);
+
+    // Count how many datasets are currently visible
+    let visibleCount = 0;
+    for (let i = 0; i < statusCodesChart.data.datasets.length; i++) {
+      if (statusCodesChart.isDatasetVisible(i)) visibleCount++;
+    }
+
+    // If only one is visible and we click it, show all
+    if (visibleCount === 1 && isCurrentlyVisible) {
+      statusCodesChart.data.datasets.forEach((dataset, i) => {
+        statusCodesChart.setDatasetVisibility(i, true);
+      });
+    } else {
+      // Otherwise, show only the clicked one
+      statusCodesChart.data.datasets.forEach((dataset, i) => {
+        statusCodesChart.setDatasetVisibility(i, i === index);
+      });
+    }
+
+    statusCodesChart.update();
+
+    // Update button styles
+    const legendContainer = document.getElementById('statusCodesLegend');
+    const buttons = legendContainer.querySelectorAll('button');
+    buttons.forEach((button, i) => {
+      const isVisible = statusCodesChart.isDatasetVisible(i);
+      if (isVisible) {
+        button.classList.remove('opacity-50', 'bg-dark-bg');
+        button.classList.add('bg-dark-hover');
+      } else {
+        button.classList.add('opacity-50', 'bg-dark-bg');
+        button.classList.remove('bg-dark-hover');
+      }
+    });
+  }
+
+  // Initialize on page load
+  document.addEventListener("DOMContentLoaded", function () {
+    const serverData = {{ metrics_json|safe }};
+    if (serverData && serverData.timestamps && serverData.timestamps.length > 0) {
+      initCharts(serverData);
+    }
+  });
+</script>
+
+{% endblock %}
