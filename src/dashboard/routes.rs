@@ -11,9 +11,9 @@ use tracing::{error, info};
 
 use super::server::AppState;
 use super::templates::{
-    CiliumPod, CiliumTemplate, ClusterDetailTemplate, ClustersTemplate, CreateClusterTemplate,
-    IndexTemplate, MetricsTemplate, NodeDetailTemplate, NodeInfoWithCluster, NodesTemplate,
-    PodDetailTemplate, PodsTemplate,
+    AlertsTemplate, CiliumPod, CiliumTemplate, ClusterDetailTemplate, ClustersTemplate,
+    CreateClusterTemplate, IndexTemplate, MetricsTemplate, NodeDetailTemplate, NodeInfoWithCluster,
+    NodesTemplate, PodDetailTemplate, PodsTemplate,
 };
 use crate::config::ClusterConfig;
 
@@ -552,6 +552,13 @@ pub async fn metrics(State(state): State<AppState>) -> impl IntoResponse {
     let (node_metrics_history, pod_metrics_history) = state.cache.get_all_metrics_history().await;
     let has_data = !node_metrics_history.is_empty();
 
+    // Extract node and pod names for server-side legend rendering
+    let mut node_names: Vec<String> = node_metrics_history.keys().cloned().collect();
+    node_names.sort();
+
+    let mut pod_names: Vec<String> = pod_metrics_history.keys().cloned().collect();
+    pod_names.sort();
+
     // Build metrics response
     let metrics_json = if has_data {
         let results: Vec<(String, crate::prometheus::NodeMetricsHistory)> = node_metrics_history
@@ -581,6 +588,8 @@ pub async fn metrics(State(state): State<AppState>) -> impl IntoResponse {
         version: env!("CARGO_PKG_VERSION").to_string(),
         has_data,
         metrics_json,
+        node_names,
+        pod_names,
     };
     Html(template.render().unwrap()).into_response()
 }
@@ -596,19 +605,18 @@ pub async fn api_metrics(
     // For default 1h range, use pre-serialized JSON cache (BLAZING FAST!)
     if time_range == "1h" {
         let json_cache = state.cache.get_metrics_json_cache().await;
+        let json_string = json_cache.as_ref();
 
-        // Add caching headers for browser caching
-        return (
-            [
-                (axum::http::header::CONTENT_TYPE, "application/json"),
-                (
-                    axum::http::header::CACHE_CONTROL,
-                    "public, max-age=15, stale-while-revalidate=30",
-                ),
-            ],
-            json_cache.to_string(),
-        )
-            .into_response();
+        // If cache is empty or not ready, fall through to fetch fresh data
+        if json_string.is_empty() || json_string == "{}" {
+            tracing::warn!("Cache returned empty JSON, falling through to fresh fetch");
+        } else {
+            return (
+                [(axum::http::header::CONTENT_TYPE, "application/json")],
+                json_string.to_string(),
+            )
+                .into_response();
+        }
     }
 
     // For ranges other than 1h, fetch fresh data from Prometheus
@@ -780,6 +788,11 @@ pub async fn nodes_list(State(state): State<AppState>) -> impl IntoResponse {
 
     // Get node metrics for charts (only node metrics, not pod metrics)
     let node_metrics_history = state.cache.get_node_metrics_history().await;
+
+    // Extract node names for server-side legend rendering
+    let mut node_names: Vec<String> = node_metrics_history.keys().cloned().collect();
+    node_names.sort();
+
     let metrics_json = if !node_metrics_history.is_empty() {
         let results: Vec<(String, crate::prometheus::NodeMetricsHistory)> = node_metrics_history
             .iter()
@@ -803,6 +816,7 @@ pub async fn nodes_list(State(state): State<AppState>) -> impl IntoResponse {
         worker_count,
         running_count,
         metrics_json,
+        node_names,
         active_page: "nodes".to_string(),
         version: env!("CARGO_PKG_VERSION").to_string(),
     };
@@ -953,6 +967,11 @@ pub async fn cilium(State(state): State<AppState>) -> impl IntoResponse {
             |cilium_pods, cilium_version, hubble_enabled, ipv6_enabled, pod_metrics_history| {
                 let metrics_json = build_cilium_metrics_json(pod_metrics_history, cilium_pods);
 
+                // Extract pod names for server-side legend rendering (just the pod name, not namespace)
+                let mut pod_names: Vec<String> =
+                    cilium_pods.iter().map(|p| p.name.clone()).collect();
+                pod_names.sort();
+
                 CiliumTemplate {
                     active_page: "cilium".to_string(),
                     version: env!("CARGO_PKG_VERSION").to_string(),
@@ -962,10 +981,37 @@ pub async fn cilium(State(state): State<AppState>) -> impl IntoResponse {
                     ipv6_enabled,
                     metrics_json: serde_json::to_string(&metrics_json)
                         .unwrap_or_else(|_| "{}".to_string()),
+                    pod_names,
                 }
             },
         )
         .await;
+
+    Html(template.render().unwrap()).into_response()
+}
+
+/// Alerts page - shows all Prometheus alerts
+pub async fn alerts(State(state): State<AppState>) -> impl IntoResponse {
+    let cache_ready = state.cache.is_ready().await;
+
+    if !cache_ready {
+        return preloader_page().into_response();
+    }
+
+    // Get alerts from cache
+    let alerts = state.cache.get_alerts().await;
+
+    // Count alert states
+    let firing_count = alerts.iter().filter(|a| a.state == "firing").count();
+    let pending_count = alerts.iter().filter(|a| a.state == "pending").count();
+
+    let template = AlertsTemplate {
+        active_page: "alerts".to_string(),
+        version: env!("CARGO_PKG_VERSION").to_string(),
+        alerts,
+        firing_count,
+        pending_count,
+    };
 
     Html(template.render().unwrap()).into_response()
 }
@@ -983,16 +1029,8 @@ pub async fn api_cilium_metrics(State(state): State<AppState>) -> impl IntoRespo
 
     // Use pre-serialized JSON cache (BLAZING FAST!)
     let json_cache = state.cache.get_cilium_metrics_json_cache().await;
-
-    // Add caching headers for browser caching
     (
-        [
-            (axum::http::header::CONTENT_TYPE, "application/json"),
-            (
-                axum::http::header::CACHE_CONTROL,
-                "public, max-age=15, stale-while-revalidate=30",
-            ),
-        ],
+        [(axum::http::header::CONTENT_TYPE, "application/json")],
         json_cache.to_string(),
     )
         .into_response()

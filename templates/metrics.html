@@ -119,7 +119,23 @@
       <div class="relative h-80">
         <canvas id="cpuChart"></canvas>
       </div>
-      <div id="nodeCpuLegend" class="mt-4 max-h-32 overflow-y-auto scrollbar-thin scrollbar-thumb-dark-border scrollbar-track-dark-bg"></div>
+      <div id="nodeCpuLegend" class="mt-4 max-h-32 overflow-y-auto scrollbar-thin scrollbar-thumb-dark-border scrollbar-track-dark-bg">
+        {% if has_data %}
+        <div class="flex flex-wrap gap-3">
+          {% for node_name in node_names %}
+          <button
+            onclick="toggleDataset('nodeCpu', {{ loop.index0 }})"
+            class="flex items-center gap-2 px-3 py-1.5 rounded-md transition bg-dark-hover"
+            data-chart="nodeCpu"
+            data-index="{{ loop.index0 }}"
+          >
+            <span class="w-2 h-2 rounded-full" data-color-for="{{ node_name }}"></span>
+            <span class="text-sm text-text-primary">{{ node_name }}</span>
+          </button>
+          {% endfor %}
+        </div>
+        {% endif %}
+      </div>
     </div>
 
     <!-- Memory Usage Graph -->
@@ -149,7 +165,23 @@
       <div class="relative h-80">
         <canvas id="memoryChart"></canvas>
       </div>
-      <div id="nodeMemoryLegend" class="mt-4 max-h-32 overflow-y-auto scrollbar-thin scrollbar-thumb-dark-border scrollbar-track-dark-bg"></div>
+      <div id="nodeMemoryLegend" class="mt-4 max-h-32 overflow-y-auto scrollbar-thin scrollbar-thumb-dark-border scrollbar-track-dark-bg">
+        {% if has_data %}
+        <div class="flex flex-wrap gap-3">
+          {% for node_name in node_names %}
+          <button
+            onclick="toggleDataset('nodeMemory', {{ loop.index0 }})"
+            class="flex items-center gap-2 px-3 py-1.5 rounded-md transition bg-dark-hover"
+            data-chart="nodeMemory"
+            data-index="{{ loop.index0 }}"
+          >
+            <span class="w-2 h-2 rounded-full" data-color-for="{{ node_name }}"></span>
+            <span class="text-sm text-text-primary">{{ node_name }}</span>
+          </button>
+          {% endfor %}
+        </div>
+        {% endif %}
+      </div>
     </div>
 
     <!-- Pod CPU Usage Graph -->
@@ -179,7 +211,23 @@
       <div class="relative h-80">
         <canvas id="podCpuChart"></canvas>
       </div>
-      <div id="podCpuLegend" class="mt-4 max-h-32 overflow-y-auto scrollbar-thin scrollbar-thumb-dark-border scrollbar-track-dark-bg"></div>
+      <div id="podCpuLegend" class="mt-4 max-h-32 overflow-y-auto scrollbar-thin scrollbar-thumb-dark-border scrollbar-track-dark-bg">
+        {% if has_data %}
+        <div class="flex flex-wrap gap-3">
+          {% for pod_name in pod_names %}
+          <button
+            onclick="toggleDataset('podCpu', {{ loop.index0 }})"
+            class="flex items-center gap-2 px-3 py-1.5 rounded-md transition bg-dark-hover"
+            data-chart="podCpu"
+            data-index="{{ loop.index0 }}"
+          >
+            <span class="w-2 h-2 rounded-full" data-color-for="{{ pod_name }}"></span>
+            <span class="text-sm text-text-primary">{{ pod_name }}</span>
+          </button>
+          {% endfor %}
+        </div>
+        {% endif %}
+      </div>
     </div>
 
     <!-- Pod Memory Usage Graph -->
@@ -209,7 +257,23 @@
       <div class="relative h-80">
         <canvas id="podMemoryChart"></canvas>
       </div>
-      <div id="podMemoryLegend" class="mt-4 max-h-32 overflow-y-auto scrollbar-thin scrollbar-thumb-dark-border scrollbar-track-dark-bg"></div>
+      <div id="podMemoryLegend" class="mt-4 max-h-32 overflow-y-auto scrollbar-thin scrollbar-thumb-dark-border scrollbar-track-dark-bg">
+        {% if has_data %}
+        <div class="flex flex-wrap gap-3">
+          {% for pod_name in pod_names %}
+          <button
+            onclick="toggleDataset('podMemory', {{ loop.index0 }})"
+            class="flex items-center gap-2 px-3 py-1.5 rounded-md transition bg-dark-hover"
+            data-chart="podMemory"
+            data-index="{{ loop.index0 }}"
+          >
+            <span class="w-2 h-2 rounded-full" data-color-for="{{ pod_name }}"></span>
+            <span class="text-sm text-text-primary">{{ pod_name }}</span>
+          </button>
+          {% endfor %}
+        </div>
+        {% endif %}
+      </div>
     </div>
   </div>
 </div>
@@ -240,28 +304,30 @@
   let nodeColorMap = {}; // Store consistent colors for each node
   let podColorMap = {}; // Store consistent colors for each pod
 
-  // Generate HTML legend for charts
-  function generateLegend(chart, containerId, chartType) {
+  // Apply colors to server-rendered legend
+  function applyLegendColors(chart, containerId) {
     const legendContainer = document.getElementById(containerId);
     if (!legendContainer) return;
 
-    let legendHTML = '<div class="flex flex-wrap gap-3">';
-
-    chart.data.datasets.forEach((dataset, i) => {
-      const isVisible = chart.isDatasetVisible(i);
-      legendHTML += `
-        <button
-          onclick="toggleDataset('${chartType}', ${i})"
-          class="flex items-center gap-2 px-3 py-1.5 rounded-md transition ${isVisible ? 'bg-dark-hover' : 'bg-dark-bg opacity-50'}"
-        >
-          <span class="w-2 h-2 rounded-full" style="background-color: ${dataset.borderColor}"></span>
-          <span class="text-sm text-text-primary">${dataset.label}</span>
-        </button>
-      `;
+    const colorSpans = legendContainer.querySelectorAll('[data-color-for]');
+    colorSpans.forEach((span) => {
+      const name = span.getAttribute('data-color-for');
+      const dataset = chart.data.datasets.find(ds => ds.label === name);
+      if (dataset) {
+        span.style.backgroundColor = dataset.borderColor;
+      }
     });
 
-    legendHTML += '</div>';
-    legendContainer.innerHTML = legendHTML;
+    // Update button states based on visibility
+    const buttons = legendContainer.querySelectorAll('button');
+    buttons.forEach((button, i) => {
+      const isVisible = chart.isDatasetVisible(i);
+      if (!isVisible) {
+        button.classList.add('opacity-50');
+        button.classList.remove('bg-dark-hover');
+        button.classList.add('bg-dark-bg');
+      }
+    });
   }
 
   // Toggle dataset visibility
@@ -307,7 +373,20 @@
       });
     }
     chart.update();
-    generateLegend(chart, containerId, chartType);
+
+    // Update button styles
+    const legendContainer = document.getElementById(containerId);
+    const buttons = legendContainer.querySelectorAll('button');
+    buttons.forEach((button, i) => {
+      const isVisible = chart.isDatasetVisible(i);
+      if (isVisible) {
+        button.classList.remove('opacity-50', 'bg-dark-bg');
+        button.classList.add('bg-dark-hover');
+      } else {
+        button.classList.add('opacity-50', 'bg-dark-bg');
+        button.classList.remove('bg-dark-hover');
+      }
+    });
   }
 
   // Initialize charts
@@ -647,9 +726,9 @@
         },
       });
 
-      // Generate HTML legends for node charts
-      generateLegend(cpuChart, 'nodeCpuLegend', 'nodeCpu');
-      generateLegend(memoryChart, 'nodeMemoryLegend', 'nodeMemory');
+      // Apply colors to server-rendered legends
+      applyLegendColors(cpuChart, 'nodeCpuLegend');
+      applyLegendColors(memoryChart, 'nodeMemoryLegend');
 
       // Pod charts
       if (data.pods && data.pods.length > 0) {
@@ -905,9 +984,9 @@
           },
         });
 
-        // Generate HTML legends for pod charts
-        generateLegend(podCpuChart, 'podCpuLegend', 'podCpu');
-        generateLegend(podMemoryChart, 'podMemoryLegend', 'podMemory');
+        // Apply colors to server-rendered legends
+        applyLegendColors(podCpuChart, 'podCpuLegend');
+        applyLegendColors(podMemoryChart, 'podMemoryLegend');
       }
     } catch (error) {
       console.error("Failed to load metrics:", error);
@@ -992,9 +1071,9 @@
     cpuChart.update();
     memoryChart.update();
 
-    // Regenerate legends after both charts are updated
-    generateLegend(cpuChart, 'nodeCpuLegend', 'nodeCpu');
-    generateLegend(memoryChart, 'nodeMemoryLegend', 'nodeMemory');
+    // Update legend styles after charts are updated
+    applyLegendColors(cpuChart, 'nodeCpuLegend');
+    applyLegendColors(memoryChart, 'nodeMemoryLegend');
 
     // Update pod charts if available
     if (data.pods && data.pods.length > 0 && podCpuChart && podMemoryChart) {
@@ -1052,9 +1131,9 @@
       podCpuChart.update();
       podMemoryChart.update();
 
-      // Regenerate legends after both charts are updated
-      generateLegend(podCpuChart, 'podCpuLegend', 'podCpu');
-      generateLegend(podMemoryChart, 'podMemoryLegend', 'podMemory');
+      // Update legend styles after charts are updated
+      applyLegendColors(podCpuChart, 'podCpuLegend');
+      applyLegendColors(podMemoryChart, 'podMemoryLegend');
     }
 
     // Hide refresh indicator after update

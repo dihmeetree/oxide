@@ -308,7 +308,21 @@
       <div class="relative h-80">
         <canvas id="cpuChart"></canvas>
       </div>
-      <div id="nodeCpuLegend" class="mt-4 max-h-32 overflow-y-auto"></div>
+      <div id="nodeCpuLegend" class="mt-4 max-h-32 overflow-y-auto">
+        <div class="flex flex-wrap gap-3">
+          {% for node_name in node_names %}
+          <button
+            onclick="toggleDataset('nodeCpu', {{ loop.index0 }})"
+            class="flex items-center gap-2 px-3 py-1.5 rounded-md transition bg-dark-hover"
+            data-chart="nodeCpu"
+            data-index="{{ loop.index0 }}"
+          >
+            <span class="w-2 h-2 rounded-full" data-color-for="{{ node_name }}"></span>
+            <span class="text-sm text-text-primary">{{ node_name }}</span>
+          </button>
+          {% endfor %}
+        </div>
+      </div>
     </div>
 
     <!-- Memory Usage Graph -->
@@ -338,7 +352,21 @@
       <div class="relative h-80">
         <canvas id="memoryChart"></canvas>
       </div>
-      <div id="nodeMemoryLegend" class="mt-4 max-h-32 overflow-y-auto"></div>
+      <div id="nodeMemoryLegend" class="mt-4 max-h-32 overflow-y-auto">
+        <div class="flex flex-wrap gap-3">
+          {% for node_name in node_names %}
+          <button
+            onclick="toggleDataset('nodeMemory', {{ loop.index0 }})"
+            class="flex items-center gap-2 px-3 py-1.5 rounded-md transition bg-dark-hover"
+            data-chart="nodeMemory"
+            data-index="{{ loop.index0 }}"
+          >
+            <span class="w-2 h-2 rounded-full" data-color-for="{{ node_name }}"></span>
+            <span class="text-sm text-text-primary">{{ node_name }}</span>
+          </button>
+          {% endfor %}
+        </div>
+      </div>
     </div>
   </div>
   {% endif %}
@@ -357,28 +385,30 @@
   let isStacked = true;
   let nodeColorMap = {};
 
-  // Generate HTML legend for charts
-  function generateLegend(chart, containerId, chartType) {
+  // Apply colors to server-rendered legend
+  function applyLegendColors(chart, containerId) {
     const legendContainer = document.getElementById(containerId);
     if (!legendContainer) return;
 
-    let legendHTML = '<div class="flex flex-wrap gap-3">';
-
-    chart.data.datasets.forEach((dataset, i) => {
-      const isVisible = chart.isDatasetVisible(i);
-      legendHTML += `
-        <button
-          onclick="toggleDataset('${chartType}', ${i})"
-          class="flex items-center gap-2 px-3 py-1.5 rounded-md transition ${isVisible ? 'bg-dark-hover' : 'bg-dark-bg opacity-50'}"
-        >
-          <span class="w-2 h-2 rounded-full" style="background-color: ${dataset.borderColor}"></span>
-          <span class="text-sm text-text-primary">${dataset.label}</span>
-        </button>
-      `;
+    const colorSpans = legendContainer.querySelectorAll('[data-color-for]');
+    colorSpans.forEach((span) => {
+      const name = span.getAttribute('data-color-for');
+      const dataset = chart.data.datasets.find(ds => ds.label === name);
+      if (dataset) {
+        span.style.backgroundColor = dataset.borderColor;
+      }
     });
 
-    legendHTML += '</div>';
-    legendContainer.innerHTML = legendHTML;
+    // Update button states based on visibility
+    const buttons = legendContainer.querySelectorAll('button');
+    buttons.forEach((button, i) => {
+      const isVisible = chart.isDatasetVisible(i);
+      if (!isVisible) {
+        button.classList.add('opacity-50');
+        button.classList.remove('bg-dark-hover');
+        button.classList.add('bg-dark-bg');
+      }
+    });
   }
 
   // Toggle dataset visibility
@@ -412,7 +442,20 @@
       });
     }
     chart.update();
-    generateLegend(chart, containerId, chartType);
+
+    // Update button styles
+    const legendContainer = document.getElementById(containerId);
+    const buttons = legendContainer.querySelectorAll('button');
+    buttons.forEach((button, i) => {
+      const isVisible = chart.isDatasetVisible(i);
+      if (isVisible) {
+        button.classList.remove('opacity-50', 'bg-dark-bg');
+        button.classList.add('bg-dark-hover');
+      } else {
+        button.classList.add('opacity-50', 'bg-dark-bg');
+        button.classList.remove('bg-dark-hover');
+      }
+    });
   }
 
   // Initialize charts
@@ -577,8 +620,8 @@
     });
 
     // Generate legends
-    generateLegend(cpuChart, 'nodeCpuLegend', 'nodeCpu');
-    generateLegend(memoryChart, 'nodeMemoryLegend', 'nodeMemory');
+    applyLegendColors(cpuChart, 'nodeCpuLegend');
+    applyLegendColors(memoryChart, 'nodeMemoryLegend');
   }
 
   // Refresh metrics from API
@@ -626,7 +669,7 @@
         hidden: i < cpuVisibility.length ? !cpuVisibility[i] : false,
       }));
       cpuChart.update();
-      generateLegend(cpuChart, 'nodeCpuLegend', 'nodeCpu');
+      applyLegendColors(cpuChart, 'nodeCpuLegend');
 
       // Update memory chart - preserve visibility state
       const memoryVisibility = memoryChart.data.datasets.map((ds, i) => memoryChart.isDatasetVisible(i));
@@ -644,7 +687,7 @@
         hidden: i < memoryVisibility.length ? !memoryVisibility[i] : false,
       }));
       memoryChart.update();
-      generateLegend(memoryChart, 'nodeMemoryLegend', 'nodeMemory');
+      applyLegendColors(memoryChart, 'nodeMemoryLegend');
     } catch (error) {
       console.error('Failed to refresh metrics:', error);
     }

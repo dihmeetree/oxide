@@ -908,3 +908,174 @@ pub async fn query_pod_metrics_range(
         memory_history,
     })
 }
+/// Alert information from Prometheus
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct Alert {
+    pub name: String,
+    pub state: String, // firing, pending, inactive
+    pub severity: String,
+    pub description: String,
+    pub labels: Vec<(String, String)>,
+    pub active_at: Option<String>,
+    pub value: Option<String>,
+}
+
+/// Query all alerts from Prometheus
+pub async fn query_alerts(kubeconfig_path: &std::path::Path) -> Result<Vec<Alert>> {
+    // Get the Prometheus pod name
+    let output = CommandBuilder::new("kubectl")
+        .args([
+            "get",
+            "pods",
+            "-n",
+            "monitoring",
+            "-l",
+            "app.kubernetes.io/name=prometheus",
+            "-o",
+            "jsonpath={.items[0].metadata.name}",
+        ])
+        .kubeconfig(kubeconfig_path)
+        .context("Failed to get Prometheus pod name")
+        .output()
+        .await?;
+
+    if !output.success || output.stdout.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let prom_pod_name = output.stdout.trim();
+
+    // Query alerts API
+    let alert_output = CommandBuilder::new("kubectl")
+        .args([
+            "exec",
+            "-n",
+            "monitoring",
+            prom_pod_name,
+            "--",
+            "wget",
+            "-q",
+            "-O-",
+            "http://localhost:9090/api/v1/alerts",
+        ])
+        .kubeconfig(kubeconfig_path)
+        .context("Failed to query Prometheus alerts")
+        .output()
+        .await?;
+
+    if !alert_output.success {
+        tracing::debug!(
+            "Prometheus alerts query failed: {}",
+            alert_output.stderr.trim()
+        );
+        return Ok(Vec::new());
+    }
+
+    #[derive(Deserialize)]
+    struct AlertsResponse {
+        data: AlertsData,
+    }
+
+    #[derive(Deserialize)]
+    struct AlertsData {
+        alerts: Vec<PrometheusAlert>,
+    }
+
+    #[derive(Deserialize)]
+    struct PrometheusAlert {
+        labels: std::collections::HashMap<String, String>,
+        annotations: std::collections::HashMap<String, String>,
+        state: String,
+        #[serde(rename = "activeAt")]
+        active_at: Option<String>,
+        value: Option<String>,
+    }
+
+    let response: AlertsResponse =
+        serde_json::from_str(&alert_output.stdout).context("Failed to parse alerts response")?;
+
+    let alerts: Vec<Alert> = response
+        .data
+        .alerts
+        .into_iter()
+        .map(|a| {
+            let name = a
+                .labels
+                .get("alertname")
+                .cloned()
+                .unwrap_or_else(|| "Unknown".to_string());
+            let severity = a
+                .labels
+                .get("severity")
+                .cloned()
+                .unwrap_or_else(|| "none".to_string());
+            let description = a
+                .annotations
+                .get("description")
+                .or_else(|| a.annotations.get("summary"))
+                .cloned()
+                .unwrap_or_else(|| "No description".to_string());
+
+            // Convert HashMap to Vec of tuples for template rendering
+            let labels: Vec<(String, String)> = a
+                .labels
+                .into_iter()
+                .filter(|(k, _)| k != "alertname" && k != "severity") // Exclude already displayed fields
+                .collect();
+
+            // Format value to avoid scientific notation
+            let value = a.value.and_then(|v| {
+                v.parse::<f64>().ok().map(|num| {
+                    if num.abs() < 0.01 {
+                        format!("{:.6}", num)
+                    } else if num.abs() < 1.0 {
+                        format!("{:.4}", num)
+                    } else if num.abs() < 100.0 {
+                        format!("{:.2}", num)
+                    } else {
+                        format!("{:.0}", num)
+                    }
+                })
+            });
+
+            // Format active_at timestamp to human-readable format
+            let active_at = a.active_at.and_then(|ts| {
+                use chrono::{DateTime, Utc};
+                DateTime::parse_from_rfc3339(&ts).ok().map(|dt| {
+                    let utc = dt.with_timezone(&Utc);
+                    let now = Utc::now();
+                    let duration = now.signed_duration_since(utc);
+
+                    let days = duration.num_days();
+                    let hours = duration.num_hours();
+                    let minutes = duration.num_minutes();
+                    let seconds = duration.num_seconds();
+
+                    let relative = if days > 0 {
+                        format!("{}d {}h ago", days, hours % 24)
+                    } else if hours > 0 {
+                        format!("{}h {}m ago", hours, minutes % 60)
+                    } else if minutes > 0 {
+                        format!("{}m {}s ago", minutes, seconds % 60)
+                    } else {
+                        format!("{}s ago", seconds)
+                    };
+
+                    format!("{} ({})", utc.format("%Y-%m-%d %H:%M:%S UTC"), relative)
+                })
+            });
+
+            Alert {
+                name,
+                state: a.state,
+                severity,
+                description,
+                labels,
+                active_at,
+                value,
+            }
+        })
+        .collect();
+
+    Ok(alerts)
+}

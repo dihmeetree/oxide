@@ -101,6 +101,7 @@ struct CacheData {
     cilium_version: Arc<str>,
     hubble_enabled: bool,
     ipv6_enabled: bool,
+    alerts: Vec<crate::prometheus::Alert>,
     last_update: Instant,
     is_ready: bool,
     // Pre-serialized JSON for API responses (TODO: implement caching)
@@ -125,6 +126,7 @@ impl ClusterCache {
                 cilium_version: Arc::from("N/A"),
                 hubble_enabled: false,
                 ipv6_enabled: false,
+                alerts: Vec::new(),
                 last_update: Instant::now(),
                 is_ready: false,
                 metrics_json_cache: Arc::from("{}"),
@@ -276,6 +278,12 @@ impl ClusterCache {
         )
     }
 
+    /// Get all alerts from cache
+    pub async fn get_alerts(&self) -> Vec<crate::prometheus::Alert> {
+        let data = self.inner.read().await;
+        data.alerts.clone()
+    }
+
     /// Process Cilium data with a closure to avoid cloning
     #[allow(dead_code)]
     pub async fn with_cilium_data<F, R>(&self, f: F) -> R
@@ -353,7 +361,7 @@ impl ClusterCache {
 
     /// Refresh cache with new data
     pub async fn refresh(&self, config_path: &std::path::Path) -> Result<()> {
-        info!("Refreshing cluster cache...");
+        info!("Starting full cache refresh (Hetzner API + Kubernetes)...");
 
         // Load config
         let config_str = tokio::fs::read_to_string(config_path).await?;
@@ -361,19 +369,30 @@ impl ClusterCache {
         let hcloud_token = config.get_hcloud_token()?;
 
         // Fetch servers from Hetzner API
+        info!("Fetching servers from Hetzner Cloud API...");
         let client = HetznerCloudClient::new(hcloud_token)?;
         let servers = client.list_servers().await?;
+        info!("Retrieved {} servers from Hetzner", servers.len());
 
         // Group by cluster name
         let clusters = group_servers_into_clusters(&servers);
 
-        // Fetch all data in parallel - this is the main optimization!
-        let (node_details, mut pod_details, pod_metrics_history, node_metrics_history, cilium_data) = tokio::join!(
+        // Fetch all Kubernetes/Prometheus data in parallel
+        info!("Fetching Kubernetes and Prometheus data in parallel...");
+        let (
+            node_details,
+            mut pod_details,
+            pod_metrics_history,
+            node_metrics_history,
+            cilium_data,
+            alerts,
+        ) = tokio::join!(
             fetch_all_node_details(&servers, config_path),
             fetch_all_pod_details(config_path, &config.cluster_name),
             fetch_all_pod_metrics_history(config_path),
             fetch_all_node_metrics_history(&servers, config_path),
-            fetch_cilium_data(config_path, &config, &config.cluster_name)
+            fetch_cilium_data(config_path, &config, &config.cluster_name),
+            fetch_alerts(config_path)
         );
 
         // Unpack Cilium data
@@ -455,7 +474,8 @@ impl ClusterCache {
             if !node_metrics_history.is_empty() {
                 let results: Vec<_> = node_metrics_history.iter().collect();
 
-                // Collect all unique timestamps
+                // Collect all unique timestamps from CPU history
+                // We use CPU as the baseline since both metrics should align
                 let mut all_timestamps = std::collections::BTreeSet::new();
                 for (_, history) in &results {
                     for (ts, _) in &history.cpu_history {
@@ -483,10 +503,18 @@ impl ClusterCache {
                         let memory_history: Vec<f64> = timestamps
                             .iter()
                             .map(|ts| {
+                                // Try exact match first
+                                if let Some((_, val)) =
+                                    history.memory_history.iter().find(|(t, _)| t == ts)
+                                {
+                                    return *val;
+                                }
+                                // If no exact match, find nearest timestamp within 2 seconds
                                 history
                                     .memory_history
                                     .iter()
-                                    .find(|(t, _)| t == ts)
+                                    .filter(|(t, _)| (*t - *ts).abs() <= 2)
+                                    .min_by_key(|(t, _)| (*t - *ts).abs())
                                     .map(|(_, val)| *val)
                                     .unwrap_or(0.0)
                             })
@@ -627,31 +655,123 @@ impl ClusterCache {
         data.cilium_version = Arc::from(cilium_version.as_str());
         data.hubble_enabled = hubble_enabled;
         data.ipv6_enabled = ipv6_enabled;
+        data.alerts = alerts;
         data.metrics_json_cache = metrics_json_cache;
         data.cilium_metrics_json_cache = cilium_metrics_json_cache;
         data.last_update = Instant::now();
         data.is_ready = true;
 
-        info!("Cache refreshed successfully");
+        info!(
+            "Full cache refresh completed - {} clusters, {} nodes, {} pods, {} alerts",
+            data.clusters.len(),
+            data.node_details.len(),
+            data.pod_details.len(),
+            data.alerts.len()
+        );
         Ok(())
     }
 
-    /// Refresh only metrics history (faster update)
-    async fn refresh_metrics_only(&self, config_path: &std::path::Path) -> Result<()> {
+    /// Refresh Kubernetes/Prometheus data only (no Hetzner API calls)
+    async fn refresh_kubernetes_data(&self, config_path: &std::path::Path) -> Result<()> {
+        info!("Starting Kubernetes/Prometheus data refresh...");
+
+        // Read current state
         let data = self.inner.read().await;
         let servers = data.servers.clone();
+        let cluster_name = data.clusters.first().map(|c| c.name.clone());
         drop(data); // Release read lock
 
         if servers.is_empty() {
+            info!("Skipping Kubernetes refresh - no servers available yet");
             return Ok(());
         }
 
-        // Fetch historical metrics for all nodes
-        let node_metrics_history = fetch_all_node_metrics_history(&servers, config_path).await;
+        let Some(cluster_name) = cluster_name else {
+            info!("Skipping Kubernetes refresh - no cluster name available yet");
+            return Ok(());
+        };
 
-        // Update only metrics in cache
+        // Load config for Cilium settings
+        let config_str = tokio::fs::read_to_string(config_path).await?;
+        let config: ClusterConfig = serde_yaml::from_str(&config_str)?;
+
+        // Fetch all Kubernetes/Prometheus data in parallel
+        info!("Fetching pods, metrics, Cilium data, and alerts...");
+        let (mut pod_details, pod_metrics_history, node_metrics_history, cilium_data, alerts) = tokio::join!(
+            fetch_all_pod_details(config_path, &cluster_name),
+            fetch_all_pod_metrics_history(config_path),
+            fetch_all_node_metrics_history(&servers, config_path),
+            fetch_cilium_data(config_path, &config, &cluster_name),
+            fetch_alerts(config_path)
+        );
+
+        // Unpack Cilium data
+        let (mut cilium_pods, cilium_version, hubble_enabled, ipv6_enabled) = cilium_data;
+
+        // Update pod details with latest metrics from history
+        for (key, history) in &pod_metrics_history {
+            if let Some(pod_detail) = pod_details.get_mut(key) {
+                if let Some(&(_, cpu_value)) = history.cpu_history.last() {
+                    pod_detail.cpu = format!("{}m", (cpu_value * 10.0) as u64);
+                }
+                if let Some(&(_, mem_value)) = history.memory_history.last() {
+                    pod_detail.memory = format!("{}Mi", mem_value as u64);
+                }
+            }
+        }
+
+        // Update Cilium pods with CPU and memory from pod_details
+        for cilium_pod in &mut cilium_pods {
+            let key = format!("kube-system/{}", cilium_pod.name);
+            if let Some(pod_detail) = pod_details.get(&key) {
+                cilium_pod.cpu = pod_detail.cpu.clone();
+                cilium_pod.memory = pod_detail.memory.clone();
+
+                // Calculate total requests and limits from all containers
+                let mut cpu_req_total = 0.0;
+                let mut cpu_lim_total = 0.0;
+                let mut mem_req_total = 0.0;
+                let mut mem_lim_total = 0.0;
+
+                for container in &pod_detail.containers {
+                    if let Some(val) = parse_cpu_resource(&container.cpu_request) {
+                        cpu_req_total += val;
+                    }
+                    if let Some(val) = parse_cpu_resource(&container.cpu_limit) {
+                        cpu_lim_total += val;
+                    }
+                    if let Some(val) = parse_memory_resource(&container.memory_request) {
+                        mem_req_total += val;
+                    }
+                    if let Some(val) = parse_memory_resource(&container.memory_limit) {
+                        mem_lim_total += val;
+                    }
+                }
+
+                cilium_pod.cpu_request = cpu_req_total;
+                cilium_pod.cpu_limit = cpu_lim_total;
+                cilium_pod.memory_request = mem_req_total;
+                cilium_pod.memory_limit = mem_lim_total;
+            }
+        }
+
+        // Update cache with Kubernetes/Prometheus data
         let mut data = self.inner.write().await;
+        data.pod_details = Arc::new(pod_details.into_iter().collect());
+        data.pod_metrics_history = Arc::new(pod_metrics_history);
         data.node_metrics_history = Arc::new(node_metrics_history);
+        data.cilium_pods = cilium_pods;
+        data.cilium_version = Arc::from(cilium_version.as_str());
+        data.hubble_enabled = hubble_enabled;
+        data.ipv6_enabled = ipv6_enabled;
+        data.alerts = alerts;
+        data.last_update = Instant::now();
+
+        info!(
+            "Kubernetes/Prometheus refresh completed - {} pods, {} alerts",
+            data.pod_details.len(),
+            data.alerts.len()
+        );
 
         Ok(())
     }
@@ -661,7 +781,8 @@ impl ClusterCache {
         let cache = self.clone();
         let config_path_clone = config_path.clone();
 
-        // Start cluster data refresh (every 30s by default)
+        // Start full cluster data refresh (Hetzner API + Kubernetes)
+        // This runs at interval_secs (120 seconds = 2 minutes)
         tokio::spawn(async move {
             // Do initial refresh immediately
             if let Err(e) = cache.refresh(&config_path).await {
@@ -678,22 +799,26 @@ impl ClusterCache {
             loop {
                 interval.tick().await;
                 if let Err(e) = cache.refresh(&config_path).await {
-                    error!("Failed to refresh cache: {}", e);
+                    error!("Failed to refresh full cache: {}", e);
                 }
             }
         });
 
-        // Start metrics-only refresh (every 10s)
-        let cache_metrics = self.clone();
+        // Start Kubernetes/Prometheus-only refresh (every 30s)
+        // This skips Hetzner API calls and only updates pods, metrics, alerts, etc.
+        let cache_kubernetes = self.clone();
         tokio::spawn(async move {
             // Wait for first cluster refresh to complete
             tokio::time::sleep(Duration::from_secs(5)).await;
 
-            let mut interval = tokio::time::interval(Duration::from_secs(10));
+            let mut interval = tokio::time::interval(Duration::from_secs(30));
             loop {
                 interval.tick().await;
-                if let Err(e) = cache_metrics.refresh_metrics_only(&config_path_clone).await {
-                    error!("Failed to refresh metrics: {}", e);
+                if let Err(e) = cache_kubernetes
+                    .refresh_kubernetes_data(&config_path_clone)
+                    .await
+                {
+                    error!("Failed to refresh Kubernetes data: {}", e);
                 }
             }
         });
@@ -1201,6 +1326,25 @@ async fn fetch_cilium_data(
     }
 
     (cilium_pods, cilium_version, hubble_enabled, ipv6_enabled)
+}
+
+/// Fetch Prometheus alerts
+async fn fetch_alerts(config_path: &std::path::Path) -> Vec<crate::prometheus::Alert> {
+    // Get the output directory from config path
+    let output_dir = config_path
+        .parent()
+        .and_then(|p| p.parent())
+        .map(|p| p.join("output"))
+        .unwrap_or_else(|| std::path::PathBuf::from("output"));
+
+    let kubeconfig = output_dir.join("kubeconfig");
+
+    crate::prometheus::query_alerts(&kubeconfig)
+        .await
+        .unwrap_or_else(|e| {
+            error!("Failed to fetch alerts: {}", e);
+            Vec::new()
+        })
 }
 
 /// Fetch detailed information for all pods

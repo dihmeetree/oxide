@@ -112,6 +112,8 @@ pub struct MetricsTemplate {
     pub version: String,
     pub has_data: bool,
     pub metrics_json: String,
+    pub node_names: Vec<String>,
+    pub pod_names: Vec<String>,
 }
 
 /// Cilium page
@@ -125,6 +127,18 @@ pub struct CiliumTemplate {
     pub hubble_enabled: bool,
     pub ipv6_enabled: bool,
     pub metrics_json: String,
+    pub pod_names: Vec<String>,
+}
+
+/// Alerts page
+#[derive(Template)]
+#[template(path = "alerts.html")]
+pub struct AlertsTemplate {
+    pub active_page: String,
+    pub version: String,
+    pub alerts: Vec<crate::prometheus::Alert>,
+    pub firing_count: usize,
+    pub pending_count: usize,
 }
 
 /// Cilium pod information
@@ -205,6 +219,7 @@ pub struct NodesTemplate {
     pub worker_count: usize,
     pub running_count: usize,
     pub metrics_json: String,
+    pub node_names: Vec<String>,
     pub active_page: String,
     pub version: String,
 }

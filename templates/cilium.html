@@ -252,7 +252,21 @@
     <div class="relative h-80">
       <canvas id="cpuChart"></canvas>
     </div>
-    <div id="cpuLegend" class="mt-4 max-h-32 overflow-y-auto scrollbar-thin scrollbar-thumb-dark-border scrollbar-track-dark-bg"></div>
+    <div id="cpuLegend" class="mt-4 max-h-32 overflow-y-auto scrollbar-thin scrollbar-thumb-dark-border scrollbar-track-dark-bg">
+      <div class="flex flex-wrap gap-3">
+        {% for pod_name in pod_names %}
+        <button
+          onclick="toggleDataset('ciliumCpu', {{ loop.index0 }})"
+          class="flex items-center gap-2 px-3 py-1.5 rounded-md transition bg-dark-hover"
+          data-chart="ciliumCpu"
+          data-index="{{ loop.index0 }}"
+        >
+          <span class="w-2 h-2 rounded-full" data-color-for="{{ pod_name }}"></span>
+          <span class="text-sm text-text-primary">{{ pod_name }}</span>
+        </button>
+        {% endfor %}
+      </div>
+    </div>
   </div>
 
   <!-- Memory Usage Chart -->
@@ -282,7 +296,21 @@
     <div class="relative h-80">
       <canvas id="memoryChart"></canvas>
     </div>
-    <div id="memoryLegend" class="mt-4 max-h-32 overflow-y-auto scrollbar-thin scrollbar-thumb-dark-border scrollbar-track-dark-bg"></div>
+    <div id="memoryLegend" class="mt-4 max-h-32 overflow-y-auto scrollbar-thin scrollbar-thumb-dark-border scrollbar-track-dark-bg">
+      <div class="flex flex-wrap gap-3">
+        {% for pod_name in pod_names %}
+        <button
+          onclick="toggleDataset('ciliumMemory', {{ loop.index0 }})"
+          class="flex items-center gap-2 px-3 py-1.5 rounded-md transition bg-dark-hover"
+          data-chart="ciliumMemory"
+          data-index="{{ loop.index0 }}"
+        >
+          <span class="w-2 h-2 rounded-full" data-color-for="{{ pod_name }}"></span>
+          <span class="text-sm text-text-primary">{{ pod_name }}</span>
+        </button>
+        {% endfor %}
+      </div>
+    </div>
   </div>
 
   <!-- Configuration -->
@@ -339,24 +367,30 @@
   ];
   let podColorMap = {}; // Store consistent colors for each pod
 
-  // Generate HTML legend for charts
-  function generateLegend(chart, containerId, chartType) {
+  // Apply colors to server-rendered legend
+  function applyLegendColors(chart, containerId) {
     const legendContainer = document.getElementById(containerId);
     if (!legendContainer) return;
 
-    let legendHTML = '<div class="flex flex-wrap gap-3">';
-    chart.data.datasets.forEach((dataset, i) => {
-      const isVisible = chart.isDatasetVisible(i);
-      legendHTML += `
-        <button onclick="toggleDataset('${chartType}', ${i})"
-          class="flex items-center gap-2 px-3 py-1.5 rounded-md transition ${isVisible ? 'bg-dark-hover' : 'bg-dark-bg opacity-50'}">
-          <span class="w-2 h-2 rounded-full" style="background-color: ${dataset.borderColor}"></span>
-          <span class="text-sm text-text-primary">${dataset.label}</span>
-        </button>
-      `;
+    const colorSpans = legendContainer.querySelectorAll('[data-color-for]');
+    colorSpans.forEach((span) => {
+      const name = span.getAttribute('data-color-for');
+      const dataset = chart.data.datasets.find(ds => ds.label === name);
+      if (dataset) {
+        span.style.backgroundColor = dataset.borderColor;
+      }
     });
-    legendHTML += '</div>';
-    legendContainer.innerHTML = legendHTML;
+
+    // Update button states based on visibility
+    const buttons = legendContainer.querySelectorAll('button');
+    buttons.forEach((button, i) => {
+      const isVisible = chart.isDatasetVisible(i);
+      if (!isVisible) {
+        button.classList.add('opacity-50');
+        button.classList.remove('bg-dark-hover');
+        button.classList.add('bg-dark-bg');
+      }
+    });
   }
 
   // Toggle dataset visibility with isolate/show all behavior
@@ -392,7 +426,20 @@
       });
     }
     chart.update();
-    generateLegend(chart, containerId, chartType);
+
+    // Update button styles
+    const legendContainer = document.getElementById(containerId);
+    const buttons = legendContainer.querySelectorAll('button');
+    buttons.forEach((button, i) => {
+      const isVisible = chart.isDatasetVisible(i);
+      if (isVisible) {
+        button.classList.remove('opacity-50', 'bg-dark-bg');
+        button.classList.add('bg-dark-hover');
+      } else {
+        button.classList.add('opacity-50', 'bg-dark-bg');
+        button.classList.remove('bg-dark-hover');
+      }
+    });
   }
 
   async function fetchCiliumMetrics() {
@@ -570,7 +617,7 @@
       },
     });
 
-    generateLegend(cpuChart, 'cpuLegend', 'ciliumCpu');
+    applyLegendColors(cpuChart, 'cpuLegend');
 
     // Memory Chart
     const memCtx = document.getElementById('memoryChart').getContext('2d');
@@ -710,7 +757,7 @@
       },
     });
 
-    generateLegend(memoryChart, 'memoryLegend', 'ciliumMemory');
+    applyLegendColors(memoryChart, 'memoryLegend');
   }
 
   // Refresh metrics function
@@ -794,7 +841,7 @@
 
     cpuChart.data.datasets = cpuDatasets;
     cpuChart.update();
-    generateLegend(cpuChart, 'cpuLegend', 'ciliumCpu');
+    applyLegendColors(cpuChart, 'cpuLegend');
 
     // Calculate total memory request and limit
     let totalMemoryRequest = 0;
@@ -855,7 +902,7 @@
 
     memoryChart.data.datasets = memDatasets;
     memoryChart.update();
-    generateLegend(memoryChart, 'memoryLegend', 'ciliumMemory');
+    applyLegendColors(memoryChart, 'memoryLegend');
     {% endif %}
   }
 

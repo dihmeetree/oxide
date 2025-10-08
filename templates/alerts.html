@@ -1,0 +1,132 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<div class="space-y-6">
+  <!-- Header -->
+  <div>
+    <h2 class="text-3xl font-semibold text-text-primary">Prometheus Alerts</h2>
+    <p class="mt-1 text-base text-text-secondary">Monitor and manage Prometheus alerts across your cluster</p>
+  </div>
+
+  <!-- Alert Count Cards -->
+  <div>
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <!-- Total Alerts -->
+      <div class="rounded-lg p-6 bg-[#242424] border border-dark-border">
+        <div class="flex items-center justify-between">
+          <div>
+            <p class="text-sm font-medium mb-2 text-text-secondary">Total Alerts</p>
+            <p class="text-4xl font-semibold text-text-primary">{{ alerts.len() }}</p>
+          </div>
+          <div class="rounded-lg p-3 bg-accent-blue/15">
+            <svg class="w-8 h-8 stroke-accent-blue" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+            </svg>
+          </div>
+        </div>
+      </div>
+
+      <!-- Firing Alerts -->
+      <div class="rounded-lg p-6 bg-[#242424] border border-dark-border">
+        <div class="flex items-center justify-between">
+          <div>
+            <p class="text-sm font-medium mb-2 text-text-secondary">Firing</p>
+            <p class="text-4xl font-semibold text-red-400">{{ firing_count }}</p>
+          </div>
+          <div class="rounded-lg p-3 bg-red-500/15">
+            <svg class="w-8 h-8 stroke-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+            </svg>
+          </div>
+        </div>
+      </div>
+
+      <!-- Pending Alerts -->
+      <div class="rounded-lg p-6 bg-[#242424] border border-dark-border">
+        <div class="flex items-center justify-between">
+          <div>
+            <p class="text-sm font-medium mb-2 text-text-secondary">Pending</p>
+            <p class="text-4xl font-semibold text-orange-400">{{ pending_count }}</p>
+          </div>
+          <div class="rounded-lg p-3 bg-orange-500/15">
+            <svg class="w-8 h-8 stroke-orange-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Alerts List -->
+  <div>
+  {% if alerts.len() > 0 %}
+  <div class="space-y-3">
+    {% for alert in alerts %}
+    <div class="rounded-lg border bg-[#242424] border-dark-border">
+      <div class="p-4">
+        <div class="flex items-start justify-between gap-4">
+          <!-- Left side: Badges, Title, Description -->
+          <div class="flex-1 min-w-0">
+            <div class="flex items-center gap-2 mb-2">
+              <!-- State Badge -->
+              <span class="px-3 py-1 text-sm font-medium rounded-full {% if alert.state == "firing" %}bg-red-600 text-white{% elif alert.state == "pending" %}bg-orange-500 text-white{% else %}bg-gray-700 text-gray-300{% endif %}">
+                {{ alert.state }}
+              </span>
+              <!-- Severity Badge (only show if not "none") -->
+              {% if alert.severity != "none" %}
+              <span class="px-3 py-1 text-sm font-medium rounded-full {% if alert.severity == "critical" %}bg-red-900/20 text-red-400 border border-red-500/30{% elif alert.severity == "warning" %}bg-yellow-900/20 text-yellow-400 border border-yellow-500/30{% else %}bg-blue-900/20 text-blue-400 border border-blue-500/30{% endif %}">
+                {{ alert.severity }}
+              </span>
+              {% endif %}
+              <h3 class="text-lg font-semibold text-text-primary">{{ alert.name }}</h3>
+            </div>
+            <p class="text-sm text-text-secondary">{{ alert.description }}</p>
+          </div>
+
+          <!-- Right side: Metadata -->
+          <div class="flex flex-col items-end gap-1 text-sm text-right whitespace-nowrap">
+            {% if alert.active_at.is_some() %}
+            <div>
+              <span class="text-text-secondary">Active:</span>
+              <span class="text-text-primary ml-2">{{ alert.active_at.as_ref().unwrap() }}</span>
+            </div>
+            {% endif %}
+            {% if alert.value.is_some() %}
+            <div>
+              <span class="text-text-secondary">Value:</span>
+              <span class="text-text-primary ml-2 font-mono">{{ alert.value.as_ref().unwrap() }}</span>
+            </div>
+            {% endif %}
+          </div>
+        </div>
+
+        <!-- Labels -->
+        {% if alert.labels.len() > 0 %}
+        <div class="mt-3 pt-3 border-t border-dark-border">
+          <div class="flex flex-wrap gap-2">
+            {% for label in alert.labels %}
+            <span class="px-3 py-1.5 text-xs rounded-md bg-blue-900/20 text-blue-300 border border-blue-500/20 font-medium">
+              <span class="text-blue-400">{{ label.0 }}</span><span class="text-blue-500/60 mx-1">=</span><span class="text-blue-200">{{ label.1 }}</span>
+            </span>
+            {% endfor %}
+          </div>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <!-- No Alerts -->
+  <div class="rounded-lg p-12 text-center bg-[#242424] border border-dark-border">
+    <svg class="w-16 h-16 mx-auto mb-4 stroke-accent-green" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+    </svg>
+    <h3 class="text-xl font-semibold mb-2 text-text-primary">All Clear!</h3>
+    <p class="text-text-secondary">No alerts are currently active</p>
+  </div>
+  {% endif %}
+  </div>
+</div>
+{% endblock %}

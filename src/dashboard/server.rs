@@ -27,7 +27,7 @@ impl DashboardServer {
             config_path,
             output_dir,
             addr,
-            cache_refresh_interval: 30,
+            cache_refresh_interval: 120,
         }
     }
 
@@ -77,6 +77,7 @@ impl DashboardServer {
             .route("/pods", get(routes::pods_list))
             .route("/nodes", get(routes::nodes_list))
             .route("/cilium", get(routes::cilium))
+            .route("/alerts", get(routes::alerts))
             .route("/api/clusters", get(routes::api_clusters_list))
             .route("/api/metrics", get(routes::api_metrics))
             .route("/api/cilium/metrics", get(routes::api_cilium_metrics))
