@@ -657,6 +657,17 @@
       initCharts(serverData);
     }
   });
+
+  // Auto-refresh every 10 seconds
+  setInterval(async function () {
+    if (cpuChart && memoryChart) {
+      try {
+        await refreshMetrics();
+      } catch (e) {
+        console.error("Failed to refresh metrics:", e);
+      }
+    }
+  }, 10000);
 </script>
 
 {% endblock %}
