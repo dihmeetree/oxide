@@ -130,9 +130,13 @@ autoscaler:
 control_planes:
   - name: control-plane
     # Hetzner server type
-    # Small: cx21 (2 vCPUs, 4GB RAM)
-    # Medium: cpx21 (3 vCPUs, 4GB RAM) - Recommended
-    # Large: cpx31 (4 vCPUs, 8GB RAM)
+    # Shared vCPU (AMD EPYC):
+    #   - cpx11 (2 vCPUs, 2GB RAM, 40GB) - Not recommended for control plane
+    #   - cpx21 (3 vCPUs, 4GB RAM, 80GB) - Recommended for small/medium clusters
+    #   - cpx31 (4 vCPUs, 8GB RAM, 160GB) - Recommended for large clusters
+    # Dedicated vCPU (AMD EPYC):
+    #   - ccx13 (2 vCPUs, 8GB RAM, 80GB) - High-performance option
+    #   - ccx23 (4 vCPUs, 16GB RAM, 160GB) - Enterprise-grade
     server_type: cpx21
 
     # Number of control plane nodes (1 or 3 recommended for production)
@@ -145,10 +149,19 @@ control_planes:
 workers:
   - name: worker
     # Hetzner server type
-    # Small: cx31 (2 vCPUs, 8GB RAM)
-    # Medium: cpx31 (4 vCPUs, 8GB RAM) - Recommended
-    # Large: cpx41 (8 vCPUs, 16GB RAM)
-    # XLarge: cpx51 (16 vCPUs, 32GB RAM)
+    # Shared vCPU (AMD EPYC):
+    #   - cpx11 (2 vCPUs, 2GB RAM, 40GB) - Minimal workloads
+    #   - cpx21 (3 vCPUs, 4GB RAM, 80GB) - Light workloads
+    #   - cpx31 (4 vCPUs, 8GB RAM, 160GB) - Recommended for general use
+    #   - cpx41 (8 vCPUs, 16GB RAM, 240GB) - Memory-intensive workloads
+    #   - cpx51 (16 vCPUs, 32GB RAM, 360GB) - High-performance workloads
+    # Dedicated vCPU (AMD EPYC):
+    #   - ccx13 (2 vCPUs, 8GB RAM, 80GB) - Dedicated compute, low-medium load
+    #   - ccx23 (4 vCPUs, 16GB RAM, 160GB) - Dedicated compute, medium load
+    #   - ccx33 (8 vCPUs, 32GB RAM, 240GB) - Dedicated compute, high load
+    #   - ccx43 (16 vCPUs, 64GB RAM, 360GB) - Very high performance
+    #   - ccx53 (32 vCPUs, 128GB RAM, 600GB) - Maximum performance
+    #   - ccx63 (48 vCPUs, 192GB RAM, 960GB) - Enterprise-grade maximum
     server_type: cpx31
 
     # Number of worker nodes

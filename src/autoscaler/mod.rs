@@ -330,7 +330,7 @@ spec:
             - --balance-similar-node-groups
             - --expander=least-waste
             - --scale-down-utilization-threshold=0.5
-            - --scale-down-unneeded-time=5m
+            - --scale-down-unneeded-time=10m
             - --scan-interval=5s
             - --v=4
           env:

@@ -595,13 +595,26 @@ oxide uninstall-metrics-server
 
 ### Hetzner Server Types (Common Options)
 
-| Type  | vCPUs | RAM  | Description    |
-| ----- | ----- | ---- | -------------- |
-| cx21  | 2     | 4GB  | Shared vCPU    |
-| cpx21 | 3     | 4GB  | Dedicated vCPU |
-| cpx31 | 4     | 8GB  | Dedicated vCPU |
-| cpx41 | 8     | 16GB | Dedicated vCPU |
-| cpx51 | 16    | 32GB | Dedicated vCPU |
+**Shared vCPU (AMD EPYC)**:
+
+| Type  | vCPUs | RAM  | Storage | Price/Month |
+| ----- | ----- | ---- | ------- | ----------- |
+| cpx11 | 2     | 2GB  | 40GB    | ~€4.49      |
+| cpx21 | 3     | 4GB  | 80GB    | ~€8.99      |
+| cpx31 | 4     | 8GB  | 160GB   | ~€15.99     |
+| cpx41 | 8     | 16GB | 240GB   | ~€29.99     |
+| cpx51 | 16    | 32GB | 360GB   | ~€59.99     |
+
+**Dedicated vCPU (AMD EPYC)**:
+
+| Type  | vCPUs | RAM   | Storage | Price/Month |
+| ----- | ----- | ----- | ------- | ----------- |
+| ccx13 | 2     | 8GB   | 80GB    | ~€12.99     |
+| ccx23 | 4     | 16GB  | 160GB   | ~€25.99     |
+| ccx33 | 8     | 32GB  | 240GB   | ~€49.99     |
+| ccx43 | 16    | 64GB  | 360GB   | ~€99.99     |
+| ccx53 | 32    | 128GB | 600GB   | ~€199.99    |
+| ccx63 | 48    | 192GB | 960GB   | ~€299.99    |
 
 See [Hetzner Cloud pricing](https://www.hetzner.com/cloud) for all available types.
 
@@ -704,12 +717,14 @@ kubectl logs -n kube-system -l k8s-app=cilium
 
 Example monthly costs for a 3 control plane + 3 worker cluster:
 
-- **Control Planes** (3x cpx21): ~€12/month
-- **Workers** (3x cpx31): ~€20/month
+- **Control Planes** (3x cpx21): ~€27/month (3 × €8.99)
+- **Workers** (3x cpx31): ~€48/month (3 × €15.99)
+- **IPv4 Addresses** (6 servers): ~€3/month (6 × €0.50)
 - **Network**: Free
-- **Traffic**: First 20TB free per server
+- **Snapshot**: ~€0.50/month
+- **Traffic**: 1-5TB free per server (depending on type)
 
-**Total**: ~€32/month
+**Total**: ~€78.50/month
 
 Costs are approximate. See [Hetzner pricing](https://www.hetzner.com/cloud) for exact rates.
 

@@ -190,14 +190,21 @@
           required
           class="w-full px-4 py-2.5 rounded-lg transition focus:outline-none focus:ring-2 focus:ring-offset-0 bg-dark-hover border border-dark-border text-text-primary focus:ring-accent-blue"
         >
-          <option value="cx22">CX22 - 2 vCPU, 4 GB RAM (~€5.83/month)</option>
-          <option value="cx32" selected>
-            CX32 - 4 vCPU, 8 GB RAM (~€11.90/month)
-          </option>
-          <option value="cx42">CX42 - 8 vCPU, 16 GB RAM (~€23.79/month)</option>
-          <option value="cx52">
-            CX52 - 16 vCPU, 32 GB RAM (~€47.58/month)
-          </option>
+          <optgroup label="Shared vCPU (AMD EPYC)">
+            <option value="cpx11">CPX11 - 2 vCPU, 2 GB RAM, 40 GB (~€4.49/month)</option>
+            <option value="cpx21" selected>CPX21 - 3 vCPU, 4 GB RAM, 80 GB (~€8.99/month)</option>
+            <option value="cpx31">CPX31 - 4 vCPU, 8 GB RAM, 160 GB (~€15.99/month)</option>
+            <option value="cpx41">CPX41 - 8 vCPU, 16 GB RAM, 240 GB (~€29.99/month)</option>
+            <option value="cpx51">CPX51 - 16 vCPU, 32 GB RAM, 360 GB (~€59.99/month)</option>
+          </optgroup>
+          <optgroup label="Dedicated vCPU (AMD EPYC)">
+            <option value="ccx13">CCX13 - 2 vCPU, 8 GB RAM, 80 GB (~€12.99/month)</option>
+            <option value="ccx23">CCX23 - 4 vCPU, 16 GB RAM, 160 GB (~€25.99/month)</option>
+            <option value="ccx33">CCX33 - 8 vCPU, 32 GB RAM, 240 GB (~€49.99/month)</option>
+            <option value="ccx43">CCX43 - 16 vCPU, 64 GB RAM, 360 GB (~€99.99/month)</option>
+            <option value="ccx53">CCX53 - 32 vCPU, 128 GB RAM, 600 GB (~€199.99/month)</option>
+            <option value="ccx63">CCX63 - 48 vCPU, 192 GB RAM, 960 GB (~€299.99/month)</option>
+          </optgroup>
         </select>
       </div>
 

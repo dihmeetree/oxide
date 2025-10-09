@@ -281,12 +281,22 @@ workers:
 **Required:** Yes
 **Description:** Hetzner server type
 
-**Common Types:**
+**Shared vCPU (AMD EPYC):**
 
-- `cx21` - 2 vCPU, 4GB RAM (shared)
-- `cpx21` - 3 vCPU, 4GB RAM (dedicated)
-- `cpx31` - 4 vCPU, 8GB RAM (dedicated)
-- `cpx41` - 8 vCPU, 16GB RAM (dedicated)
+- `cpx11` - 2 vCPU, 2GB RAM, 40GB (~€4.49/month)
+- `cpx21` - 3 vCPU, 4GB RAM, 80GB (~€8.99/month)
+- `cpx31` - 4 vCPU, 8GB RAM, 160GB (~€15.99/month)
+- `cpx41` - 8 vCPU, 16GB RAM, 240GB (~€29.99/month)
+- `cpx51` - 16 vCPU, 32GB RAM, 360GB (~€59.99/month)
+
+**Dedicated vCPU (AMD EPYC):**
+
+- `ccx13` - 2 vCPU, 8GB RAM, 80GB (~€12.99/month)
+- `ccx23` - 4 vCPU, 16GB RAM, 160GB (~€25.99/month)
+- `ccx33` - 8 vCPU, 32GB RAM, 240GB (~€49.99/month)
+- `ccx43` - 16 vCPU, 64GB RAM, 360GB (~€99.99/month)
+- `ccx53` - 32 vCPU, 128GB RAM, 600GB (~€199.99/month)
+- `ccx63` - 48 vCPU, 192GB RAM, 960GB (~€299.99/month)
 
 **Full list:** https://www.hetzner.com/cloud
 

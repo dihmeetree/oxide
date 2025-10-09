@@ -294,16 +294,16 @@ Hetzner Cloud offers various server types with different CPU/RAM configurations.
 ```yaml
 control_planes:
   - name: control-plane
-    server_type: cx21 # 2 vCPU, 4GB RAM
+    server_type: cpx11 # 2 vCPU, 2GB RAM
     count: 1
 
 workers:
   - name: worker
-    server_type: cx21 # 2 vCPU, 4GB RAM
+    server_type: cpx11 # 2 vCPU, 2GB RAM
     count: 2
 ```
 
-**Cost**: ~€15/month
+**Cost**: ~€13.50/month
 **Use case**: Learning, testing, small projects
 
 #### Production (Small)
@@ -311,7 +311,7 @@ workers:
 ```yaml
 control_planes:
   - name: control-plane
-    server_type: cpx21 # 3 vCPU, 4GB RAM (dedicated)
+    server_type: cpx21 # 3 vCPU, 4GB RAM (shared)
     count: 3
 
 workers:
@@ -320,7 +320,7 @@ workers:
     count: 3
 ```
 
-**Cost**: ~€32/month
+**Cost**: ~€75/month
 **Use case**: Small production apps, startups
 
 #### Production (Medium)
@@ -337,23 +337,56 @@ workers:
     count: 5
 ```
 
-**Cost**: ~€100/month
+**Cost**: ~€198/month
 **Use case**: Medium-traffic applications
+
+#### Production (High Performance)
+
+```yaml
+control_planes:
+  - name: control-plane
+    server_type: ccx13 # 2 vCPU, 8GB RAM (dedicated)
+    count: 3
+
+workers:
+  - name: worker
+    server_type: ccx33 # 8 vCPU, 32GB RAM (dedicated)
+    count: 5
+```
+
+**Cost**: ~€289/month
+**Use case**: High-performance applications, databases, compute-intensive workloads
 
 ### Server Type Reference
 
-| Type  | vCPUs | RAM  | Storage | Price/Month | CPU Type  |
-| ----- | ----- | ---- | ------- | ----------- | --------- |
-| cx21  | 2     | 4GB  | 40GB    | €4.90       | Shared    |
-| cx31  | 2     | 8GB  | 80GB    | €8.90       | Shared    |
-| cx41  | 4     | 16GB | 160GB   | €16.90      | Shared    |
-| cpx21 | 3     | 4GB  | 80GB    | €7.90       | Dedicated |
-| cpx31 | 4     | 8GB  | 160GB   | €13.90      | Dedicated |
-| cpx41 | 8     | 16GB | 240GB   | €26.90      | Dedicated |
-| cpx51 | 16    | 32GB | 360GB   | €51.90      | Dedicated |
-| ccx13 | 2     | 8GB  | 80GB    | €28.00      | Dedicated |
-| ccx23 | 4     | 16GB | 160GB   | €54.00      | Dedicated |
-| ccx33 | 8     | 32GB | 240GB   | €104.00     | Dedicated |
+**Shared vCPU (AMD EPYC™)**:
+
+| Type  | vCPUs | RAM  | Storage | Traffic | Price/Month | Hourly |
+| ----- | ----- | ---- | ------- | ------- | ----------- | ------ |
+| cpx11 | 2     | 2GB  | 40GB    | 1TB     | €4.49       | €0.007 |
+| cpx21 | 3     | 4GB  | 80GB    | 2TB     | €8.99       | €0.015 |
+| cpx31 | 4     | 8GB  | 160GB   | 3TB     | €15.99      | €0.026 |
+| cpx41 | 8     | 16GB | 240GB   | 4TB     | €29.99      | €0.048 |
+| cpx51 | 16    | 32GB | 360GB   | 5TB     | €59.99      | €0.096 |
+
+**Dedicated vCPU (AMD EPYC™)**:
+
+| Type  | vCPUs | RAM   | Storage | Traffic | Price/Month | Hourly |
+| ----- | ----- | ----- | ------- | ------- | ----------- | ------ |
+| ccx13 | 2     | 8GB   | 80GB    | 1TB     | €12.99      | €0.021 |
+| ccx23 | 4     | 16GB  | 160GB   | 2TB     | €25.99      | €0.042 |
+| ccx33 | 8     | 32GB  | 240GB   | 3TB     | €49.99      | €0.080 |
+| ccx43 | 16    | 64GB  | 360GB   | 4TB     | €99.99      | €0.160 |
+| ccx53 | 32    | 128GB | 600GB   | 6TB     | €199.99     | €0.321 |
+| ccx63 | 48    | 192GB | 960GB   | 8TB     | €299.99     | €0.481 |
+
+**Notes**:
+
+- Shared vCPU (CPX): CPU resources distributed among instances, cost-effective for most workloads
+- Dedicated vCPU (CCX): Exclusive CPU resources, predictable high performance for demanding applications
+- All servers use NVMe SSD storage
+- IPv6 is free; IPv4 costs an additional €0.50/month
+- Traffic shown is for EU locations; US/Asia locations have 1TB included
 
 **Full list**: https://www.hetzner.com/cloud
 
@@ -361,14 +394,18 @@ workers:
 
 **Control Plane Nodes:**
 
-- Minimum: 2 vCPU, 4GB RAM (cx21/cpx21)
-- Recommended: 3+ vCPU, 4GB+ RAM (cpx21 or higher)
-- For large clusters (>50 nodes): cpx31 or higher
+- Minimum: 2 vCPU, 2GB RAM (cpx11) - for testing only
+- Recommended small clusters: 3 vCPU, 4GB RAM (cpx21)
+- Recommended large clusters (>50 nodes): 4 vCPU, 8GB RAM (cpx31)
+- High-performance/production: 2 vCPU, 8GB RAM (ccx13) dedicated
 
 **Worker Nodes:**
 
 - Depends on your workload
-- Start with cpx31 (4 vCPU, 8GB RAM)
+- Light workloads: cpx21 (3 vCPU, 4GB RAM)
+- General use: cpx31 (4 vCPU, 8GB RAM) - Recommended
+- Memory-intensive: cpx41 (8 vCPU, 16GB RAM)
+- High-performance: ccx series for dedicated CPU resources
 - Scale up based on resource usage
 - Use node pools for different workload types
 
@@ -518,18 +555,19 @@ When upgrading Talos:
 
 ```yaml
 # Configuration
-control_planes: 3x cpx21 (€7.90 each)
-workers: 3x cpx31 (€13.90 each)
+control_planes: 3x cpx21 (€8.99 each)
+workers: 3x cpx31 (€15.99 each)
 
 # Costs
-Control planes: 3 × €7.90  = €23.70
-Workers:        3 × €13.90 = €41.70
+Control planes: 3 × €8.99  = €26.97
+Workers:        3 × €15.99 = €47.97
 Network:                   = Free
 Firewall:                  = Free
 Snapshot:                  = €0.50
-Traffic:                   = Free (up to 20TB/server)
+IPv4 addresses: 6 × €0.50  = €3.00
+Traffic:                   = Free (up to 1-5TB/server depending on type)
 ─────────────────────────────────────
-Total:                     = €65.90/month
+Total:                     = €78.44/month
 ```
 
 ### Cost Saving Strategies
@@ -551,19 +589,19 @@ kubectl top pods -A
 
 #### 2. Development vs Production Clusters
 
-**Development cluster** (€15/month):
+**Development cluster** (~€13.50/month):
 
 ```yaml
 control_planes:
-  - server_type: cx21
+  - server_type: cpx11
     count: 1 # Not HA, acceptable for dev
 
 workers:
-  - server_type: cx21
+  - server_type: cpx11
     count: 2
 ```
 
-**Production cluster** (€66/month):
+**Production cluster** (~€78/month):
 
 ```yaml
 control_planes:
