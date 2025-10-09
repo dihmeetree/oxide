@@ -29,13 +29,19 @@ talos:
   kubernetes_version: 1.34.1
 
   # Hetzner Cloud snapshot ID containing Talos image (REQUIRED)
-  # To create a snapshot:
-  # 1. Create a server with Ubuntu image
-  # 2. Boot into rescue mode
-  # 3. Run: wget -O - https://github.com/siderolabs/talos/releases/download/v1.7.0/hcloud-amd64.raw.xz | xz -d | dd of=/dev/sda && sync
-  # 4. Reboot the server
-  # 5. Create a snapshot from the Hetzner Cloud console
-  # 6. Use the snapshot ID (number) here
+  # To create a snapshot using rescue mode:
+  # 1. Create a temporary server: hcloud server create --type cx11 --name talos-snapshot --image ubuntu-22.04 --location nbg1
+  # 2. Enable rescue mode: hcloud server enable-rescue talos-snapshot && hcloud server reboot talos-snapshot
+  # 3. SSH into rescue system: ssh root@<server-ip>
+  # 4. Download and write Talos image:
+  #    cd /tmp
+  #    wget -O /tmp/talos.raw.xz https://factory.talos.dev/image/376567988ad370138ad8b2698212367b8edcb69b5fd68c80be1f2ec7d603b4ba/v1.11.0/hcloud-amd64.raw.xz
+  #    xz -d -c /tmp/talos.raw.xz | dd of=/dev/sda && sync
+  #    shutdown -h now
+  # 5. Create snapshot: hcloud server create-image --type snapshot --description "Talos v1.11.0" talos-snapshot
+  # 6. Get snapshot ID: hcloud image list
+  # 7. Delete temporary server: hcloud server delete talos-snapshot
+  # Alternative: Use Packer (see terraform-hcloud-talos/_packer directory or https://www.talos.dev/v1.11/talos-guides/install/cloud-platforms/hetzner/)
   hcloud_snapshot_id: "123456789" # Replace with your snapshot ID
 
   # Cluster endpoint (optional - defaults to first control plane IP)

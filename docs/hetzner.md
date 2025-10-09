@@ -483,7 +483,9 @@ A snapshot is a point-in-time copy of a server's disk that can be used to create
 
 ### Creating a Talos Snapshot
 
-**One-time setup per Hetzner project:**
+**One-time setup per Hetzner project.** Choose one of the following methods:
+
+#### Method 1: Rescue Mode (Recommended)
 
 ```bash
 # 1. Create temporary server
@@ -501,17 +503,17 @@ hcloud server reboot talos-snapshot
 ssh root@<server-ip>
 
 # 4. Download and write Talos image
-wget -O - https://github.com/siderolabs/talos/releases/download/v1.8.0/hcloud-amd64.raw.xz \
-  | xz -d | dd of=/dev/sda && sync
+cd /tmp
+wget -O /tmp/talos.raw.xz https://factory.talos.dev/image/376567988ad370138ad8b2698212367b8edcb69b5fd68c80be1f2ec7d603b4ba/v1.11.0/hcloud-amd64.raw.xz
+xz -d -c /tmp/talos.raw.xz | dd of=/dev/sda && sync
 
-# 5. Exit SSH and reboot server
-exit
-hcloud server reboot talos-snapshot
+# 5. Shutdown the server
+shutdown -h now
 
-# 6. Wait ~1 minute for Talos to boot, then create snapshot
+# 6. Wait a moment, then create snapshot
 hcloud server create-image \
   --type snapshot \
-  --description "Talos v1.8.0" \
+  --description "Talos v1.11.0" \
   talos-snapshot
 
 # 7. Get snapshot ID
@@ -519,6 +521,21 @@ hcloud image list | grep Talos
 
 # 8. Delete temporary server
 hcloud server delete talos-snapshot
+```
+
+#### Method 2: Using Packer
+
+For automated and repeatable image creation:
+
+```bash
+# Use the provided Packer configuration in this repository
+cd terraform-hcloud-talos/_packer
+export HCLOUD_TOKEN=your-token-here
+packer init .
+packer build .
+
+# Or see the official Talos documentation:
+# https://www.talos.dev/v1.11/talos-guides/install/cloud-platforms/hetzner/
 ```
 
 ### Using Snapshot in Oxide

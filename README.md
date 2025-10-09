@@ -62,9 +62,11 @@ The binary will be available as `oxide`.
 
 ### 1. Create Talos Snapshot
 
-Before deploying clusters, you need to create a Hetzner Cloud snapshot containing the Talos image:
+Before deploying clusters, you need to create a Hetzner Cloud snapshot containing the Talos image. Choose one of the following methods:
 
 > **Note**: Check the latest Talos version at https://github.com/siderolabs/talos/releases and update the version in the commands below accordingly.
+
+#### Method 1: Rescue Mode (Recommended)
 
 ```bash
 # 1. Create a temporary server
@@ -74,23 +76,40 @@ hcloud server create --type cx11 --name talos-snapshot --image ubuntu-22.04 --lo
 hcloud server enable-rescue talos-snapshot
 hcloud server reboot talos-snapshot
 
-# 3. Connect to rescue system and write Talos image
-# SSH into the server in rescue mode
+# 3. SSH into the rescue system
 ssh root@<server-ip>
-# Then run this command to write the Talos image (replace v1.11.2 with latest version)
-wget -O - https://github.com/siderolabs/talos/releases/download/v1.11.2/hcloud-amd64.raw.xz | xz -d | dd of=/dev/sda && sync
 
-# 4. Reboot the server
-hcloud server reboot talos-snapshot
+# 4. Download and write the Talos image
+cd /tmp
+wget -O /tmp/talos.raw.xz https://factory.talos.dev/image/376567988ad370138ad8b2698212367b8edcb69b5fd68c80be1f2ec7d603b4ba/v1.11.0/hcloud-amd64.raw.xz
+xz -d -c /tmp/talos.raw.xz | dd of=/dev/sda && sync
 
-# 5. Wait for boot, then create snapshot
-hcloud server create-image --type snapshot --description "Talos v1.11.2" talos-snapshot
+# 5. Shutdown the server
+shutdown -h now
 
-# 6. Note the snapshot ID (you'll need this for configuration)
+# 6. Wait a moment, then create snapshot from Hetzner Console or CLI
+hcloud server create-image --type snapshot --description "Talos v1.11.0" talos-snapshot
+
+# 7. Note the snapshot ID (you'll need this for configuration)
 hcloud image list
 
-# 7. Delete the temporary server
+# 8. Delete the temporary server
 hcloud server delete talos-snapshot
+```
+
+#### Method 2: Using Packer
+
+For automated image creation, use HashiCorp Packer:
+
+```bash
+# See the official Talos documentation for Packer configuration:
+# https://www.talos.dev/v1.11/talos-guides/install/cloud-platforms/hetzner/
+
+# Example: Use the terraform-hcloud-talos/_packer directory in this repo
+cd terraform-hcloud-talos/_packer
+export HCLOUD_TOKEN=your-token-here
+packer init .
+packer build .
 ```
 
 ### 2. Generate Configuration
