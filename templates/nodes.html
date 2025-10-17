@@ -1,11 +1,27 @@
 {% extends "layout.html" %} {% block content %}
 <div class="space-y-6">
   <!-- Header -->
-  <div>
-    <h2 class="text-3xl font-semibold text-text-primary">All Nodes</h2>
-    <p class="mt-1 text-base text-text-secondary">
-      Complete list of nodes across all clusters
-    </p>
+  <div class="flex items-center gap-4">
+    <div class="rounded-lg p-3 bg-accent-green/15 flex-shrink-0">
+      <svg
+        class="w-8 h-8 stroke-accent-green"
+        fill="none"
+        viewBox="0 0 24 24"
+        stroke-width="2"
+      >
+        <path
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01"
+        ></path>
+      </svg>
+    </div>
+    <div>
+      <h2 class="text-3xl font-semibold text-text-primary">All Nodes</h2>
+      <p class="text-base text-text-secondary">
+        Complete list of nodes across all clusters
+      </p>
+    </div>
   </div>
 
   {% if nodes.is_empty() %}
@@ -48,9 +64,9 @@
             {{ nodes.len() }}
           </p>
         </div>
-        <div class="rounded-lg p-3 bg-accent-blue/15">
+        <div class="rounded-lg p-3 bg-accent-green/15">
           <svg
-            class="w-8 h-8 stroke-accent-blue"
+            class="w-8 h-8 stroke-accent-green"
             fill="none"
             viewBox="0 0 24 24"
             stroke-width="2"

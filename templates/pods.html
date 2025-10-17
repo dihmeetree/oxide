@@ -1,11 +1,27 @@
 {% extends "layout.html" %} {% block content %}
 <div class="space-y-6">
   <!-- Header -->
-  <div>
-    <h2 class="text-3xl font-semibold text-text-primary">All Pods</h2>
-    <p class="mt-1 text-base text-text-secondary">
-      Complete list of pods across all namespaces
-    </p>
+  <div class="flex items-center gap-4">
+    <div class="rounded-lg p-3 bg-[#A78BFA]/15 flex-shrink-0">
+      <svg
+        class="w-8 h-8 stroke-[#A78BFA]"
+        fill="none"
+        viewBox="0 0 24 24"
+        stroke-width="2"
+      >
+        <path
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"
+        ></path>
+      </svg>
+    </div>
+    <div>
+      <h2 class="text-3xl font-semibold text-text-primary">All Pods</h2>
+      <p class="text-base text-text-secondary">
+        Complete list of pods across all namespaces
+      </p>
+    </div>
   </div>
 
   {% if pods.is_empty() %}
@@ -48,9 +64,9 @@
             {{ pods.len() }}
           </p>
         </div>
-        <div class="rounded-lg p-3 bg-accent-blue/15">
+        <div class="rounded-lg p-3 bg-[#A78BFA]/15">
           <svg
-            class="w-8 h-8 stroke-accent-blue"
+            class="w-8 h-8 stroke-[#A78BFA]"
             fill="none"
             viewBox="0 0 24 24"
             stroke-width="2"

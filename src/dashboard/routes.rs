@@ -108,11 +108,17 @@ fn preloader_page() -> Html<String> {
                 <div class="spinner-container">
                     <div class="spinner-ring animate-spin-slow"></div>
                 </div>
+<<<<<<< HEAD
                 <h2 style="font-size: 1.75rem; font-weight: 600; margin-bottom: 4px; color: #E5E5E5;">Fetching Resources...</h2>
                 <div class="status-box">
                     <p class="status-text">Collecting cluster data from the Kubernetes API and Prometheus metrics. This usually takes a few seconds on initial load.</p>
                     <p class="countdown-text">Refreshing in <span id="countdown" style="display: inline-block; min-width: 1ch; text-align: center;">5</span> seconds...</p>
                 </div>
+=======
+                <h2 style="font-size: 1.75rem; font-weight: 600; margin-bottom: 12px; color: #E5E5E5;">Fetching Resources...</h2>
+                <p style="color: #9CA3AF; font-size: 1rem; margin-bottom: 20px; max-width: 450px; margin-left: auto; margin-right: auto;">Collecting cluster data from Kubernetes API and Prometheus metrics</p>
+                <p style="color: #6B7280; font-size: 0.9375rem; font-style: italic;">Refreshing in <span id="countdown" style="display: inline-block; min-width: 1ch; text-align: center;">5</span>s</p>
+>>>>>>> 0d7194c (feat: Enhance UI consistency with icon backgrounds, layout improvements, and animations)
             </div>
             <script>
                 let seconds = 5;

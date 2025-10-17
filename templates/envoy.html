@@ -1,16 +1,27 @@
 {% extends "layout.html" %} {% block content %}
 <div class="space-y-6">
   <!-- Header -->
-  <div>
-    <div class="flex items-center gap-2 mb-1">
-      <h2 class="text-3xl font-semibold text-text-primary">Envoy</h2>
-      <span class="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-semibold bg-[#F97316]/15 text-[#F97316] border border-[#F97316]/30">
-        ENVOY
-      </span>
+  <div class="flex items-center gap-4">
+    <div class="rounded-lg p-3 bg-[#F97316]/15 flex-shrink-0">
+      <svg
+        class="w-8 h-8 stroke-[#F97316]"
+        fill="none"
+        viewBox="0 0 24 24"
+        stroke-width="2"
+      >
+        <path
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          d="M13 10V3L4 14h7v7l9-11h-7z"
+        ></path>
+      </svg>
     </div>
-    <p class="mt-1 text-base text-text-secondary">
-      L7 proxy metrics and request statistics
-    </p>
+    <div>
+      <h2 class="text-3xl font-semibold text-text-primary">Envoy</h2>
+      <p class="text-base text-text-secondary">
+        L7 proxy metrics and request statistics
+      </p>
+    </div>
   </div>
 
   <!-- Envoy Info Cards -->
@@ -26,9 +37,9 @@
             {{ pods.len() }}
           </p>
         </div>
-        <div class="rounded-lg p-3 bg-accent-blue/15">
+        <div class="rounded-lg p-3 bg-[#F97316]/15">
           <svg
-            class="w-8 h-8 stroke-accent-blue"
+            class="w-8 h-8 stroke-[#F97316]"
             fill="none"
             viewBox="0 0 24 24"
             stroke-width="2"
@@ -52,9 +63,9 @@
             {{ envoy_version }}
           </p>
         </div>
-        <div class="rounded-lg p-3 bg-accent-blue/15">
+        <div class="rounded-lg p-3 bg-[#F97316]/15">
           <svg
-            class="w-8 h-8 stroke-accent-blue"
+            class="w-8 h-8 stroke-[#F97316]"
             fill="none"
             viewBox="0 0 24 24"
             stroke-width="2"
