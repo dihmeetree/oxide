@@ -16,8 +16,8 @@ pub struct IndexTemplate {
 /// Clusters list page
 #[derive(Template)]
 #[template(path = "clusters.html")]
-pub struct ClustersTemplate {
-    pub clusters: Vec<ClusterInfo>,
+pub struct ClustersTemplate<'a> {
+    pub clusters: &'a [ClusterInfo],
     pub active_page: String,
     pub version: String,
     pub firing_alerts_count: usize,
@@ -128,10 +128,10 @@ pub struct MetricsTemplate {
 /// Cilium page
 #[derive(Template)]
 #[template(path = "cilium.html")]
-pub struct CiliumTemplate {
+pub struct CiliumTemplate<'a> {
     pub active_page: String,
     pub version: String,
-    pub cilium_pods: Vec<CiliumPod>,
+    pub cilium_pods: &'a [CiliumPod],
     pub cilium_version: String,
     pub hubble_enabled: bool,
     pub ipv6_enabled: bool,
@@ -143,10 +143,10 @@ pub struct CiliumTemplate {
 /// Alerts page
 #[derive(Template)]
 #[template(path = "alerts.html")]
-pub struct AlertsTemplate {
+pub struct AlertsTemplate<'a> {
     pub active_page: String,
     pub version: String,
-    pub alerts: Vec<crate::prometheus::Alert>,
+    pub alerts: &'a [crate::prometheus::Alert],
     pub firing_count: usize,
     pub pending_count: usize,
     pub firing_alerts_count: usize,
@@ -190,8 +190,8 @@ pub struct EnvoyPod {
 /// Envoy page
 #[derive(Template)]
 #[template(path = "envoy.html")]
-pub struct EnvoyTemplate {
-    pub pods: Vec<EnvoyPod>,
+pub struct EnvoyTemplate<'a> {
+    pub pods: &'a [EnvoyPod],
     pub envoy_version: String,
     pub active_page: String,
     pub version: String,

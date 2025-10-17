@@ -70,11 +70,15 @@
       <div class="flex items-center justify-between">
         <div>
           <p class="text-sm font-medium mb-2 text-text-secondary">Hubble</p>
-          <p class="text-4xl font-semibold {% if hubble_enabled %}text-accent-green{% else %}text-text-muted{% endif %}">
+          <p
+            class="text-4xl font-semibold {% if hubble_enabled %}text-accent-green{% else %}text-text-muted{% endif %}"
+          >
             {% if hubble_enabled %}Enabled{% else %}Disabled{% endif %}
           </p>
         </div>
-        <div class="rounded-lg p-3 {% if hubble_enabled %}bg-accent-green/15{% else %}bg-text-muted/15{% endif %}">
+        <div
+          class="rounded-lg p-3 {% if hubble_enabled %}bg-accent-green/15{% else %}bg-text-muted/15{% endif %}"
+        >
           <svg
             class="w-8 h-8 {% if hubble_enabled %}stroke-accent-green{% else %}stroke-text-muted{% endif %}"
             fill="none"
@@ -179,9 +183,9 @@
             onclick="window.location='/clusters/{{ pod.cluster_name }}/nodes/{{ pod.node }}/pods/kube-system/{{ pod.name }}'"
           >
             <td class="px-6 py-4 whitespace-nowrap">
-              <span class="text-base font-medium font-mono text-text-primary">{{
-                pod.name
-              }}</span>
+              <span class="text-base font-medium font-mono text-text-primary"
+                >{{ pod.name }}</span
+              >
             </td>
             <td class="px-6 py-4 whitespace-nowrap text-center">
               <span class="text-base text-text-secondary">{{ pod.node }}</span>
@@ -205,15 +209,19 @@
               {% endif %}
             </td>
             <td class="px-6 py-4 whitespace-nowrap text-center">
-              <span class="text-base font-mono text-text-primaryAlt">{{ pod.cpu }}</span>
+              <span class="text-base font-mono text-text-primaryAlt"
+                >{{ pod.cpu }}</span
+              >
             </td>
             <td class="px-6 py-4 whitespace-nowrap text-center">
-              <span class="text-base font-mono text-text-primaryAlt">{{ pod.memory }}</span>
+              <span class="text-base font-mono text-text-primaryAlt"
+                >{{ pod.memory }}</span
+              >
             </td>
             <td class="px-6 py-4 whitespace-nowrap text-center">
-              <span class="text-base text-text-secondary">{{
-                pod.restarts
-              }}</span>
+              <span class="text-base text-text-secondary"
+                >{{ pod.restarts }}</span
+              >
             </td>
             <td class="px-6 py-4 whitespace-nowrap text-center">
               <span class="text-base text-text-secondary">{{ pod.age }}</span>
@@ -228,7 +236,9 @@
   <!-- CPU Usage Chart -->
   <div class="rounded-lg p-6 bg-[#242424] border border-dark-border">
     <div class="flex items-center justify-between mb-4">
-      <h3 class="text-xl font-semibold text-text-primary">Cilium CPU Usage History</h3>
+      <h3 class="text-xl font-semibold text-text-primary">
+        Cilium CPU Usage History
+      </h3>
       <button
         onclick="refreshCiliumMetrics()"
         class="p-2 rounded-lg text-text-muted hover:text-text-primary bg-dark-hover hover:bg-dark-hoverAlt transition"
@@ -252,7 +262,10 @@
     <div class="relative h-80">
       <canvas id="cpuChart"></canvas>
     </div>
-    <div id="cpuLegend" class="mt-4 max-h-32 overflow-y-auto scrollbar-thin scrollbar-thumb-dark-border scrollbar-track-dark-bg">
+    <div
+      id="cpuLegend"
+      class="mt-4 max-h-32 overflow-y-auto scrollbar-thin scrollbar-thumb-dark-border scrollbar-track-dark-bg"
+    >
       <div class="flex flex-wrap gap-3">
         {% for pod_name in pod_names %}
         <button
@@ -261,7 +274,10 @@
           data-chart="ciliumCpu"
           data-index="{{ loop.index0 }}"
         >
-          <span class="w-2 h-2 rounded-full" data-color-for="{{ pod_name }}"></span>
+          <span
+            class="w-2 h-2 rounded-full"
+            data-color-for="{{ pod_name }}"
+          ></span>
           <span class="text-sm text-text-primary">{{ pod_name }}</span>
         </button>
         {% endfor %}
@@ -272,7 +288,9 @@
   <!-- Memory Usage Chart -->
   <div class="rounded-lg p-6 bg-[#242424] border border-dark-border">
     <div class="flex items-center justify-between mb-4">
-      <h3 class="text-xl font-semibold text-text-primary">Cilium Memory Usage History</h3>
+      <h3 class="text-xl font-semibold text-text-primary">
+        Cilium Memory Usage History
+      </h3>
       <button
         onclick="refreshCiliumMetrics()"
         class="p-2 rounded-lg text-text-muted hover:text-text-primary bg-dark-hover hover:bg-dark-hoverAlt transition"
@@ -296,7 +314,10 @@
     <div class="relative h-80">
       <canvas id="memoryChart"></canvas>
     </div>
-    <div id="memoryLegend" class="mt-4 max-h-32 overflow-y-auto scrollbar-thin scrollbar-thumb-dark-border scrollbar-track-dark-bg">
+    <div
+      id="memoryLegend"
+      class="mt-4 max-h-32 overflow-y-auto scrollbar-thin scrollbar-thumb-dark-border scrollbar-track-dark-bg"
+    >
       <div class="flex flex-wrap gap-3">
         {% for pod_name in pod_names %}
         <button
@@ -305,7 +326,10 @@
           data-chart="ciliumMemory"
           data-index="{{ loop.index0 }}"
         >
-          <span class="w-2 h-2 rounded-full" data-color-for="{{ pod_name }}"></span>
+          <span
+            class="w-2 h-2 rounded-full"
+            data-color-for="{{ pod_name }}"
+          ></span>
           <span class="text-sm text-text-primary">{{ pod_name }}</span>
         </button>
         {% endfor %}

@@ -136,7 +136,7 @@ pub async fn clusters_list(State(state): State<AppState>) -> impl IntoResponse {
     let clusters = state.cache.get_clusters().await;
     let firing_alerts_count = get_firing_alerts_count(&state.cache).await;
     let template = ClustersTemplate {
-        clusters: clusters.to_vec(),
+        clusters: clusters.as_ref(),
         active_page: "clusters".to_string(),
         version: env!("CARGO_PKG_VERSION").to_string(),
         firing_alerts_count,
@@ -306,7 +306,12 @@ pub async fn clusters_create(
 ) -> impl IntoResponse {
     info!("Creating cluster: {}", form.cluster_name);
 
-    // Validate cluster name
+    // Validate cluster name (strict validation to prevent path traversal)
+    if form.cluster_name.is_empty() || form.cluster_name.len() > 63 {
+        error!("Invalid cluster name: must be between 1-63 characters");
+        return Redirect::to("/clusters/create");
+    }
+
     if !form
         .cluster_name
         .chars()
@@ -316,11 +321,31 @@ pub async fn clusters_create(
         return Redirect::to("/clusters/create");
     }
 
+    if form.cluster_name.starts_with('-') || form.cluster_name.ends_with('-') {
+        error!("Invalid cluster name: cannot start or end with hyphen");
+        return Redirect::to("/clusters/create");
+    }
+
+    if form.cluster_name.contains("..")
+        || form.cluster_name.contains('/')
+        || form.cluster_name.contains('\\')
+    {
+        error!("Invalid cluster name: contains invalid characters");
+        return Redirect::to("/clusters/create");
+    }
+
     // Create cluster config from form data
     let config = create_cluster_config_from_form(&form);
 
-    // Write config to temporary file
-    let temp_config_path = std::env::temp_dir().join(format!("{}.yaml", form.cluster_name));
+    // Write config to secure temporary file with random suffix to avoid race conditions
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let temp_filename = format!("oxide-{}-{}.yaml", form.cluster_name, timestamp);
+    let temp_config_path = std::env::temp_dir().join(temp_filename);
+
     let config_yaml = match serde_yaml::to_string(&config) {
         Ok(yaml) => yaml,
         Err(e) => {
@@ -338,16 +363,19 @@ pub async fn clusters_create(
 
     // Spawn cluster creation in background
     let output_dir = state.output_dir.clone();
+    let cluster_name = form.cluster_name.clone();
     tokio::spawn(async move {
-        info!("Starting cluster creation for: {}", form.cluster_name);
+        info!("Starting cluster creation for: {}", cluster_name);
         match crate::cluster::Cluster::create(&temp_config_path, &output_dir).await {
             Ok(_) => {
-                info!("[OK] Cluster {} created successfully", form.cluster_name);
+                info!("[OK] Cluster {} created successfully", cluster_name);
                 // Clean up temp config
                 let _ = tokio::fs::remove_file(&temp_config_path).await;
             }
             Err(e) => {
-                error!("Failed to create cluster {}: {}", form.cluster_name, e);
+                error!("Failed to create cluster {}: {}", cluster_name, e);
+                // Clean up temp config even on failure
+                let _ = tokio::fs::remove_file(&temp_config_path).await;
             }
         }
     });
@@ -359,6 +387,7 @@ pub async fn clusters_create(
 /// API endpoint to list all clusters as JSON
 pub async fn api_clusters_list(State(state): State<AppState>) -> impl IntoResponse {
     let clusters = state.cache.get_clusters().await;
+    // Clone needed for JSON serialization (Arc<[T]> doesn't implement Serialize)
     Json(clusters.to_vec())
 }
 
@@ -1000,7 +1029,7 @@ pub async fn cilium(State(state): State<AppState>) -> impl IntoResponse {
     let template = CiliumTemplate {
         active_page: "cilium".to_string(),
         version: env!("CARGO_PKG_VERSION").to_string(),
-        cilium_pods: cilium_pods.to_vec(),
+        cilium_pods: cilium_pods.as_ref(),
         cilium_version: cilium_version.to_string(),
         hubble_enabled,
         ipv6_enabled,
@@ -1031,7 +1060,7 @@ pub async fn envoy(State(state): State<AppState>) -> impl IntoResponse {
     let template = EnvoyTemplate {
         active_page: "envoy".to_string(),
         version: env!("CARGO_PKG_VERSION").to_string(),
-        pods: envoy_pods.to_vec(),
+        pods: envoy_pods.as_ref(),
         envoy_version: envoy_version.to_string(),
         metrics_json,
         firing_alerts_count,
@@ -1078,7 +1107,7 @@ pub async fn alerts(State(state): State<AppState>) -> impl IntoResponse {
     let template = AlertsTemplate {
         active_page: "alerts".to_string(),
         version: env!("CARGO_PKG_VERSION").to_string(),
-        alerts: alerts.to_vec(),
+        alerts: alerts.as_ref(),
         firing_count,
         pending_count,
         firing_alerts_count: firing_count,

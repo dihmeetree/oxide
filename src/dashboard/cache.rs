@@ -9,6 +9,14 @@ use tracing::{error, info};
 
 use crate::dashboard::templates::CiliumPod;
 
+// Constants for metrics and caching
+const METRICS_HISTORY_MAX_AGE_SECS: i64 = 7200; // 2 hours max history
+const TIMESTAMP_ROUNDING_SECS: i64 = 60; // Round timestamps to nearest minute
+const TIMESTAMP_TOLERANCE_SECS: i64 = 60; // Tolerance for timestamp matching
+const CPU_TO_MILLICORES_MULTIPLIER: f64 = 10.0; // Prometheus CPU to millicores conversion
+const KUBERNETES_REFRESH_INTERVAL_SECS: u64 = 30; // Fast refresh for K8s data
+const KUBERNETES_REFRESH_INITIAL_DELAY_SECS: u64 = 5; // Wait before starting K8s refresh
+
 /// Calculate human-readable age from ISO 8601 timestamp
 fn calculate_age(timestamp: &str) -> String {
     use chrono::{DateTime, Utc};
@@ -76,6 +84,176 @@ fn parse_memory_resource(value: &str) -> Option<f64> {
     } else {
         // Bytes to MiB
         value.parse::<f64>().ok().map(|v| v / (1024.0 * 1024.0))
+    }
+}
+
+/// Update pod details with metrics from history (consolidated function to avoid duplication)
+fn update_pod_details_with_metrics(
+    pod_details: &mut HashMap<String, super::templates::PodDetail>,
+    pod_metrics_history: &HashMap<String, crate::prometheus::NodeMetricsHistory>,
+) {
+    for (key, history) in pod_metrics_history {
+        if let Some(pod_detail) = pod_details.get_mut(key) {
+            // Calculate total limits and requests from containers
+            let mut total_cpu_limit = 0.0;
+            let mut total_cpu_request = 0.0;
+            let mut total_memory_limit = 0.0;
+            let mut total_memory_request = 0.0;
+
+            for container in &pod_detail.containers {
+                // Parse CPU limit/request (handle "m" suffix and plain numbers)
+                if let Ok(limit) = container.cpu_limit.trim_end_matches('m').parse::<f64>() {
+                    total_cpu_limit += limit;
+                }
+                if let Ok(request) = container.cpu_request.trim_end_matches('m').parse::<f64>() {
+                    total_cpu_request += request;
+                }
+
+                // Parse memory limit/request (handle "Mi" and "Gi" suffixes)
+                if let Some(val) = container.memory_limit.strip_suffix("Gi") {
+                    if let Ok(gib) = val.parse::<f64>() {
+                        total_memory_limit += gib * 1024.0;
+                    }
+                } else if let Some(val) = container.memory_limit.strip_suffix("Mi") {
+                    if let Ok(mib) = val.parse::<f64>() {
+                        total_memory_limit += mib;
+                    }
+                }
+
+                if let Some(val) = container.memory_request.strip_suffix("Gi") {
+                    if let Ok(gib) = val.parse::<f64>() {
+                        total_memory_request += gib * 1024.0;
+                    }
+                } else if let Some(val) = container.memory_request.strip_suffix("Mi") {
+                    if let Ok(mib) = val.parse::<f64>() {
+                        total_memory_request += mib;
+                    }
+                }
+            }
+
+            // Update CPU usage and calculate percentage
+            if let Some(&(_, cpu_value)) = history.cpu_history.last() {
+                let cpu_usage_m = (cpu_value * CPU_TO_MILLICORES_MULTIPLIER) as u64;
+                pod_detail.cpu = format!("{}m", cpu_usage_m);
+
+                // Calculate percentage based on limit (fallback to request if no limit)
+                let cpu_percent = if total_cpu_limit > 0.0 {
+                    (cpu_usage_m as f64 / total_cpu_limit * 100.0) as u64
+                } else if total_cpu_request > 0.0 {
+                    (cpu_usage_m as f64 / total_cpu_request * 100.0) as u64
+                } else {
+                    0
+                };
+                pod_detail.cpu_percent = format!("{}%", cpu_percent);
+            }
+
+            // Update memory usage and calculate percentage
+            if let Some(&(_, mem_value)) = history.memory_history.last() {
+                let mem_usage_mi = mem_value as u64;
+                pod_detail.memory = format!("{}Mi", mem_usage_mi);
+
+                // Calculate percentage based on limit (fallback to request if no limit)
+                let memory_percent = if total_memory_limit > 0.0 {
+                    (mem_usage_mi as f64 / total_memory_limit * 100.0) as u64
+                } else if total_memory_request > 0.0 {
+                    (mem_usage_mi as f64 / total_memory_request * 100.0) as u64
+                } else {
+                    0
+                };
+                pod_detail.memory_percent = format!("{}%", memory_percent);
+            }
+
+            // Set limit/request strings
+            pod_detail.cpu_limit = if total_cpu_limit > 0.0 {
+                format!("{}m", total_cpu_limit as u64)
+            } else {
+                "N/A".to_string()
+            };
+            pod_detail.cpu_request = if total_cpu_request > 0.0 {
+                format!("{}m", total_cpu_request as u64)
+            } else {
+                "N/A".to_string()
+            };
+            pod_detail.memory_limit = if total_memory_limit > 0.0 {
+                format!("{}Mi", total_memory_limit as u64)
+            } else {
+                "N/A".to_string()
+            };
+            pod_detail.memory_request = if total_memory_request > 0.0 {
+                format!("{}Mi", total_memory_request as u64)
+            } else {
+                "N/A".to_string()
+            };
+        }
+    }
+}
+
+/// Set limit/request for pods without metrics history
+fn set_pod_resource_limits(pod_details: &mut HashMap<String, super::templates::PodDetail>) {
+    for pod_detail in pod_details.values_mut() {
+        // Skip if already updated (cpu_limit won't be "N/A")
+        if pod_detail.cpu_limit != "N/A" {
+            continue;
+        }
+
+        // Calculate total limits and requests from containers
+        let mut total_cpu_limit = 0.0;
+        let mut total_cpu_request = 0.0;
+        let mut total_memory_limit = 0.0;
+        let mut total_memory_request = 0.0;
+
+        for container in &pod_detail.containers {
+            // Parse CPU limit/request
+            if let Ok(limit) = container.cpu_limit.trim_end_matches('m').parse::<f64>() {
+                total_cpu_limit += limit;
+            }
+            if let Ok(request) = container.cpu_request.trim_end_matches('m').parse::<f64>() {
+                total_cpu_request += request;
+            }
+
+            // Parse memory limit/request
+            if let Some(val) = container.memory_limit.strip_suffix("Gi") {
+                if let Ok(gib) = val.parse::<f64>() {
+                    total_memory_limit += gib * 1024.0;
+                }
+            } else if let Some(val) = container.memory_limit.strip_suffix("Mi") {
+                if let Ok(mib) = val.parse::<f64>() {
+                    total_memory_limit += mib;
+                }
+            }
+
+            if let Some(val) = container.memory_request.strip_suffix("Gi") {
+                if let Ok(gib) = val.parse::<f64>() {
+                    total_memory_request += gib * 1024.0;
+                }
+            } else if let Some(val) = container.memory_request.strip_suffix("Mi") {
+                if let Ok(mib) = val.parse::<f64>() {
+                    total_memory_request += mib;
+                }
+            }
+        }
+
+        // Set limit/request strings
+        pod_detail.cpu_limit = if total_cpu_limit > 0.0 {
+            format!("{}m", total_cpu_limit as u64)
+        } else {
+            "N/A".to_string()
+        };
+        pod_detail.cpu_request = if total_cpu_request > 0.0 {
+            format!("{}m", total_cpu_request as u64)
+        } else {
+            "N/A".to_string()
+        };
+        pod_detail.memory_limit = if total_memory_limit > 0.0 {
+            format!("{}Mi", total_memory_limit as u64)
+        } else {
+            "N/A".to_string()
+        };
+        pod_detail.memory_request = if total_memory_request > 0.0 {
+            format!("{}Mi", total_memory_request as u64)
+        } else {
+            "N/A".to_string()
+        };
     }
 }
 
@@ -511,169 +689,11 @@ impl ClusterCache {
         // Unpack Envoy data
         let (mut envoy_pods, envoy_version, envoy_metrics_history) = envoy_data;
 
-        // Update pod details with latest metrics from history
-        for (key, history) in &pod_metrics_history {
-            if let Some(pod_detail) = pod_details.get_mut(key) {
-                // Calculate total limits and requests from containers
-                let mut total_cpu_limit = 0.0;
-                let mut total_cpu_request = 0.0;
-                let mut total_memory_limit = 0.0;
-                let mut total_memory_request = 0.0;
-
-                for container in &pod_detail.containers {
-                    // Parse CPU limit/request (handle "m" suffix and plain numbers)
-                    if let Ok(limit) = container.cpu_limit.trim_end_matches('m').parse::<f64>() {
-                        total_cpu_limit += limit;
-                    }
-                    if let Ok(request) = container.cpu_request.trim_end_matches('m').parse::<f64>()
-                    {
-                        total_cpu_request += request;
-                    }
-
-                    // Parse memory limit/request (handle "Mi" and "Gi" suffixes)
-                    if let Some(val) = container.memory_limit.strip_suffix("Gi") {
-                        if let Ok(gib) = val.parse::<f64>() {
-                            total_memory_limit += gib * 1024.0;
-                        }
-                    } else if let Some(val) = container.memory_limit.strip_suffix("Mi") {
-                        if let Ok(mib) = val.parse::<f64>() {
-                            total_memory_limit += mib;
-                        }
-                    }
-
-                    if let Some(val) = container.memory_request.strip_suffix("Gi") {
-                        if let Ok(gib) = val.parse::<f64>() {
-                            total_memory_request += gib * 1024.0;
-                        }
-                    } else if let Some(val) = container.memory_request.strip_suffix("Mi") {
-                        if let Ok(mib) = val.parse::<f64>() {
-                            total_memory_request += mib;
-                        }
-                    }
-                }
-
-                // Update CPU usage and calculate percentage
-                if let Some(&(_, cpu_value)) = history.cpu_history.last() {
-                    let cpu_usage_m = (cpu_value * 10.0) as u64;
-                    pod_detail.cpu = format!("{}m", cpu_usage_m);
-
-                    // Calculate percentage based on limit (fallback to request if no limit)
-                    let cpu_percent = if total_cpu_limit > 0.0 {
-                        (cpu_usage_m as f64 / total_cpu_limit * 100.0) as u64
-                    } else if total_cpu_request > 0.0 {
-                        (cpu_usage_m as f64 / total_cpu_request * 100.0) as u64
-                    } else {
-                        0
-                    };
-                    pod_detail.cpu_percent = format!("{}%", cpu_percent);
-                }
-
-                // Update memory usage and calculate percentage
-                if let Some(&(_, mem_value)) = history.memory_history.last() {
-                    let mem_usage_mi = mem_value as u64;
-                    pod_detail.memory = format!("{}Mi", mem_usage_mi);
-
-                    // Calculate percentage based on limit (fallback to request if no limit)
-                    let memory_percent = if total_memory_limit > 0.0 {
-                        (mem_usage_mi as f64 / total_memory_limit * 100.0) as u64
-                    } else if total_memory_request > 0.0 {
-                        (mem_usage_mi as f64 / total_memory_request * 100.0) as u64
-                    } else {
-                        0
-                    };
-                    pod_detail.memory_percent = format!("{}%", memory_percent);
-                }
-
-                // Set limit/request strings
-                pod_detail.cpu_limit = if total_cpu_limit > 0.0 {
-                    format!("{}m", total_cpu_limit as u64)
-                } else {
-                    "N/A".to_string()
-                };
-                pod_detail.cpu_request = if total_cpu_request > 0.0 {
-                    format!("{}m", total_cpu_request as u64)
-                } else {
-                    "N/A".to_string()
-                };
-                pod_detail.memory_limit = if total_memory_limit > 0.0 {
-                    format!("{}Mi", total_memory_limit as u64)
-                } else {
-                    "N/A".to_string()
-                };
-                pod_detail.memory_request = if total_memory_request > 0.0 {
-                    format!("{}Mi", total_memory_request as u64)
-                } else {
-                    "N/A".to_string()
-                };
-            }
-        }
+        // Update pod details with latest metrics from history (consolidated function)
+        update_pod_details_with_metrics(&mut pod_details, &pod_metrics_history);
 
         // Update pods that don't have metrics history yet (set limits/requests from containers)
-        for pod_detail in pod_details.values_mut() {
-            // Skip if already updated (cpu_limit won't be "N/A")
-            if pod_detail.cpu_limit != "N/A" {
-                continue;
-            }
-
-            // Calculate total limits and requests from containers
-            let mut total_cpu_limit = 0.0;
-            let mut total_cpu_request = 0.0;
-            let mut total_memory_limit = 0.0;
-            let mut total_memory_request = 0.0;
-
-            for container in &pod_detail.containers {
-                // Parse CPU limit/request
-                if let Ok(limit) = container.cpu_limit.trim_end_matches('m').parse::<f64>() {
-                    total_cpu_limit += limit;
-                }
-                if let Ok(request) = container.cpu_request.trim_end_matches('m').parse::<f64>() {
-                    total_cpu_request += request;
-                }
-
-                // Parse memory limit/request
-                if let Some(val) = container.memory_limit.strip_suffix("Gi") {
-                    if let Ok(gib) = val.parse::<f64>() {
-                        total_memory_limit += gib * 1024.0;
-                    }
-                } else if let Some(val) = container.memory_limit.strip_suffix("Mi") {
-                    if let Ok(mib) = val.parse::<f64>() {
-                        total_memory_limit += mib;
-                    }
-                }
-
-                if let Some(val) = container.memory_request.strip_suffix("Gi") {
-                    if let Ok(gib) = val.parse::<f64>() {
-                        total_memory_request += gib * 1024.0;
-                    }
-                } else if let Some(val) = container.memory_request.strip_suffix("Mi") {
-                    if let Ok(mib) = val.parse::<f64>() {
-                        total_memory_request += mib;
-                    }
-                }
-            }
-
-            // Set limit/request strings
-            pod_detail.cpu_limit = if total_cpu_limit > 0.0 {
-                format!("{}m", total_cpu_limit as u64)
-            } else {
-                "N/A".to_string()
-            };
-            pod_detail.cpu_request = if total_cpu_request > 0.0 {
-                format!("{}m", total_cpu_request as u64)
-            } else {
-                "N/A".to_string()
-            };
-            pod_detail.memory_limit = if total_memory_limit > 0.0 {
-                format!("{}Mi", total_memory_limit as u64)
-            } else {
-                "N/A".to_string()
-            };
-            pod_detail.memory_request = if total_memory_request > 0.0 {
-                format!("{}Mi", total_memory_request as u64)
-            } else {
-                "N/A".to_string()
-            };
-        }
+        set_pod_resource_limits(&mut pod_details);
 
         // Update node details with metrics history
         for (node_name, history) in &node_metrics_history {
@@ -789,102 +809,8 @@ impl ClusterCache {
         // Unpack Envoy data
         let (mut envoy_pods, envoy_version, envoy_metrics_history) = envoy_data;
 
-        // Update pod details with latest metrics from history
-        for (key, history) in &pod_metrics_history {
-            if let Some(pod_detail) = pod_details.get_mut(key) {
-                // Calculate total limits and requests from containers
-                let mut total_cpu_limit = 0.0;
-                let mut total_cpu_request = 0.0;
-                let mut total_memory_limit = 0.0;
-                let mut total_memory_request = 0.0;
-
-                for container in &pod_detail.containers {
-                    // Parse CPU limit/request (handle "m" suffix and plain numbers)
-                    if let Ok(limit) = container.cpu_limit.trim_end_matches('m').parse::<f64>() {
-                        total_cpu_limit += limit;
-                    }
-                    if let Ok(request) = container.cpu_request.trim_end_matches('m').parse::<f64>()
-                    {
-                        total_cpu_request += request;
-                    }
-
-                    // Parse memory limit/request (handle "Mi" and "Gi" suffixes)
-                    if let Some(val) = container.memory_limit.strip_suffix("Gi") {
-                        if let Ok(gib) = val.parse::<f64>() {
-                            total_memory_limit += gib * 1024.0;
-                        }
-                    } else if let Some(val) = container.memory_limit.strip_suffix("Mi") {
-                        if let Ok(mib) = val.parse::<f64>() {
-                            total_memory_limit += mib;
-                        }
-                    }
-
-                    if let Some(val) = container.memory_request.strip_suffix("Gi") {
-                        if let Ok(gib) = val.parse::<f64>() {
-                            total_memory_request += gib * 1024.0;
-                        }
-                    } else if let Some(val) = container.memory_request.strip_suffix("Mi") {
-                        if let Ok(mib) = val.parse::<f64>() {
-                            total_memory_request += mib;
-                        }
-                    }
-                }
-
-                // Update CPU usage and calculate percentage
-                if let Some(&(_, cpu_value)) = history.cpu_history.last() {
-                    let cpu_usage_m = (cpu_value * 10.0) as u64;
-                    pod_detail.cpu = format!("{}m", cpu_usage_m);
-
-                    // Calculate percentage based on limit (fallback to request if no limit)
-                    let cpu_percent = if total_cpu_limit > 0.0 {
-                        (cpu_usage_m as f64 / total_cpu_limit * 100.0) as u64
-                    } else if total_cpu_request > 0.0 {
-                        (cpu_usage_m as f64 / total_cpu_request * 100.0) as u64
-                    } else {
-                        0
-                    };
-                    pod_detail.cpu_percent = format!("{}%", cpu_percent);
-                }
-
-                // Update memory usage and calculate percentage
-                if let Some(&(_, mem_value)) = history.memory_history.last() {
-                    let mem_usage_mi = mem_value as u64;
-                    pod_detail.memory = format!("{}Mi", mem_usage_mi);
-
-                    // Calculate percentage based on limit (fallback to request if no limit)
-                    let memory_percent = if total_memory_limit > 0.0 {
-                        (mem_usage_mi as f64 / total_memory_limit * 100.0) as u64
-                    } else if total_memory_request > 0.0 {
-                        (mem_usage_mi as f64 / total_memory_request * 100.0) as u64
-                    } else {
-                        0
-                    };
-                    pod_detail.memory_percent = format!("{}%", memory_percent);
-                }
-
-                // Set limit/request strings
-                pod_detail.cpu_limit = if total_cpu_limit > 0.0 {
-                    format!("{}m", total_cpu_limit as u64)
-                } else {
-                    "N/A".to_string()
-                };
-                pod_detail.cpu_request = if total_cpu_request > 0.0 {
-                    format!("{}m", total_cpu_request as u64)
-                } else {
-                    "N/A".to_string()
-                };
-                pod_detail.memory_limit = if total_memory_limit > 0.0 {
-                    format!("{}Mi", total_memory_limit as u64)
-                } else {
-                    "N/A".to_string()
-                };
-                pod_detail.memory_request = if total_memory_request > 0.0 {
-                    format!("{}Mi", total_memory_request as u64)
-                } else {
-                    "N/A".to_string()
-                };
-            }
-        }
+        // Update pod details with latest metrics from history (consolidated function)
+        update_pod_details_with_metrics(&mut pod_details, &pod_metrics_history);
 
         // Get existing node details from cache and update with metrics history
         let mut node_details = self.get_node_details_map().await;
@@ -972,14 +898,15 @@ impl ClusterCache {
             }
         });
 
-        // Start Kubernetes/Prometheus-only refresh (every 30s)
+        // Start Kubernetes/Prometheus-only refresh (faster refresh for K8s data)
         // This skips Hetzner API calls and only updates pods, metrics, alerts, etc.
         let cache_kubernetes = self.clone();
         tokio::spawn(async move {
             // Wait for first cluster refresh to complete
-            tokio::time::sleep(Duration::from_secs(5)).await;
+            tokio::time::sleep(Duration::from_secs(KUBERNETES_REFRESH_INITIAL_DELAY_SECS)).await;
 
-            let mut interval = tokio::time::interval(Duration::from_secs(30));
+            let mut interval =
+                tokio::time::interval(Duration::from_secs(KUBERNETES_REFRESH_INTERVAL_SECS));
             loop {
                 interval.tick().await;
                 if let Err(e) = cache_kubernetes
@@ -1031,13 +958,11 @@ fn build_metrics_json_cache(
         let mut all_timestamps = std::collections::BTreeSet::new();
         for (_, history) in &results {
             for (ts, _) in &history.cpu_history {
-                // Round to nearest minute (60 seconds)
-                let rounded = (*ts / 60) * 60;
+                let rounded = (*ts / TIMESTAMP_ROUNDING_SECS) * TIMESTAMP_ROUNDING_SECS;
                 all_timestamps.insert(rounded);
             }
             for (ts, _) in &history.memory_history {
-                // Round to nearest minute (60 seconds)
-                let rounded = (*ts / 60) * 60;
+                let rounded = (*ts / TIMESTAMP_ROUNDING_SECS) * TIMESTAMP_ROUNDING_SECS;
                 all_timestamps.insert(rounded);
             }
         }
@@ -1053,7 +978,7 @@ fn build_metrics_json_cache(
                         history
                             .cpu_history
                             .iter()
-                            .filter(|(t, _)| (*t - *ts).abs() <= 60)
+                            .filter(|(t, _)| (*t - *ts).abs() <= TIMESTAMP_TOLERANCE_SECS)
                             .min_by_key(|(t, _)| (*t - *ts).abs())
                             .map(|(_, val)| *val)
                             .unwrap_or(0.0)
@@ -1066,7 +991,7 @@ fn build_metrics_json_cache(
                         history
                             .memory_history
                             .iter()
-                            .filter(|(t, _)| (*t - *ts).abs() <= 60)
+                            .filter(|(t, _)| (*t - *ts).abs() <= TIMESTAMP_TOLERANCE_SECS)
                             .min_by_key(|(t, _)| (*t - *ts).abs())
                             .map(|(_, val)| *val)
                             .unwrap_or(0.0)
@@ -1092,7 +1017,7 @@ fn build_metrics_json_cache(
                 let cpu_history: Vec<f64> = history
                     .cpu_history
                     .iter()
-                    .map(|(_, val)| val * 10.0)
+                    .map(|(_, val)| val * CPU_TO_MILLICORES_MULTIPLIER)
                     .collect();
                 let memory_history: Vec<f64> =
                     history.memory_history.iter().map(|(_, val)| *val).collect();
@@ -1156,13 +1081,11 @@ fn build_cilium_metrics_json_cache(
         let mut all_timestamps = std::collections::BTreeSet::new();
         for history in pod_metrics_history.values() {
             for (ts, _) in &history.cpu_history {
-                // Round to nearest minute (60 seconds)
-                let rounded = (*ts / 60) * 60;
+                let rounded = (*ts / TIMESTAMP_ROUNDING_SECS) * TIMESTAMP_ROUNDING_SECS;
                 all_timestamps.insert(rounded);
             }
             for (ts, _) in &history.memory_history {
-                // Round to nearest minute (60 seconds)
-                let rounded = (*ts / 60) * 60;
+                let rounded = (*ts / TIMESTAMP_ROUNDING_SECS) * TIMESTAMP_ROUNDING_SECS;
                 all_timestamps.insert(rounded);
             }
         }
@@ -1182,20 +1105,20 @@ fn build_cilium_metrics_json_cache(
                         .map(|ts| {
                             hist.cpu_history
                                 .iter()
-                                .filter(|(t, _)| (*t - *ts).abs() <= 60)
+                                .filter(|(t, _)| (*t - *ts).abs() <= TIMESTAMP_TOLERANCE_SECS)
                                 .min_by_key(|(t, _)| (*t - *ts).abs())
-                                .map(|(_, val)| val * 10.0)
+                                .map(|(_, val)| val * CPU_TO_MILLICORES_MULTIPLIER)
                                 .unwrap_or(0.0)
                         })
                         .collect();
 
-                    // Align memory data to rounded timestamps (find nearest within 60 seconds)
+                    // Align memory data to rounded timestamps (find nearest within tolerance)
                     let memory_aligned: Vec<f64> = timestamps
                         .iter()
                         .map(|ts| {
                             hist.memory_history
                                 .iter()
-                                .filter(|(t, _)| (*t - *ts).abs() <= 60)
+                                .filter(|(t, _)| (*t - *ts).abs() <= TIMESTAMP_TOLERANCE_SECS)
                                 .min_by_key(|(t, _)| (*t - *ts).abs())
                                 .map(|(_, val)| *val)
                                 .unwrap_or(0.0)
@@ -1255,23 +1178,23 @@ fn build_envoy_metrics_json_cache(
         // Collect all unique timestamps, rounded to nearest minute
         let mut all_timestamps = std::collections::BTreeSet::new();
         for (ts, _) in &envoy_metrics_history.rps_history {
-            let rounded = (*ts / 60) * 60;
+            let rounded = (*ts / TIMESTAMP_ROUNDING_SECS) * TIMESTAMP_ROUNDING_SECS;
             all_timestamps.insert(rounded);
         }
         for (ts, _) in &envoy_metrics_history.status_2xx_history {
-            let rounded = (*ts / 60) * 60;
+            let rounded = (*ts / TIMESTAMP_ROUNDING_SECS) * TIMESTAMP_ROUNDING_SECS;
             all_timestamps.insert(rounded);
         }
         for (ts, _) in &envoy_metrics_history.status_3xx_history {
-            let rounded = (*ts / 60) * 60;
+            let rounded = (*ts / TIMESTAMP_ROUNDING_SECS) * TIMESTAMP_ROUNDING_SECS;
             all_timestamps.insert(rounded);
         }
         for (ts, _) in &envoy_metrics_history.status_4xx_history {
-            let rounded = (*ts / 60) * 60;
+            let rounded = (*ts / TIMESTAMP_ROUNDING_SECS) * TIMESTAMP_ROUNDING_SECS;
             all_timestamps.insert(rounded);
         }
         for (ts, _) in &envoy_metrics_history.status_5xx_history {
-            let rounded = (*ts / 60) * 60;
+            let rounded = (*ts / TIMESTAMP_ROUNDING_SECS) * TIMESTAMP_ROUNDING_SECS;
             all_timestamps.insert(rounded);
         }
         let timestamps: Vec<i64> = all_timestamps.into_iter().collect();
@@ -1283,7 +1206,7 @@ fn build_envoy_metrics_json_cache(
                 envoy_metrics_history
                     .rps_history
                     .iter()
-                    .filter(|(t, _)| (*t - *ts).abs() <= 60)
+                    .filter(|(t, _)| (*t - *ts).abs() <= TIMESTAMP_TOLERANCE_SECS)
                     .min_by_key(|(t, _)| (*t - *ts).abs())
                     .map(|(_, val)| *val)
                     .unwrap_or(0.0)
@@ -1297,7 +1220,7 @@ fn build_envoy_metrics_json_cache(
                 envoy_metrics_history
                     .status_2xx_history
                     .iter()
-                    .filter(|(t, _)| (*t - *ts).abs() <= 60)
+                    .filter(|(t, _)| (*t - *ts).abs() <= TIMESTAMP_TOLERANCE_SECS)
                     .min_by_key(|(t, _)| (*t - *ts).abs())
                     .map(|(_, val)| *val)
                     .unwrap_or(0.0)
@@ -1311,7 +1234,7 @@ fn build_envoy_metrics_json_cache(
                 envoy_metrics_history
                     .status_3xx_history
                     .iter()
-                    .filter(|(t, _)| (*t - *ts).abs() <= 60)
+                    .filter(|(t, _)| (*t - *ts).abs() <= TIMESTAMP_TOLERANCE_SECS)
                     .min_by_key(|(t, _)| (*t - *ts).abs())
                     .map(|(_, val)| *val)
                     .unwrap_or(0.0)
@@ -1325,7 +1248,7 @@ fn build_envoy_metrics_json_cache(
                 envoy_metrics_history
                     .status_4xx_history
                     .iter()
-                    .filter(|(t, _)| (*t - *ts).abs() <= 60)
+                    .filter(|(t, _)| (*t - *ts).abs() <= TIMESTAMP_TOLERANCE_SECS)
                     .min_by_key(|(t, _)| (*t - *ts).abs())
                     .map(|(_, val)| *val)
                     .unwrap_or(0.0)
@@ -1339,7 +1262,7 @@ fn build_envoy_metrics_json_cache(
                 envoy_metrics_history
                     .status_5xx_history
                     .iter()
-                    .filter(|(t, _)| (*t - *ts).abs() <= 60)
+                    .filter(|(t, _)| (*t - *ts).abs() <= TIMESTAMP_TOLERANCE_SECS)
                     .min_by_key(|(t, _)| (*t - *ts).abs())
                     .map(|(_, val)| *val)
                     .unwrap_or(0.0)
@@ -1572,6 +1495,18 @@ async fn fetch_all_node_details(
         .collect()
 }
 
+/// Trim old metrics from history to prevent unbounded memory growth
+fn trim_metrics_history(history: &mut crate::prometheus::NodeMetricsHistory) {
+    use chrono::Utc;
+
+    let now = Utc::now().timestamp();
+    let cutoff = now - METRICS_HISTORY_MAX_AGE_SECS;
+
+    // Remove entries older than max age
+    history.cpu_history.retain(|(ts, _)| *ts >= cutoff);
+    history.memory_history.retain(|(ts, _)| *ts >= cutoff);
+}
+
 /// Fetch historical metrics for all nodes
 async fn fetch_all_node_metrics_history(
     servers: &[Server],
@@ -1610,7 +1545,7 @@ async fn fetch_all_node_metrics_history(
                 .unwrap_or_else(|| "N/A".to_string());
 
             async move {
-                let history = crate::prometheus::query_node_metrics_range(
+                let mut history = crate::prometheus::query_node_metrics_range(
                     &private_ip,
                     &kubeconfig,
                     "1h",
@@ -1618,6 +1553,9 @@ async fn fetch_all_node_metrics_history(
                 )
                 .await
                 .unwrap_or_default();
+
+                // Trim old data to prevent memory leaks
+                trim_metrics_history(&mut history);
 
                 (server_name, history)
             }
@@ -2321,7 +2259,7 @@ async fn fetch_all_pod_metrics_history(
             let kubeconfig = Arc::clone(&kubeconfig);
 
             async move {
-                let history = crate::prometheus::query_pod_metrics_range(
+                let mut history = crate::prometheus::query_pod_metrics_range(
                     &namespace,
                     &pod_name,
                     &kubeconfig,
@@ -2330,6 +2268,9 @@ async fn fetch_all_pod_metrics_history(
                 )
                 .await
                 .unwrap_or_default();
+
+                // Trim old data to prevent memory leaks
+                trim_metrics_history(&mut history);
 
                 let key = format!("{}/{}", namespace, pod_name);
                 (key, history)
