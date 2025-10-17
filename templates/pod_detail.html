@@ -1,26 +1,26 @@
 {% extends "layout.html" %} {% block content %}
 <div class="space-y-6">
-  <!-- Header with Back Button -->
-  <div class="flex items-center gap-4">
-    <a
-      href="/clusters/{{ pod.cluster_name }}/nodes/{{ pod.node_name }}"
-      class="p-3 rounded-lg bg-dark-hover hover:bg-dark-hoverAlt transition flex-shrink-0"
-    >
-      <svg
-        class="w-8 h-8 stroke-text-primaryAlt"
-        fill="none"
-        viewBox="0 0 24 24"
-        stroke-width="2"
+  <!-- Header -->
+  <div class="flex items-center justify-between">
+    <div class="flex items-center gap-4">
+      <a
+        href="/clusters/{{ pod.cluster_name }}/nodes/{{ pod.node_name }}"
+        class="p-3 rounded-lg bg-dark-hover hover:bg-dark-hoverAlt transition flex-shrink-0"
       >
-        <path
-          stroke-linecap="round"
-          stroke-linejoin="round"
-          d="M15 19l-7-7 7-7"
-        ></path>
-      </svg>
-    </a>
-    <div class="flex-1">
-      <div class="flex items-center justify-between">
+        <svg
+          class="w-8 h-8 stroke-text-primaryAlt"
+          fill="none"
+          viewBox="0 0 24 24"
+          stroke-width="2"
+        >
+          <path
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            d="M15 19l-7-7 7-7"
+          ></path>
+        </svg>
+      </a>
+      <div>
         <div class="flex items-center gap-2">
           <h2 class="text-3xl font-semibold text-text-primary">{{ pod.name }}</h2>
           <span class="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-semibold bg-[#A78BFA]/15 text-[#A78BFA] border border-[#A78BFA]/30">
@@ -38,24 +38,26 @@
             {% endif %}
           {% endif %}
         </div>
-        {% if pod.status == "Running" %}
-        <span
-          class="inline-flex items-center px-4 py-2 rounded-md text-sm font-medium bg-accent-green/15 text-accent-green border border-accent-green/30"
-        >
-          <span class="w-2 h-2 rounded-full mr-2 animate-pulse bg-accent-green"></span>
-          Running
-        </span>
-        {% else %}
-        <span
-          class="inline-flex items-center px-4 py-2 rounded-md text-sm font-medium bg-text-muted/15 text-text-muted border border-text-muted/30"
-        >
-          {{ pod.status }}
-        </span>
-        {% endif %}
+        <p class="text-base text-text-secondary">
+          Pod in {{ pod.namespace }} namespace on {{ pod.node_name }}
+        </p>
       </div>
-      <p class="text-base text-text-secondary">
-        Pod in {{ pod.namespace }} namespace on {{ pod.node_name }}
-      </p>
+    </div>
+    <div class="flex items-center space-x-3">
+      {% if pod.status == "Running" %}
+      <span
+        class="inline-flex items-center px-4 py-2 rounded-md text-sm font-medium bg-accent-green/15 text-accent-green border border-accent-green/30"
+      >
+        <span class="w-2 h-2 rounded-full mr-2 animate-pulse bg-accent-green"></span>
+        Running
+      </span>
+      {% else %}
+      <span
+        class="inline-flex items-center px-4 py-2 rounded-md text-sm font-medium bg-text-muted/15 text-text-muted border border-text-muted/30"
+      >
+        {{ pod.status }}
+      </span>
+      {% endif %}
     </div>
   </div>
 
