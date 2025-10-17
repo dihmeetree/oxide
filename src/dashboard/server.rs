@@ -79,6 +79,7 @@ impl DashboardServer {
             .route("/cilium", get(routes::cilium))
             .route("/envoy", get(routes::envoy))
             .route("/alerts", get(routes::alerts))
+            .route("/insights", get(routes::insights))
             .route("/api/clusters", get(routes::api_clusters_list))
             .route(
                 "/api/clusters/{name}/metrics",

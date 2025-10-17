@@ -366,6 +366,7 @@ struct CacheData {
     envoy_version: Arc<str>,
     envoy_metrics_history: Arc<crate::prometheus::EnvoyMetricsHistory>,
     alerts: Arc<[crate::prometheus::Alert]>,
+    insights: Arc<[crate::prometheus::Insight]>,
     last_update: Instant,
     is_ready: bool,
     metrics_json_cache: Arc<str>,
@@ -392,6 +393,7 @@ impl ClusterCache {
                 envoy_version: Arc::from("N/A"),
                 envoy_metrics_history: Arc::new(crate::prometheus::EnvoyMetricsHistory::default()),
                 alerts: Arc::from([]),
+                insights: Arc::from([]),
                 last_update: Instant::now(),
                 is_ready: false,
                 metrics_json_cache: Arc::from("{}"),
@@ -553,6 +555,13 @@ impl ClusterCache {
         Arc::clone(&data.alerts)
     }
 
+    /// Get all insights from cache
+    #[inline]
+    pub async fn get_insights(&self) -> Arc<[crate::prometheus::Insight]> {
+        let data = self.inner.read().await;
+        Arc::clone(&data.insights)
+    }
+
     /// Process Cilium data with a closure to avoid cloning
     #[allow(dead_code)]
     pub async fn with_cilium_data<F, R>(&self, f: F) -> R
@@ -673,6 +682,7 @@ impl ClusterCache {
             cilium_data,
             envoy_data,
             alerts,
+            insights,
         ) = tokio::join!(
             fetch_all_node_details(&servers, config_path),
             fetch_all_pod_details(config_path, &config.cluster_name),
@@ -680,7 +690,8 @@ impl ClusterCache {
             fetch_all_node_metrics_history(&servers, config_path),
             fetch_cilium_data(config_path, &config, &config.cluster_name),
             fetch_envoy_data(config_path, &config.cluster_name),
-            fetch_alerts(config_path)
+            fetch_alerts(config_path),
+            fetch_insights(config_path)
         );
 
         // Unpack Cilium data
@@ -745,6 +756,7 @@ impl ClusterCache {
         data.envoy_version = Arc::from(envoy_version.as_str());
         data.envoy_metrics_history = Arc::new(envoy_metrics_history);
         data.alerts = Arc::from(alerts.into_boxed_slice());
+        data.insights = Arc::from(insights.into_boxed_slice());
         data.metrics_json_cache = metrics_json_cache;
         data.cilium_metrics_json_cache = cilium_metrics_json_cache;
         data.envoy_metrics_json_cache = envoy_metrics_json_cache;
@@ -752,11 +764,12 @@ impl ClusterCache {
         data.is_ready = true;
 
         info!(
-            "Full cache refresh completed - {} clusters, {} nodes, {} pods, {} alerts",
+            "Full cache refresh completed - {} clusters, {} nodes, {} pods, {} alerts, {} insights",
             data.clusters.len(),
             data.node_details.len(),
             data.pod_details.len(),
-            data.alerts.len()
+            data.alerts.len(),
+            data.insights.len()
         );
         Ok(())
     }
@@ -786,7 +799,7 @@ impl ClusterCache {
         let config: ClusterConfig = serde_yaml::from_str(&config_str)?;
 
         // Fetch all Kubernetes/Prometheus data in parallel
-        info!("Fetching pods, metrics, Cilium data, Envoy data, and alerts...");
+        info!("Fetching pods, metrics, Cilium data, Envoy data, alerts, and insights...");
         let (
             mut pod_details,
             pod_metrics_history,
@@ -794,13 +807,15 @@ impl ClusterCache {
             cilium_data,
             envoy_data,
             alerts,
+            insights,
         ) = tokio::join!(
             fetch_all_pod_details(config_path, &cluster_name),
             fetch_all_pod_metrics_history(config_path),
             fetch_all_node_metrics_history(&servers, config_path),
             fetch_cilium_data(config_path, &config, &cluster_name),
             fetch_envoy_data(config_path, &cluster_name),
-            fetch_alerts(config_path)
+            fetch_alerts(config_path),
+            fetch_insights(config_path)
         );
 
         // Unpack Cilium data
@@ -856,15 +871,17 @@ impl ClusterCache {
         data.envoy_version = Arc::from(envoy_version.as_str());
         data.envoy_metrics_history = Arc::new(envoy_metrics_history);
         data.alerts = Arc::from(alerts.into_boxed_slice());
+        data.insights = Arc::from(insights.into_boxed_slice());
         data.metrics_json_cache = metrics_json_cache;
         data.cilium_metrics_json_cache = cilium_metrics_json_cache;
         data.envoy_metrics_json_cache = envoy_metrics_json_cache;
         data.last_update = Instant::now();
 
         info!(
-            "Kubernetes/Prometheus refresh completed - {} pods, {} alerts",
+            "Kubernetes/Prometheus refresh completed - {} pods, {} alerts, {} insights",
             data.pod_details.len(),
-            data.alerts.len()
+            data.alerts.len(),
+            data.insights.len()
         );
 
         Ok(())
@@ -2014,6 +2031,25 @@ async fn fetch_alerts(config_path: &std::path::Path) -> Vec<crate::prometheus::A
         .await
         .unwrap_or_else(|e| {
             error!("Failed to fetch alerts: {}", e);
+            Vec::new()
+        })
+}
+
+/// Fetch cluster insights
+async fn fetch_insights(config_path: &std::path::Path) -> Vec<crate::prometheus::Insight> {
+    // Get the output directory from config path
+    let output_dir = config_path
+        .parent()
+        .and_then(|p| p.parent())
+        .map(|p| p.join("output"))
+        .unwrap_or_else(|| std::path::PathBuf::from("output"));
+
+    let kubeconfig = output_dir.join("kubeconfig");
+
+    crate::prometheus::collect_insights(&kubeconfig)
+        .await
+        .unwrap_or_else(|e| {
+            error!("Failed to fetch insights: {}", e);
             Vec::new()
         })
 }

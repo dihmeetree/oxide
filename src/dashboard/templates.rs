@@ -11,6 +11,7 @@ pub struct IndexTemplate {
     pub active_page: String,
     pub version: String,
     pub firing_alerts_count: usize,
+    pub insights_count: usize,
 }
 
 /// Clusters list page
@@ -21,6 +22,7 @@ pub struct ClustersTemplate<'a> {
     pub active_page: String,
     pub version: String,
     pub firing_alerts_count: usize,
+    pub insights_count: usize,
 }
 
 /// Create cluster form page
@@ -30,6 +32,7 @@ pub struct CreateClusterTemplate {
     pub active_page: String,
     pub version: String,
     pub firing_alerts_count: usize,
+    pub insights_count: usize,
 }
 
 /// Cluster detail page
@@ -40,6 +43,7 @@ pub struct ClusterDetailTemplate {
     pub active_page: String,
     pub version: String,
     pub firing_alerts_count: usize,
+    pub insights_count: usize,
     pub metrics_json: String,
     pub node_names: Vec<String>,
 }
@@ -90,6 +94,7 @@ pub struct NodeDetailTemplate {
     pub active_page: String,
     pub version: String,
     pub firing_alerts_count: usize,
+    pub insights_count: usize,
 }
 
 /// Detailed node information with pods
@@ -125,6 +130,7 @@ pub struct MetricsTemplate {
     pub node_names: Vec<String>,
     pub pod_names: Vec<String>,
     pub firing_alerts_count: usize,
+    pub insights_count: usize,
 }
 
 /// Cilium page
@@ -140,6 +146,7 @@ pub struct CiliumTemplate<'a> {
     pub metrics_json: String,
     pub pod_names: Vec<String>,
     pub firing_alerts_count: usize,
+    pub insights_count: usize,
 }
 
 /// Alerts page
@@ -152,6 +159,21 @@ pub struct AlertsTemplate<'a> {
     pub firing_count: usize,
     pub pending_count: usize,
     pub firing_alerts_count: usize,
+    pub insights_count: usize,
+}
+
+/// Insights page
+#[derive(Template)]
+#[template(path = "insights.html")]
+pub struct InsightsTemplate<'a> {
+    pub active_page: String,
+    pub version: String,
+    pub insights: &'a [crate::prometheus::Insight],
+    pub high_count: usize,
+    pub medium_count: usize,
+    pub low_count: usize,
+    pub firing_alerts_count: usize,
+    pub insights_count: usize,
 }
 
 /// Cilium pod information
@@ -199,6 +221,7 @@ pub struct EnvoyTemplate<'a> {
     pub version: String,
     pub metrics_json: String,
     pub firing_alerts_count: usize,
+    pub insights_count: usize,
 }
 
 /// Pods list page
@@ -212,6 +235,7 @@ pub struct PodsTemplate {
     pub active_page: String,
     pub version: String,
     pub firing_alerts_count: usize,
+    pub insights_count: usize,
 }
 
 /// Pod detail page
@@ -223,6 +247,7 @@ pub struct PodDetailTemplate {
     pub active_page: String,
     pub version: String,
     pub firing_alerts_count: usize,
+    pub insights_count: usize,
 }
 
 /// Detailed pod information with metrics
@@ -274,6 +299,7 @@ pub struct NodesTemplate {
     pub active_page: String,
     pub version: String,
     pub firing_alerts_count: usize,
+    pub insights_count: usize,
 }
 
 /// Node information with cluster name

@@ -12,8 +12,8 @@ use tracing::{error, info};
 use super::server::AppState;
 use super::templates::{
     AlertsTemplate, CiliumTemplate, ClusterDetailTemplate, ClustersTemplate, CreateClusterTemplate,
-    EnvoyTemplate, IndexTemplate, MetricsTemplate, NodeDetailTemplate, NodeInfoWithCluster,
-    NodesTemplate, PodDetailTemplate, PodsTemplate,
+    EnvoyTemplate, IndexTemplate, InsightsTemplate, MetricsTemplate, NodeDetailTemplate,
+    NodeInfoWithCluster, NodesTemplate, PodDetailTemplate, PodsTemplate,
 };
 use crate::config::ClusterConfig;
 
@@ -25,6 +25,11 @@ async fn get_firing_alerts_count(cache: &super::cache::ClusterCache) -> usize {
         .iter()
         .filter(|a| a.state == "firing")
         .count()
+}
+
+/// Get the count of insights from the cache
+async fn get_insights_count(cache: &super::cache::ClusterCache) -> usize {
+    cache.get_insights().await.len()
 }
 
 /// Returns the preloader HTML page with auto-refresh
@@ -128,12 +133,14 @@ pub async fn index(State(state): State<AppState>) -> impl IntoResponse {
     let clusters = state.cache.get_clusters().await;
     let total_nodes: usize = clusters.iter().map(|c| c.nodes).sum();
     let firing_alerts_count = get_firing_alerts_count(&state.cache).await;
+    let insights_count = get_insights_count(&state.cache).await;
     let template = IndexTemplate {
         cluster_count: clusters.len(),
         total_nodes,
         active_page: "dashboard".to_string(),
         version: env!("CARGO_PKG_VERSION").to_string(),
         firing_alerts_count,
+        insights_count,
     };
     Html(template.render().unwrap()).into_response()
 }
@@ -148,11 +155,13 @@ pub async fn clusters_list(State(state): State<AppState>) -> impl IntoResponse {
 
     let clusters = state.cache.get_clusters().await;
     let firing_alerts_count = get_firing_alerts_count(&state.cache).await;
+    let insights_count = get_insights_count(&state.cache).await;
     let template = ClustersTemplate {
         clusters: clusters.as_ref(),
         active_page: "clusters".to_string(),
         version: env!("CARGO_PKG_VERSION").to_string(),
         firing_alerts_count,
+        insights_count,
     };
     Html(template.render().unwrap()).into_response()
 }
@@ -160,10 +169,12 @@ pub async fn clusters_list(State(state): State<AppState>) -> impl IntoResponse {
 /// Create cluster form page
 pub async fn clusters_create_form(State(state): State<AppState>) -> impl IntoResponse {
     let firing_alerts_count = get_firing_alerts_count(&state.cache).await;
+    let insights_count = get_insights_count(&state.cache).await;
     let template = CreateClusterTemplate {
         active_page: "clusters".to_string(),
         version: env!("CARGO_PKG_VERSION").to_string(),
         firing_alerts_count,
+        insights_count,
     };
     Html(template.render().unwrap())
 }
@@ -227,11 +238,13 @@ pub async fn cluster_detail(
             };
 
             let firing_alerts_count = get_firing_alerts_count(&state.cache).await;
+            let insights_count = get_insights_count(&state.cache).await;
             let template = ClusterDetailTemplate {
                 cluster,
                 active_page: "clusters".to_string(),
                 version: env!("CARGO_PKG_VERSION").to_string(),
                 firing_alerts_count,
+                insights_count,
                 metrics_json,
                 node_names,
             };
@@ -268,12 +281,14 @@ pub async fn node_detail(
             };
 
             let firing_alerts_count = get_firing_alerts_count(&state.cache).await;
+            let insights_count = get_insights_count(&state.cache).await;
             let template = NodeDetailTemplate {
                 node,
                 metrics_json,
                 active_page: "nodes".to_string(),
                 version: env!("CARGO_PKG_VERSION").to_string(),
                 firing_alerts_count,
+                insights_count,
             };
             Html(template.render().unwrap()).into_response()
         }
@@ -351,6 +366,7 @@ pub async fn pod_detail(
             });
 
             let firing_alerts_count = get_firing_alerts_count(&state.cache).await;
+            let insights_count = get_insights_count(&state.cache).await;
             let template = PodDetailTemplate {
                 pod,
                 metrics_json: serde_json::to_string(&metrics_json)
@@ -358,6 +374,7 @@ pub async fn pod_detail(
                 active_page: "pods".to_string(),
                 version: env!("CARGO_PKG_VERSION").to_string(),
                 firing_alerts_count,
+                insights_count,
             };
             Html(template.render().unwrap()).into_response()
         }
@@ -824,6 +841,7 @@ pub async fn metrics(State(state): State<AppState>) -> impl IntoResponse {
     };
 
     let firing_alerts_count = get_firing_alerts_count(&state.cache).await;
+    let insights_count = get_insights_count(&state.cache).await;
     let template = MetricsTemplate {
         active_page: "metrics".to_string(),
         version: env!("CARGO_PKG_VERSION").to_string(),
@@ -832,6 +850,7 @@ pub async fn metrics(State(state): State<AppState>) -> impl IntoResponse {
         node_names,
         pod_names,
         firing_alerts_count,
+        insights_count,
     };
     Html(template.render().unwrap()).into_response()
 }
@@ -1019,6 +1038,7 @@ pub async fn pods_list(State(state): State<AppState>) -> impl IntoResponse {
     });
 
     let firing_alerts_count = get_firing_alerts_count(&state.cache).await;
+    let insights_count = get_insights_count(&state.cache).await;
     let template = PodsTemplate {
         pods,
         running_count,
@@ -1027,6 +1047,7 @@ pub async fn pods_list(State(state): State<AppState>) -> impl IntoResponse {
         active_page: "pods".to_string(),
         version: env!("CARGO_PKG_VERSION").to_string(),
         firing_alerts_count,
+        insights_count,
     };
     Html(template.render().unwrap()).into_response()
 }
@@ -1120,6 +1141,7 @@ pub async fn nodes_list(State(state): State<AppState>) -> impl IntoResponse {
     };
 
     let firing_alerts_count = get_firing_alerts_count(&state.cache).await;
+    let insights_count = get_insights_count(&state.cache).await;
     let template = NodesTemplate {
         nodes,
         control_plane_count,
@@ -1130,6 +1152,7 @@ pub async fn nodes_list(State(state): State<AppState>) -> impl IntoResponse {
         active_page: "nodes".to_string(),
         version: env!("CARGO_PKG_VERSION").to_string(),
         firing_alerts_count,
+        insights_count,
     };
     Html(template.render().unwrap()).into_response()
 }
@@ -1143,6 +1166,7 @@ pub async fn cilium(State(state): State<AppState>) -> impl IntoResponse {
     }
 
     let firing_alerts_count = get_firing_alerts_count(&state.cache).await;
+    let insights_count = get_insights_count(&state.cache).await;
 
     // Get pre-serialized metrics JSON from cache (same as API endpoint)
     let metrics_json = state
@@ -1169,6 +1193,7 @@ pub async fn cilium(State(state): State<AppState>) -> impl IntoResponse {
         metrics_json,
         pod_names,
         firing_alerts_count,
+        insights_count,
     };
 
     Html(template.render().unwrap()).into_response()
@@ -1183,6 +1208,7 @@ pub async fn envoy(State(state): State<AppState>) -> impl IntoResponse {
     }
 
     let firing_alerts_count = get_firing_alerts_count(&state.cache).await;
+    let insights_count = get_insights_count(&state.cache).await;
 
     // Get pre-serialized metrics JSON from cache
     let metrics_json = state.cache.get_envoy_metrics_json_cache().await.to_string();
@@ -1197,6 +1223,7 @@ pub async fn envoy(State(state): State<AppState>) -> impl IntoResponse {
         envoy_version: envoy_version.to_string(),
         metrics_json,
         firing_alerts_count,
+        insights_count,
     };
 
     Html(template.render().unwrap()).into_response()
@@ -1264,6 +1291,7 @@ pub async fn alerts(State(state): State<AppState>) -> impl IntoResponse {
     let firing_count = alerts.iter().filter(|a| a.state == "firing").count();
     let pending_count = alerts.iter().filter(|a| a.state == "pending").count();
 
+    let insights_count = get_insights_count(&state.cache).await;
     let template = AlertsTemplate {
         active_page: "alerts".to_string(),
         version: env!("CARGO_PKG_VERSION").to_string(),
@@ -1271,6 +1299,59 @@ pub async fn alerts(State(state): State<AppState>) -> impl IntoResponse {
         firing_count,
         pending_count,
         firing_alerts_count: firing_count,
+        insights_count,
+    };
+
+    Html(template.render().unwrap()).into_response()
+}
+
+/// Insights page - shows cluster best practice recommendations
+pub async fn insights(State(state): State<AppState>) -> impl IntoResponse {
+    let cache_ready = state.cache.is_ready().await;
+
+    if !cache_ready {
+        return preloader_page().into_response();
+    }
+
+    // Get insights from cache
+    let mut insights = state.cache.get_insights().await.to_vec();
+
+    // Sort insights by severity (high, medium, low), then by title
+    insights.sort_by(|a, b| {
+        // Define severity priority
+        let severity_priority = |s: &str| match s {
+            "high" => 0,
+            "medium" => 1,
+            "low" => 2,
+            _ => 3,
+        };
+
+        // First compare by severity
+        match severity_priority(&a.severity).cmp(&severity_priority(&b.severity)) {
+            std::cmp::Ordering::Equal => {
+                // If same severity, compare by title
+                a.title.cmp(&b.title)
+            }
+            other => other,
+        }
+    });
+
+    // Count severity levels
+    let high_count = insights.iter().filter(|i| i.severity == "high").count();
+    let medium_count = insights.iter().filter(|i| i.severity == "medium").count();
+    let low_count = insights.iter().filter(|i| i.severity == "low").count();
+
+    let firing_alerts_count = get_firing_alerts_count(&state.cache).await;
+    let insights_count = insights.len();
+    let template = InsightsTemplate {
+        active_page: "insights".to_string(),
+        version: env!("CARGO_PKG_VERSION").to_string(),
+        insights: &insights,
+        high_count,
+        medium_count,
+        low_count,
+        firing_alerts_count,
+        insights_count,
     };
 
     Html(template.render().unwrap()).into_response()
