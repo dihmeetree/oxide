@@ -1,13 +1,29 @@
 {% extends "layout.html" %} {% block content %}
 <div class="space-y-6">
   <!-- Header -->
-  <div>
-    <h2 class="text-3xl font-semibold text-text-primary">
-      Welcome to Oxide
-    </h2>
-    <p class="mt-1 text-base text-text-secondary">
-      Deploy and manage Talos Linux clusters on Hetzner Cloud with the Cilium CNI
-    </p>
+  <div class="flex items-center gap-4">
+    <div class="rounded-lg p-3 bg-[#10B981]/15 flex-shrink-0">
+      <svg
+        class="w-8 h-8 stroke-[#10B981]"
+        fill="none"
+        viewBox="0 0 24 24"
+        stroke-width="2"
+      >
+        <path
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          d="M7 11.5V14m0-2.5v-6a1.5 1.5 0 113 0m-3 6a1.5 1.5 0 00-3 0v2a7.5 7.5 0 0015 0v-5a1.5 1.5 0 00-3 0m-6-3V11m0-5.5v-1a1.5 1.5 0 013 0v1m0 0V11m0-5.5a1.5 1.5 0 013 0v3m0 0V11"
+        ></path>
+      </svg>
+    </div>
+    <div>
+      <h2 class="text-3xl font-semibold text-text-primary">
+        Welcome to Oxide
+      </h2>
+      <p class="text-base text-text-secondary">
+        Deploy and manage Talos Linux clusters on Hetzner Cloud with the Cilium CNI
+      </p>
+    </div>
   </div>
 
   <!-- Stats Grid -->

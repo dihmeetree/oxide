@@ -63,10 +63,10 @@
       <div class="flex items-center justify-between">
         <div>
           <p class="text-sm font-medium mb-2 text-text-secondary">Pending</p>
-          <p class="text-4xl font-semibold text-[#F59E0B]">{{ pending_count }}</p>
+          <p class="text-4xl font-semibold text-[#3B82F6]">{{ pending_count }}</p>
         </div>
-        <div class="rounded-lg p-3 bg-[#F59E0B]/15">
-          <svg class="w-8 h-8 stroke-[#F59E0B]" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+        <div class="rounded-lg p-3 bg-[#3B82F6]/15">
+          <svg class="w-8 h-8 stroke-[#3B82F6]" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
             <path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
           </svg>
         </div>
@@ -314,7 +314,7 @@
 
   // Filter alerts
   function filterAlerts() {
-    const searchTerm = document.getElementById('alertSearch').value.toLowerCase();
+    const searchTerm = document.getElementById('alertSearch').value.toLowerCase().trim();
     const stateFilter = document.getElementById('stateFilter').value;
     const severityFilter = document.getElementById('severityFilter').value;
 
@@ -322,12 +322,22 @@
     let visibleCount = 0;
 
     cards.forEach(card => {
-      const name = card.dataset.name.toLowerCase();
-      const description = card.dataset.description.toLowerCase();
-      const state = card.dataset.state;
-      const severity = card.dataset.severity;
+      const name = (card.dataset.name || '').toLowerCase();
+      const description = (card.dataset.description || '').toLowerCase();
+      const state = card.dataset.state || '';
+      const severity = card.dataset.severity || '';
 
-      const matchesSearch = name.includes(searchTerm) || description.includes(searchTerm);
+      // Also search in visible text content for better matches
+      const nameElement = card.querySelector('h3');
+      const descElement = card.querySelector('.line-clamp-2');
+      const nameText = nameElement ? nameElement.textContent.toLowerCase() : '';
+      const descText = descElement ? descElement.textContent.toLowerCase() : '';
+
+      const matchesSearch = searchTerm === '' ||
+                           name.includes(searchTerm) ||
+                           description.includes(searchTerm) ||
+                           nameText.includes(searchTerm) ||
+                           descText.includes(searchTerm);
       const matchesState = stateFilter === 'all' || state === stateFilter;
       const matchesSeverity = severityFilter === 'all' || severity === severityFilter;
 
