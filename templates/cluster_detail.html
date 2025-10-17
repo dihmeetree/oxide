@@ -21,9 +21,14 @@
         </svg>
       </a>
       <div>
-        <h2 class="text-3xl font-semibold text-text-primary">
-          {{ cluster.name }}
-        </h2>
+        <div class="flex items-center gap-2 mb-1">
+          <h2 class="text-3xl font-semibold text-text-primary">
+            {{ cluster.name }}
+          </h2>
+          <span class="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-semibold bg-accent-blue/15 text-accent-blue border border-accent-blue/30">
+            CLUSTER
+          </span>
+        </div>
         <p class="mt-1 text-base text-text-secondary">
           Created {{ cluster.created }}
         </p>

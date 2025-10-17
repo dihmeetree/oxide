@@ -966,35 +966,51 @@ fn build_metrics_json_cache(
                 all_timestamps.insert(rounded);
             }
         }
-        let timestamps: Vec<i64> = all_timestamps.into_iter().collect();
 
-        // Build nodes
+        // Filter timestamps to only include those where ALL nodes have actual data
+        // This prevents 0.0 values from appearing during initial collection
+        let valid_timestamps: Vec<i64> =
+            all_timestamps
+                .into_iter()
+                .filter(|ts| {
+                    // Check if ALL nodes have data for this timestamp (both CPU and memory)
+                    results.iter().all(|(_, history)| {
+                        let has_cpu = history.cpu_history.iter().any(|(t, val)| {
+                            (*t - *ts).abs() <= TIMESTAMP_TOLERANCE_SECS && *val > 0.0
+                        });
+                        let has_memory = history.memory_history.iter().any(|(t, val)| {
+                            (*t - *ts).abs() <= TIMESTAMP_TOLERANCE_SECS && *val > 0.0
+                        });
+                        has_cpu && has_memory
+                    })
+                })
+                .collect();
+
+        // Build nodes with only valid timestamps
         let nodes: Vec<MetricsNode> = results
             .iter()
             .map(|(name, history)| {
-                let cpu_history: Vec<f64> = timestamps
+                let cpu_history: Vec<f64> = valid_timestamps
                     .iter()
-                    .map(|ts| {
+                    .filter_map(|ts| {
                         history
                             .cpu_history
                             .iter()
                             .filter(|(t, _)| (*t - *ts).abs() <= TIMESTAMP_TOLERANCE_SECS)
                             .min_by_key(|(t, _)| (*t - *ts).abs())
                             .map(|(_, val)| *val)
-                            .unwrap_or(0.0)
                     })
                     .collect();
 
-                let memory_history: Vec<f64> = timestamps
+                let memory_history: Vec<f64> = valid_timestamps
                     .iter()
-                    .map(|ts| {
+                    .filter_map(|ts| {
                         history
                             .memory_history
                             .iter()
                             .filter(|(t, _)| (*t - *ts).abs() <= TIMESTAMP_TOLERANCE_SECS)
                             .min_by_key(|(t, _)| (*t - *ts).abs())
                             .map(|(_, val)| *val)
-                            .unwrap_or(0.0)
                     })
                     .collect();
 
@@ -1032,7 +1048,7 @@ fn build_metrics_json_cache(
             .collect();
 
         let response = MetricsResponse {
-            timestamps,
+            timestamps: valid_timestamps,
             nodes,
             pods,
         };
@@ -1089,7 +1105,29 @@ fn build_cilium_metrics_json_cache(
                 all_timestamps.insert(rounded);
             }
         }
-        let timestamps: Vec<i64> = all_timestamps.into_iter().collect();
+
+        // Filter timestamps to only include those where ALL Cilium pods have actual data
+        // This prevents 0.0 values from appearing during initial collection
+        let valid_timestamps: Vec<i64> = all_timestamps
+            .into_iter()
+            .filter(|ts| {
+                // Check if all Cilium pods have data for this timestamp (both CPU and memory)
+                cilium_pods.iter().all(|cilium_pod| {
+                    let key = format!("kube-system/{}", cilium_pod.name);
+                    if let Some(history) = pod_metrics_history.get(&key) {
+                        let has_cpu = history.cpu_history.iter().any(|(t, val)| {
+                            (*t - *ts).abs() <= TIMESTAMP_TOLERANCE_SECS && *val > 0.0
+                        });
+                        let has_memory = history.memory_history.iter().any(|(t, val)| {
+                            (*t - *ts).abs() <= TIMESTAMP_TOLERANCE_SECS && *val > 0.0
+                        });
+                        has_cpu && has_memory
+                    } else {
+                        false
+                    }
+                })
+            })
+            .collect();
 
         // Build pods metrics
         let pods_metrics: Vec<CiliumPodMetrics> = cilium_pods
@@ -1099,35 +1137,33 @@ fn build_cilium_metrics_json_cache(
                 let history = pod_metrics_history.get(&key);
 
                 let (cpu_history, memory_history) = if let Some(hist) = history {
-                    // Align CPU data to rounded timestamps (find nearest within 60 seconds)
-                    let cpu_aligned: Vec<f64> = timestamps
+                    // Align CPU data to valid timestamps (find nearest within tolerance)
+                    let cpu_aligned: Vec<f64> = valid_timestamps
                         .iter()
-                        .map(|ts| {
+                        .filter_map(|ts| {
                             hist.cpu_history
                                 .iter()
                                 .filter(|(t, _)| (*t - *ts).abs() <= TIMESTAMP_TOLERANCE_SECS)
                                 .min_by_key(|(t, _)| (*t - *ts).abs())
                                 .map(|(_, val)| val * CPU_TO_MILLICORES_MULTIPLIER)
-                                .unwrap_or(0.0)
                         })
                         .collect();
 
-                    // Align memory data to rounded timestamps (find nearest within tolerance)
-                    let memory_aligned: Vec<f64> = timestamps
+                    // Align memory data to valid timestamps (find nearest within tolerance)
+                    let memory_aligned: Vec<f64> = valid_timestamps
                         .iter()
-                        .map(|ts| {
+                        .filter_map(|ts| {
                             hist.memory_history
                                 .iter()
                                 .filter(|(t, _)| (*t - *ts).abs() <= TIMESTAMP_TOLERANCE_SECS)
                                 .min_by_key(|(t, _)| (*t - *ts).abs())
                                 .map(|(_, val)| *val)
-                                .unwrap_or(0.0)
                         })
                         .collect();
 
                     (cpu_aligned, memory_aligned)
                 } else {
-                    (vec![0.0; timestamps.len()], vec![0.0; timestamps.len()])
+                    (vec![], vec![])
                 };
 
                 CiliumPodMetrics {
@@ -1143,7 +1179,7 @@ fn build_cilium_metrics_json_cache(
             .collect();
 
         let response = CiliumMetrics {
-            timestamps,
+            timestamps: valid_timestamps,
             pods: pods_metrics,
         };
         Arc::from(

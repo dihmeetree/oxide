@@ -20,7 +20,12 @@
       </svg>
     </a>
     <div>
-      <h2 class="text-3xl font-semibold text-text-primary">{{ pod.name }}</h2>
+      <div class="flex items-center gap-2 mb-1">
+        <h2 class="text-3xl font-semibold text-text-primary">{{ pod.name }}</h2>
+        <span class="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-semibold bg-[#A78BFA]/15 text-[#A78BFA] border border-[#A78BFA]/30">
+          POD
+        </span>
+      </div>
       <p class="mt-1 text-base text-text-secondary">
         Pod in {{ pod.namespace }} namespace on {{ pod.node_name }}
       </p>
