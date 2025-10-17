@@ -175,12 +175,65 @@ pub async fn cluster_detail(
 ) -> impl IntoResponse {
     match state.cache.get_cluster_detail(&name).await {
         Some(cluster) => {
+            // Get node metrics for this cluster's nodes only
+            let node_metrics_history = state.cache.get_node_metrics_history().await;
+
+            // Filter metrics to only include nodes from this cluster
+            let cluster_node_names: Vec<String> =
+                cluster.nodes.iter().map(|n| n.name.clone()).collect();
+            let cluster_metrics: HashMap<String, crate::prometheus::NodeMetricsHistory> =
+                node_metrics_history
+                    .iter()
+                    .filter(|(name, _)| cluster_node_names.contains(name))
+                    .map(|(k, v)| (k.clone(), v.clone()))
+                    .collect();
+
+            // Build node names list for legend
+            let mut node_names: Vec<String> = cluster_metrics.keys().cloned().collect();
+            node_names.sort();
+
+            // Build metrics JSON similar to nodes_list
+            let metrics_json = if !cluster_metrics.is_empty() {
+                let mut all_timestamps = std::collections::BTreeSet::new();
+                for history in cluster_metrics.values() {
+                    for (ts, _) in &history.cpu_history {
+                        all_timestamps.insert(*ts);
+                    }
+                }
+                let timestamps: Vec<i64> = all_timestamps.into_iter().collect();
+
+                let metrics_nodes: Vec<MetricsNode> = cluster_metrics
+                    .iter()
+                    .map(|(name, history)| {
+                        let cpu_history: Vec<f64> =
+                            history.cpu_history.iter().map(|(_, val)| *val).collect();
+                        let memory_history: Vec<f64> =
+                            history.memory_history.iter().map(|(_, val)| *val).collect();
+                        MetricsNode {
+                            name: name.clone(),
+                            cpu_history,
+                            memory_history,
+                        }
+                    })
+                    .collect();
+
+                let response = NodeMetricsResponse {
+                    timestamps,
+                    nodes: metrics_nodes,
+                };
+                serde_json::to_string(&response).unwrap_or_else(|_| "{}".to_string())
+            } else {
+                "{}".to_string()
+            };
+
             let firing_alerts_count = get_firing_alerts_count(&state.cache).await;
             let template = ClusterDetailTemplate {
                 cluster,
                 active_page: "clusters".to_string(),
                 version: env!("CARGO_PKG_VERSION").to_string(),
                 firing_alerts_count,
+                metrics_json,
+                node_names,
             };
             Html(template.render().unwrap()).into_response()
         }
@@ -402,6 +455,73 @@ pub async fn api_clusters_list(State(state): State<AppState>) -> impl IntoRespon
     let clusters = state.cache.get_clusters().await;
     // Clone needed for JSON serialization (Arc<[T]> doesn't implement Serialize)
     Json(clusters.to_vec())
+}
+
+/// API endpoint to retrieve metrics for a specific cluster's nodes
+pub async fn api_cluster_metrics(
+    State(state): State<AppState>,
+    axum::extract::Path(cluster_name): axum::extract::Path<String>,
+) -> impl IntoResponse {
+    // Get cluster detail to find node names
+    match state.cache.get_cluster_detail(&cluster_name).await {
+        Some(cluster) => {
+            // Get node metrics for this cluster's nodes only
+            let node_metrics_history = state.cache.get_node_metrics_history().await;
+
+            // Filter metrics to only include nodes from this cluster
+            let cluster_node_names: Vec<String> =
+                cluster.nodes.iter().map(|n| n.name.clone()).collect();
+            let cluster_metrics: HashMap<String, crate::prometheus::NodeMetricsHistory> =
+                node_metrics_history
+                    .iter()
+                    .filter(|(name, _)| cluster_node_names.contains(name))
+                    .map(|(k, v)| (k.clone(), v.clone()))
+                    .collect();
+
+            // Build metrics JSON
+            if !cluster_metrics.is_empty() {
+                let mut all_timestamps = std::collections::BTreeSet::new();
+                for history in cluster_metrics.values() {
+                    for (ts, _) in &history.cpu_history {
+                        all_timestamps.insert(*ts);
+                    }
+                }
+                let timestamps: Vec<i64> = all_timestamps.into_iter().collect();
+
+                let metrics_nodes: Vec<MetricsNode> = cluster_metrics
+                    .iter()
+                    .map(|(name, history)| {
+                        let cpu_history: Vec<f64> =
+                            history.cpu_history.iter().map(|(_, val)| *val).collect();
+                        let memory_history: Vec<f64> =
+                            history.memory_history.iter().map(|(_, val)| *val).collect();
+                        MetricsNode {
+                            name: name.clone(),
+                            cpu_history,
+                            memory_history,
+                        }
+                    })
+                    .collect();
+
+                let response = NodeMetricsResponse {
+                    timestamps,
+                    nodes: metrics_nodes,
+                };
+                Json(response).into_response()
+            } else {
+                Json(NodeMetricsResponse {
+                    timestamps: vec![],
+                    nodes: vec![],
+                })
+                .into_response()
+            }
+        }
+        None => Json(NodeMetricsResponse {
+            timestamps: vec![],
+            nodes: vec![],
+        })
+        .into_response(),
+    }
 }
 
 /// API endpoint to retrieve historical metrics for a specific pod

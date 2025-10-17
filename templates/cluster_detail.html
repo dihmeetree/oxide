@@ -5,10 +5,10 @@
     <div class="flex items-center gap-4">
       <a
         href="/clusters"
-        class="p-2 rounded-lg bg-dark-hover hover:bg-dark-hoverAlt transition"
+        class="p-3 rounded-lg bg-dark-hover hover:bg-dark-hoverAlt transition flex-shrink-0"
       >
         <svg
-          class="w-5 h-5 stroke-text-primaryAlt"
+          class="w-8 h-8 stroke-text-primaryAlt"
           fill="none"
           viewBox="0 0 24 24"
           stroke-width="2"
@@ -21,7 +21,7 @@
         </svg>
       </a>
       <div>
-        <div class="flex items-center gap-2 mb-1">
+        <div class="flex items-center gap-2">
           <h2 class="text-3xl font-semibold text-text-primary">
             {{ cluster.name }}
           </h2>
@@ -29,7 +29,7 @@
             CLUSTER
           </span>
         </div>
-        <p class="mt-1 text-base text-text-secondary">
+        <p class="text-base text-text-secondary">
           Created {{ cluster.created }}
         </p>
       </div>
@@ -362,6 +362,94 @@
       </table>
     </div>
   </div>
+
+  <!-- Node CPU Usage Graph -->
+  <div class="rounded-lg p-6 bg-[#242424] border border-dark-border">
+    <div class="flex items-center justify-between mb-4">
+      <h3 class="text-xl font-semibold text-text-primary">Node CPU Usage</h3>
+      <button
+        onclick="refreshMetrics()"
+        class="p-2 rounded-lg text-text-muted hover:text-text-primary bg-dark-hover hover:bg-dark-hoverAlt transition"
+        title="Refresh"
+      >
+        <svg
+          class="w-5 h-5"
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+          stroke-width="2"
+        >
+          <path
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+          ></path>
+        </svg>
+      </button>
+    </div>
+    <div class="relative h-80">
+      <canvas id="cpuChart"></canvas>
+    </div>
+    <div id="nodeCpuLegend" class="mt-4 max-h-32 overflow-y-auto">
+      <div class="flex flex-wrap gap-3">
+        {% for node_name in node_names %}
+        <button
+          onclick="toggleDataset('nodeCpu', {{ loop.index0 }})"
+          class="flex items-center gap-2 px-3 py-1.5 rounded-md transition bg-dark-hover hover:bg-dark-hoverAlt"
+          data-chart="nodeCpu"
+          data-index="{{ loop.index0 }}"
+        >
+          <span class="w-2 h-2 rounded-full" data-color-for="{{ node_name }}"></span>
+          <span class="text-sm text-text-primary">{{ node_name }}</span>
+        </button>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+
+  <!-- Node Memory Usage Graph -->
+  <div class="rounded-lg p-6 bg-[#242424] border border-dark-border">
+    <div class="flex items-center justify-between mb-4">
+      <h3 class="text-xl font-semibold text-text-primary">Node Memory Usage</h3>
+      <button
+        onclick="refreshMetrics()"
+        class="p-2 rounded-lg text-text-muted hover:text-text-primary bg-dark-hover hover:bg-dark-hoverAlt transition"
+        title="Refresh"
+      >
+        <svg
+          class="w-5 h-5"
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+          stroke-width="2"
+        >
+          <path
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+          ></path>
+        </svg>
+      </button>
+    </div>
+    <div class="relative h-80">
+      <canvas id="memoryChart"></canvas>
+    </div>
+    <div id="nodeMemoryLegend" class="mt-4 max-h-32 overflow-y-auto">
+      <div class="flex flex-wrap gap-3">
+        {% for node_name in node_names %}
+        <button
+          onclick="toggleDataset('nodeMemory', {{ loop.index0 }})"
+          class="flex items-center gap-2 px-3 py-1.5 rounded-md transition bg-dark-hover hover:bg-dark-hoverAlt"
+          data-chart="nodeMemory"
+          data-index="{{ loop.index0 }}"
+        >
+          <span class="w-2 h-2 rounded-full" data-color-for="{{ node_name }}"></span>
+          <span class="text-sm text-text-primary">{{ node_name }}</span>
+        </button>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
 </div>
 
 <script>
@@ -555,6 +643,423 @@
     const deleteBtn = document.getElementById("deleteSubmitBtn");
     deleteBtn.disabled = confirmText !== "delete cluster {{ cluster.name }}";
   }
+</script>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script>
+  // Color palette
+  const colors = [
+    "#2776F3", // accent-blue
+    "#10B981", // accent-green
+    "#F59E0B", // orange
+    "#8B5CF6", // purple
+    "#EC4899", // pink
+    "#14B8A6", // teal
+    "#F97316", // orange-alt
+    "#6366F1", // indigo
+  ];
+
+  let cpuChart;
+  let memoryChart;
+  let nodeColorMap = {}; // Store consistent colors for each node
+
+  // Apply colors to server-rendered legend
+  function applyLegendColors(chart, containerId) {
+    const legendContainer = document.getElementById(containerId);
+    if (!legendContainer) return;
+
+    const colorSpans = legendContainer.querySelectorAll('[data-color-for]');
+    colorSpans.forEach((span) => {
+      const name = span.getAttribute('data-color-for');
+      const dataset = chart.data.datasets.find(ds => ds.label === name);
+      if (dataset) {
+        span.style.backgroundColor = dataset.borderColor;
+      }
+    });
+
+    // Update button states based on visibility
+    const buttons = legendContainer.querySelectorAll('button');
+    buttons.forEach((button, i) => {
+      const isVisible = chart.isDatasetVisible(i);
+      if (!isVisible) {
+        button.classList.add('opacity-50');
+        button.classList.remove('bg-dark-hover');
+        button.classList.add('bg-dark-bg');
+      }
+    });
+  }
+
+  // Toggle dataset visibility
+  function toggleDataset(chartType, index) {
+    let chart, containerId;
+
+    switch(chartType) {
+      case 'nodeCpu':
+        chart = cpuChart;
+        containerId = 'nodeCpuLegend';
+        break;
+      case 'nodeMemory':
+        chart = memoryChart;
+        containerId = 'nodeMemoryLegend';
+        break;
+    }
+
+    const isCurrentlyVisible = chart.isDatasetVisible(index);
+
+    // Count how many datasets are currently visible
+    let visibleCount = 0;
+    for (let i = 0; i < chart.data.datasets.length; i++) {
+      if (chart.isDatasetVisible(i)) visibleCount++;
+    }
+
+    // If only one is visible and we click it, show all
+    if (visibleCount === 1 && isCurrentlyVisible) {
+      chart.data.datasets.forEach((dataset, i) => {
+        chart.setDatasetVisibility(i, true);
+      });
+    } else {
+      // Otherwise, show only the clicked one
+      chart.data.datasets.forEach((dataset, i) => {
+        chart.setDatasetVisibility(i, i === index);
+      });
+    }
+    chart.update();
+
+    // Update button styles
+    const legendContainer = document.getElementById(containerId);
+    const buttons = legendContainer.querySelectorAll('button');
+    buttons.forEach((button, i) => {
+      const isVisible = chart.isDatasetVisible(i);
+      if (isVisible) {
+        button.classList.remove('opacity-50', 'bg-dark-bg');
+        button.classList.add('bg-dark-hover');
+      } else {
+        button.classList.add('opacity-50', 'bg-dark-bg');
+        button.classList.remove('bg-dark-hover');
+      }
+    });
+  }
+
+  // Initialize charts
+  async function initCharts(metricsData) {
+    if (!metricsData || !metricsData.nodes || metricsData.nodes.length === 0) {
+      return;
+    }
+
+    // Sort nodes by name for consistent ordering
+    metricsData.nodes.sort((a, b) => a.name.localeCompare(b.name));
+
+    // Assign consistent colors to nodes
+    metricsData.nodes.forEach((node) => {
+      if (!nodeColorMap[node.name]) {
+        nodeColorMap[node.name] =
+          colors[Object.keys(nodeColorMap).length % colors.length];
+      }
+    });
+
+    // Format timestamps to local time (HH:MM)
+    const formattedTimestamps = metricsData.timestamps.map((ts) => {
+      const date = new Date(ts * 1000);
+      return date.toLocaleTimeString([], {
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+    });
+
+    // CPU Chart
+    const cpuCtx = document.getElementById("cpuChart").getContext("2d");
+    if (cpuChart) {
+      cpuChart.destroy();
+    }
+    cpuChart = new Chart(cpuCtx, {
+      type: "line",
+      data: {
+        labels: formattedTimestamps,
+        datasets: metricsData.nodes.map((node) => ({
+          label: node.name,
+          data: node.cpu_history,
+          borderColor: nodeColorMap[node.name],
+          backgroundColor: nodeColorMap[node.name] + "20",
+          borderWidth: 2,
+          fill: false,
+          tension: 0.4,
+          pointRadius: 0,
+          pointHoverRadius: 5,
+        })),
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: false,
+        plugins: {
+          legend: {
+            display: false,
+          },
+          tooltip: {
+            enabled: true,
+            mode: "index",
+            intersect: false,
+            backgroundColor: "#1A1A1A",
+            titleColor: "#FFFFFF",
+            titleFont: {
+              size: 14,
+              weight: "600",
+              family: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+            },
+            bodyColor: "#E5E5E5",
+            bodyFont: {
+              size: 13,
+              weight: "500",
+            },
+            borderColor: "#404040",
+            borderWidth: 1,
+            padding: 16,
+            displayColors: true,
+            boxWidth: 10,
+            boxHeight: 10,
+            boxPadding: 6,
+            cornerRadius: 8,
+            caretSize: 6,
+            caretPadding: 12,
+            callbacks: {
+              title: function (context) {
+                return "Time: " + context[0].label;
+              },
+              label: function (context) {
+                const value = context.parsed.y.toFixed(1);
+                return " " + context.dataset.label + ": " + value + "%";
+              },
+              labelTextColor: function (context) {
+                return context.dataset.borderColor;
+              },
+            },
+          },
+        },
+        scales: {
+          x: {
+            display: true,
+            grid: {
+              color: "#313131",
+            },
+            ticks: {
+              color: "#AAAAAA",
+            },
+          },
+          y: {
+            display: true,
+            min: 0,
+            max: 100,
+            grid: {
+              color: "#313131",
+            },
+            ticks: {
+              color: "#AAAAAA",
+              callback: function (value) {
+                return value + "%";
+              },
+            },
+          },
+        },
+        interaction: {
+          mode: "nearest",
+          axis: "x",
+          intersect: false,
+        },
+      },
+    });
+
+    // Memory Chart
+    const memoryCtx = document.getElementById("memoryChart").getContext("2d");
+    if (memoryChart) {
+      memoryChart.destroy();
+    }
+    memoryChart = new Chart(memoryCtx, {
+      type: "line",
+      data: {
+        labels: formattedTimestamps,
+        datasets: metricsData.nodes.map((node) => ({
+          label: node.name,
+          data: node.memory_history,
+          borderColor: nodeColorMap[node.name],
+          backgroundColor: nodeColorMap[node.name] + "20",
+          borderWidth: 2,
+          fill: false,
+          tension: 0.4,
+          pointRadius: 0,
+          pointHoverRadius: 5,
+        })),
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: false,
+        plugins: {
+          legend: {
+            display: false,
+          },
+          tooltip: {
+            enabled: true,
+            mode: "index",
+            intersect: false,
+            backgroundColor: "#1A1A1A",
+            titleColor: "#FFFFFF",
+            titleFont: {
+              size: 14,
+              weight: "600",
+              family: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+            },
+            bodyColor: "#E5E5E5",
+            bodyFont: {
+              size: 13,
+              weight: "500",
+            },
+            borderColor: "#404040",
+            borderWidth: 1,
+            padding: 16,
+            displayColors: true,
+            boxWidth: 10,
+            boxHeight: 10,
+            boxPadding: 6,
+            cornerRadius: 8,
+            caretSize: 6,
+            caretPadding: 12,
+            callbacks: {
+              title: function (context) {
+                return "Time: " + context[0].label;
+              },
+              label: function (context) {
+                const value = context.parsed.y.toFixed(1);
+                return " " + context.dataset.label + ": " + value + "%";
+              },
+              labelTextColor: function (context) {
+                return context.dataset.borderColor;
+              },
+            },
+          },
+        },
+        scales: {
+          x: {
+            display: true,
+            grid: {
+              color: "#313131",
+            },
+            ticks: {
+              color: "#AAAAAA",
+            },
+          },
+          y: {
+            display: true,
+            min: 0,
+            max: 100,
+            grid: {
+              color: "#313131",
+            },
+            ticks: {
+              color: "#AAAAAA",
+              callback: function (value) {
+                return value + "%";
+              },
+            },
+          },
+        },
+        interaction: {
+          mode: "nearest",
+          axis: "x",
+          intersect: false,
+        },
+      },
+    });
+
+    // Apply colors to server-rendered legends
+    applyLegendColors(cpuChart, 'nodeCpuLegend');
+    applyLegendColors(memoryChart, 'nodeMemoryLegend');
+  }
+
+  // Refresh metrics from API
+  async function refreshMetrics() {
+    try {
+      const response = await fetch('/api/clusters/{{ cluster.name }}/metrics');
+      const data = await response.json();
+
+      if (!data || !data.nodes || data.nodes.length === 0) {
+        return;
+      }
+
+      // Sort nodes by name for consistent ordering
+      data.nodes.sort((a, b) => a.name.localeCompare(b.name));
+
+      // Assign colors to any new nodes (preserve existing mappings)
+      data.nodes.forEach((node) => {
+        if (!nodeColorMap[node.name]) {
+          nodeColorMap[node.name] = colors[Object.keys(nodeColorMap).length % colors.length];
+        }
+      });
+
+      // Format timestamps
+      const formattedTimestamps = data.timestamps.map((ts) => {
+        const date = new Date(ts * 1000);
+        return date.toLocaleTimeString([], {
+          hour: "2-digit",
+          minute: "2-digit",
+        });
+      });
+
+      // Update CPU chart - preserve visibility state
+      const cpuVisibility = cpuChart.data.datasets.map((ds, i) => cpuChart.isDatasetVisible(i));
+      cpuChart.data.labels = formattedTimestamps;
+      cpuChart.data.datasets = data.nodes.map((node, i) => ({
+        label: node.name,
+        data: node.cpu_history,
+        borderColor: nodeColorMap[node.name],
+        backgroundColor: nodeColorMap[node.name] + "20",
+        borderWidth: 2,
+        fill: false,
+        tension: 0.4,
+        pointRadius: 0,
+        pointHoverRadius: 5,
+        hidden: i < cpuVisibility.length ? !cpuVisibility[i] : false,
+      }));
+      cpuChart.update();
+      applyLegendColors(cpuChart, 'nodeCpuLegend');
+
+      // Update memory chart - preserve visibility state
+      const memoryVisibility = memoryChart.data.datasets.map((ds, i) => memoryChart.isDatasetVisible(i));
+      memoryChart.data.labels = formattedTimestamps;
+      memoryChart.data.datasets = data.nodes.map((node, i) => ({
+        label: node.name,
+        data: node.memory_history,
+        borderColor: nodeColorMap[node.name],
+        backgroundColor: nodeColorMap[node.name] + "20",
+        borderWidth: 2,
+        fill: false,
+        tension: 0.4,
+        pointRadius: 0,
+        pointHoverRadius: 5,
+        hidden: i < memoryVisibility.length ? !memoryVisibility[i] : false,
+      }));
+      memoryChart.update();
+      applyLegendColors(memoryChart, 'nodeMemoryLegend');
+    } catch (error) {
+      console.error('Failed to refresh metrics:', error);
+    }
+  }
+
+  // Initialize on page load
+  document.addEventListener("DOMContentLoaded", function () {
+    const metricsData = {{ metrics_json|safe }};
+    initCharts(metricsData);
+  });
+
+  // Auto-refresh every 10 seconds
+  setInterval(async function () {
+    if (cpuChart && memoryChart) {
+      try {
+        await refreshMetrics();
+      } catch (e) {
+        console.error("Failed to refresh metrics:", e);
+      }
+    }
+  }, 10000);
 </script>
 
 <!-- Scale Modal -->

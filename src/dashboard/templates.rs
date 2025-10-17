@@ -40,6 +40,8 @@ pub struct ClusterDetailTemplate {
     pub active_page: String,
     pub version: String,
     pub firing_alerts_count: usize,
+    pub metrics_json: String,
+    pub node_names: Vec<String>,
 }
 
 /// Cluster information for display

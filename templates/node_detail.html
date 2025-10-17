@@ -5,10 +5,10 @@
     <div class="flex items-center gap-4">
       <a
         href="/clusters/{{ node.cluster_name }}"
-        class="p-2 rounded-lg bg-dark-hover hover:bg-dark-hoverAlt transition"
+        class="p-3 rounded-lg bg-dark-hover hover:bg-dark-hoverAlt transition flex-shrink-0"
       >
         <svg
-          class="w-5 h-5 stroke-text-primaryAlt"
+          class="w-8 h-8 stroke-text-primaryAlt"
           fill="none"
           viewBox="0 0 24 24"
           stroke-width="2"
@@ -21,13 +21,13 @@
         </svg>
       </a>
       <div>
-        <div class="flex items-center gap-2 mb-1">
+        <div class="flex items-center gap-2">
           <h2 class="text-3xl font-semibold text-text-primary">{{ node.name }}</h2>
           <span class="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-semibold bg-accent-green/15 text-accent-green border border-accent-green/30">
             NODE
           </span>
         </div>
-        <p class="mt-1 text-base text-text-secondary">
+        <p class="text-base text-text-secondary">
           {{ node.role }} • {{ node.server_type }}
         </p>
       </div>

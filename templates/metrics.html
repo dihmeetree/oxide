@@ -28,29 +28,15 @@
         </div>
       </div>
       <div class="flex items-center gap-3">
-        <!-- Refresh Status -->
-        <span
-          id="refreshIndicator"
-          class="text-sm text-accent-blue opacity-0 transition-opacity"
-        >
-          Refreshing...
-        </span>
-        <!-- Live Indicator -->
-        <div class="flex items-center gap-2 text-sm text-text-muted">
-          <span class="relative flex h-3 w-3">
-            <span
-              class="animate-ping absolute inline-flex h-full w-full rounded-full bg-accent-green opacity-75"
-            ></span>
-            <span
-              class="relative inline-flex rounded-full h-3 w-3 bg-accent-green"
-            ></span>
-          </span>
-          <span>Live</span>
+        <!-- Auto-refresh indicator -->
+        <div id="refreshIndicator" class="flex items-center gap-2 px-3 py-2 rounded-lg bg-dark-bg border border-dark-border">
+          <div class="w-2 h-2 rounded-full bg-accent-green animate-pulse"></div>
+          <span class="text-sm text-text-secondary">Auto-refresh: <span id="refreshCountdown" style="display: inline-block; min-width: 2ch; text-align: center;">10</span>s</span>
         </div>
         <!-- Time Range Selector -->
         <select
           id="timeRange"
-          class="px-3 py-1.5 rounded-lg bg-dark-hover border border-dark-border text-text-primary text-sm focus:outline-none focus:border-accent-blue"
+          class="px-3 py-2 rounded-lg bg-dark-hover border border-dark-border text-text-primary text-sm focus:outline-none focus:border-accent-blue"
         >
           <option value="15m">15 minutes</option>
           <option value="1h" selected>1 hour</option>
@@ -61,9 +47,12 @@
         <button
           id="stackedToggle"
           onclick="toggleStacked()"
-          class="px-3 py-1.5 rounded-lg bg-accent-blue border border-dark-border text-text-primary text-sm hover:bg-accent-blueHover transition"
+          class="p-2 rounded-lg bg-dark-hover border border-dark-border text-text-primaryAlt hover:bg-dark-hoverAlt hover:text-text-primary transition"
+          title="Toggle between stacked and line view"
         >
-          Stacked
+          <svg id="stackedIcon" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16" />
+          </svg>
         </button>
       </div>
     </div>
@@ -1019,13 +1008,29 @@
     }
   }
 
-  async function refreshMetrics() {
-    // Show refresh indicator
-    const indicator = document.getElementById("refreshIndicator");
-    if (indicator) {
-      indicator.style.opacity = "1";
+  // Auto-refresh countdown functionality
+  let refreshCountdown = 10;
+  let refreshInterval;
+
+  function startRefreshCountdown() {
+    refreshCountdown = 10;
+    document.getElementById('refreshCountdown').textContent = refreshCountdown;
+
+    if (refreshInterval) {
+      clearInterval(refreshInterval);
     }
 
+    refreshInterval = setInterval(() => {
+      refreshCountdown--;
+      document.getElementById('refreshCountdown').textContent = refreshCountdown;
+
+      if (refreshCountdown <= 0) {
+        refreshMetrics();
+      }
+    }, 1000);
+  }
+
+  async function refreshMetrics() {
     const response = await fetch(`/api/metrics?range=${currentTimeRange}`);
     const data = await response.json();
 
@@ -1152,21 +1157,23 @@
       applyLegendColors(podMemoryChart, 'podMemoryLegend');
     }
 
-    // Hide refresh indicator after update
-    if (indicator) {
-      setTimeout(() => {
-        indicator.style.opacity = "0";
-      }, 500);
-    }
+    // Restart countdown after refresh
+    startRefreshCountdown();
   }
 
   // Toggle stacked view
   function toggleStacked() {
     isStacked = !isStacked;
-    const toggleBtn = document.getElementById("stackedToggle");
-    toggleBtn.textContent = isStacked ? "Stacked" : "Lines";
-    toggleBtn.classList.toggle("bg-accent-blue", isStacked);
-    toggleBtn.classList.toggle("bg-dark-hover", !isStacked);
+    const icon = document.getElementById("stackedIcon");
+
+    // Update icon based on current state
+    if (isStacked) {
+      // Show stacked icon (3 horizontal lines)
+      icon.innerHTML = '<path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16" />';
+    } else {
+      // Show line icon (trending upward line)
+      icon.innerHTML = '<path stroke-linecap="round" stroke-linejoin="round" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />';
+    }
 
     // Update chart options
     cpuChart.options.scales.x.stacked = isStacked;
@@ -1228,6 +1235,9 @@
       initCharts(null);
     }
 
+    // Start auto-refresh countdown
+    startRefreshCountdown();
+
     // Add time range change listener
     document
       .getElementById("timeRange")
@@ -1236,23 +1246,5 @@
         await refreshMetrics();
       });
   });
-
-  // Auto-refresh every 10 seconds
-  setInterval(async function () {
-    if (cpuChart && memoryChart) {
-      try {
-        await refreshMetrics();
-      } catch (e) {
-        console.error("Failed to refresh metrics:", e);
-      }
-    } else {
-      // Still initializing, try again
-      try {
-        await initCharts(null);
-      } catch (e) {
-        console.error("Failed to initialize charts:", e);
-      }
-    }
-  }, 10000);
 </script>
 {% endblock %}
