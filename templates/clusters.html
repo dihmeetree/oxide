@@ -75,7 +75,8 @@
   <div class="space-y-4">
     {% for cluster in clusters %}
     <div
-      class="rounded-lg transition bg-[#242424] border border-dark-border hover:border-dark-borderAlt"
+      class="rounded-lg transition bg-[#242424] border border-dark-border hover:bg-dark-hover cursor-pointer"
+      onclick="window.location='/clusters/{{ cluster.name }}'"
     >
       <div class="p-6">
         <div class="flex items-center justify-between mb-4">
@@ -170,14 +171,6 @@
                 {{ cluster.version }}
               </p>
             </div>
-          </div>
-          <div class="col-span-2 flex items-center justify-end">
-            <a
-              href="/clusters/{{ cluster.name }}"
-              class="px-4 py-2 rounded-lg text-sm font-medium transition bg-accent-blue hover:bg-accent-blueHover text-text-primary"
-            >
-              View Details →
-            </a>
           </div>
         </div>
       </div>
