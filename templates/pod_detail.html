@@ -19,22 +19,38 @@
         ></path>
       </svg>
     </a>
-    <div>
-      <div class="flex items-center gap-2">
-        <h2 class="text-3xl font-semibold text-text-primary">{{ pod.name }}</h2>
-        <span class="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-semibold bg-[#A78BFA]/15 text-[#A78BFA] border border-[#A78BFA]/30">
-          POD
-        </span>
-        {% if pod.namespace == "kube-system" %}
-          {% if pod.name.contains("envoy") %}
-          <span class="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-semibold bg-[#F97316]/15 text-[#F97316] border border-[#F97316]/30">
-            ENVOY
+    <div class="flex-1">
+      <div class="flex items-center justify-between">
+        <div class="flex items-center gap-2">
+          <h2 class="text-3xl font-semibold text-text-primary">{{ pod.name }}</h2>
+          <span class="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-semibold bg-[#A78BFA]/15 text-[#A78BFA] border border-[#A78BFA]/30">
+            POD
           </span>
-          {% else if pod.name.contains("cilium") %}
-          <span class="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-semibold bg-[#06B6D4]/15 text-[#06B6D4] border border-[#06B6D4]/30">
-            CILIUM
-          </span>
+          {% if pod.namespace == "kube-system" %}
+            {% if pod.name.contains("envoy") %}
+            <span class="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-semibold bg-[#F97316]/15 text-[#F97316] border border-[#F97316]/30">
+              ENVOY
+            </span>
+            {% else if pod.name.contains("cilium") %}
+            <span class="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-semibold bg-[#06B6D4]/15 text-[#06B6D4] border border-[#06B6D4]/30">
+              CILIUM
+            </span>
+            {% endif %}
           {% endif %}
+        </div>
+        {% if pod.status == "Running" %}
+        <span
+          class="inline-flex items-center px-2.5 py-1 rounded-md text-sm font-medium bg-accent-green/15 text-accent-green"
+        >
+          <span class="w-1.5 h-1.5 rounded-full mr-1.5 bg-accent-green"></span>
+          Running
+        </span>
+        {% else %}
+        <span
+          class="inline-flex items-center px-2.5 py-1 rounded-md text-sm font-medium bg-text-muted/15 text-text-muted"
+        >
+          {{ pod.status }}
+        </span>
         {% endif %}
       </div>
       <p class="text-base text-text-secondary">
@@ -45,49 +61,12 @@
 
   <!-- Pod Info Cards -->
   <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
-    <!-- Status -->
+    <!-- CPU Usage -->
     <div class="rounded-lg p-6 bg-[#242424] border border-dark-border">
       <div class="flex items-center justify-between">
         <div class="min-h-[3.5rem] flex flex-col justify-between">
-          <p class="text-sm font-medium text-text-secondary">Status</p>
-          {% if pod.status == "Running" %}
-          <span
-            class="inline-flex items-center px-2.5 py-1 rounded-md text-sm font-medium bg-accent-green/15 text-accent-green"
-          >
-            <span class="w-1.5 h-1.5 rounded-full mr-1.5 bg-accent-green"></span>
-            Running
-          </span>
-          {% else %}
-          <span
-            class="inline-flex items-center px-2.5 py-1 rounded-md text-sm font-medium bg-text-muted/15 text-text-muted"
-          >
-            {{ pod.status }}
-          </span>
-          {% endif %}
-        </div>
-        <div class="rounded-lg p-3 bg-accent-green/15 flex-shrink-0">
-          <svg
-            class="w-8 h-8 stroke-accent-green"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke-width="2"
-          >
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-            ></path>
-          </svg>
-        </div>
-      </div>
-    </div>
-
-    <!-- IP Address -->
-    <div class="rounded-lg p-6 bg-[#242424] border border-dark-border">
-      <div class="flex items-center justify-between">
-        <div class="min-h-[3.5rem] flex flex-col justify-between">
-          <p class="text-sm font-medium text-text-secondary">IP Address</p>
-          <p class="text-xl font-semibold font-mono text-text-primary">{{ pod.ip }}</p>
+          <p class="text-sm font-medium text-text-secondary">CPU Usage</p>
+          <p class="text-4xl font-semibold text-text-primary">{{ pod.cpu }}</p>
         </div>
         <div class="rounded-lg p-3 bg-accent-blue/15 flex-shrink-0">
           <svg
@@ -99,7 +78,31 @@
             <path
               stroke-linecap="round"
               stroke-linejoin="round"
-              d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"
+              d="M9 3.75H6.912a2.25 2.25 0 00-2.15 1.588L2.35 13.177a2.25 2.25 0 00-.1.661V18a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18v-4.162c0-.224-.034-.447-.1-.661L19.24 5.338a2.25 2.25 0 00-2.15-1.588H15M2.25 13.5h3.86a2.25 2.25 0 012.012 1.244l.256.512a2.25 2.25 0 002.013 1.244h3.218a2.25 2.25 0 002.013-1.244l.256-.512a2.25 2.25 0 012.013-1.244h3.859M12 3v8.25m0 0l-3-3m3 3l3-3"
+            ></path>
+          </svg>
+        </div>
+      </div>
+    </div>
+
+    <!-- Memory Usage -->
+    <div class="rounded-lg p-6 bg-[#242424] border border-dark-border">
+      <div class="flex items-center justify-between">
+        <div class="min-h-[3.5rem] flex flex-col justify-between">
+          <p class="text-sm font-medium text-text-secondary">Memory Usage</p>
+          <p class="text-4xl font-semibold text-text-primary">{{ pod.memory }}</p>
+        </div>
+        <div class="rounded-lg p-3 bg-accent-green/15 flex-shrink-0">
+          <svg
+            class="w-8 h-8 stroke-accent-green"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke-width="2"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              d="M8.25 3v1.5M4.5 8.25H3m18 0h-1.5M4.5 12H3m18 0h-1.5m-15 3.75H3m18 0h-1.5M8.25 19.5V21M12 3v1.5m0 15V21m3.75-18v1.5m0 15V21m-9-1.5h10.5a2.25 2.25 0 002.25-2.25V6.75a2.25 2.25 0 00-2.25-2.25H6.75A2.25 2.25 0 004.5 6.75v10.5a2.25 2.25 0 002.25 2.25zm.75-12h9v9h-9v-9z"
             ></path>
           </svg>
         </div>
@@ -151,83 +154,6 @@
             ></path>
           </svg>
         </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- CPU and Memory Usage Cards -->
-  <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-    <div class="rounded-lg p-6 bg-[#242424] border border-dark-border">
-      <div class="flex items-center justify-between mb-4">
-        <div>
-          <p class="text-sm font-medium mb-2 text-text-secondary">CPU Usage</p>
-          <p class="text-4xl font-semibold text-text-primary">
-            {{ pod.cpu }}
-          </p>
-          <p class="text-sm text-text-muted mt-1">
-            Current usage
-          </p>
-        </div>
-        <div class="rounded-lg p-3 bg-accent-blue/15">
-          <svg
-            class="w-8 h-8 stroke-accent-blue"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke-width="2"
-          >
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              d="M9 3.75H6.912a2.25 2.25 0 00-2.15 1.588L2.35 13.177a2.25 2.25 0 00-.1.661V18a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18v-4.162c0-.224-.034-.447-.1-.661L19.24 5.338a2.25 2.25 0 00-2.15-1.588H15M2.25 13.5h3.86a2.25 2.25 0 012.012 1.244l.256.512a2.25 2.25 0 002.013 1.244h3.218a2.25 2.25 0 002.013-1.244l.256-.512a2.25 2.25 0 012.013-1.244h3.859M12 3v8.25m0 0l-3-3m3 3l3-3"
-            ></path>
-          </svg>
-        </div>
-      </div>
-      <!-- Progress Bar -->
-      <div class="w-full bg-dark-hover rounded-full h-3 overflow-hidden" id="cpuProgressContainer" style="display: none;">
-        <div
-          class="h-3 rounded-full transition-all duration-300 bg-gradient-to-r from-accent-blue to-accent-blue"
-          id="cpuProgressBar"
-          style="width: 0%"
-        ></div>
-      </div>
-    </div>
-
-    <div class="rounded-lg p-6 bg-[#242424] border border-dark-border">
-      <div class="flex items-center justify-between mb-4">
-        <div>
-          <p class="text-sm font-medium mb-2 text-text-secondary">
-            Memory Usage
-          </p>
-          <p class="text-4xl font-semibold text-text-primary">
-            {{ pod.memory }}
-          </p>
-          <p class="text-sm text-text-muted mt-1">
-            Current usage
-          </p>
-        </div>
-        <div class="rounded-lg p-3 bg-accent-green/15">
-          <svg
-            class="w-8 h-8 stroke-accent-green"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke-width="2"
-          >
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              d="M8.25 3v1.5M4.5 8.25H3m18 0h-1.5M4.5 12H3m18 0h-1.5m-15 3.75H3m18 0h-1.5M8.25 19.5V21M12 3v1.5m0 15V21m3.75-18v1.5m0 15V21m-9-1.5h10.5a2.25 2.25 0 002.25-2.25V6.75a2.25 2.25 0 00-2.25-2.25H6.75A2.25 2.25 0 004.5 6.75v10.5a2.25 2.25 0 002.25 2.25zm.75-12h9v9h-9v-9z"
-            ></path>
-          </svg>
-        </div>
-      </div>
-      <!-- Progress Bar -->
-      <div class="w-full bg-dark-hover rounded-full h-3 overflow-hidden" id="memoryProgressContainer" style="display: none;">
-        <div
-          class="h-3 rounded-full transition-all duration-300 bg-gradient-to-r from-accent-green to-accent-green"
-          id="memoryProgressBar"
-          style="width: 0%"
-        ></div>
       </div>
     </div>
   </div>
@@ -538,21 +464,6 @@
       if (!data || !data.timestamps || data.timestamps.length === 0) {
         return;
       }
-    }
-
-    // Update progress bars with current usage vs limits
-    if (data.cpu_history && data.cpu_history.length > 0 && cpuLimit !== null) {
-      const currentCpu = data.cpu_history[data.cpu_history.length - 1];
-      const cpuPercent = Math.min((currentCpu / cpuLimit) * 100, 100);
-      document.getElementById('cpuProgressContainer').style.display = 'block';
-      document.getElementById('cpuProgressBar').style.width = cpuPercent + '%';
-    }
-
-    if (data.memory_history && data.memory_history.length > 0 && memoryLimit !== null) {
-      const currentMemory = data.memory_history[data.memory_history.length - 1];
-      const memoryPercent = Math.min((currentMemory / memoryLimit) * 100, 100);
-      document.getElementById('memoryProgressContainer').style.display = 'block';
-      document.getElementById('memoryProgressBar').style.width = memoryPercent + '%';
     }
 
     // Format timestamps to local time
