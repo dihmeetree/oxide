@@ -237,7 +237,7 @@
             <td class="px-6 py-4 whitespace-nowrap text-center">
               {% if pod.status == "Running" %}
               <span
-                class="inline-flex items-center px-2.5 py-1 rounded-md text-sm font-medium bg-accent-green/15 text-accent-green border border-accent-green/30"
+                class="inline-flex items-center px-2.5 py-1 rounded-md text-sm font-medium bg-accent-green/15 text-accent-green"
               >
                 <span
                   class="w-1.5 h-1.5 rounded-full mr-1.5 bg-accent-green"
@@ -246,19 +246,19 @@
               </span>
               {% else if pod.status == "Pending" %}
               <span
-                class="inline-flex items-center px-2.5 py-1 rounded-md text-sm font-medium bg-text-muted/15 text-text-muted border border-text-muted/30"
+                class="inline-flex items-center px-2.5 py-1 rounded-md text-sm font-medium bg-text-muted/15 text-text-muted"
               >
                 Pending
               </span>
               {% else if pod.status == "Succeeded" %}
               <span
-                class="inline-flex items-center px-2.5 py-1 rounded-md text-sm font-medium bg-text-muted/15 text-text-muted border border-text-muted/30"
+                class="inline-flex items-center px-2.5 py-1 rounded-md text-sm font-medium bg-text-muted/15 text-text-muted"
               >
                 Succeeded
               </span>
               {% else %}
               <span
-                class="inline-flex items-center px-2.5 py-1 rounded-md text-sm font-medium bg-[#FF4D4D]/15 text-[#FF4D4D] border border-[#FF4D4D]/30"
+                class="inline-flex items-center px-2.5 py-1 rounded-md text-sm font-medium bg-[#FF4D4D]/15 text-[#FF4D4D]"
               >
                 {{ pod.status }}
               </span>
