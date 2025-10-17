@@ -26,13 +26,13 @@
           POD
         </span>
         {% if pod.namespace == "kube-system" %}
-          {% if pod.name.contains("cilium") %}
-          <span class="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-semibold bg-[#06B6D4]/15 text-[#06B6D4] border border-[#06B6D4]/30">
-            CILIUM
-          </span>
-          {% else if pod.name.contains("envoy") %}
+          {% if pod.name.contains("envoy") %}
           <span class="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-semibold bg-[#F97316]/15 text-[#F97316] border border-[#F97316]/30">
             ENVOY
+          </span>
+          {% else if pod.name.contains("cilium") %}
+          <span class="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-semibold bg-[#06B6D4]/15 text-[#06B6D4] border border-[#06B6D4]/30">
+            CILIUM
           </span>
           {% endif %}
         {% endif %}
