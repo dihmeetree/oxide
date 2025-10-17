@@ -56,15 +56,15 @@
     <!-- Pods Running -->
     <div class="rounded-lg p-6 bg-[#242424] border border-dark-border">
       <div class="flex items-center justify-between">
-        <div>
-          <p class="text-sm font-medium mb-2 text-text-secondary">
+        <div class="min-h-[3.5rem] flex flex-col justify-between">
+          <p class="text-sm font-medium text-text-secondary">
             Cilium Pods
           </p>
           <p class="text-4xl font-semibold text-text-primary">
             {{ cilium_pods.len() }}
           </p>
         </div>
-        <div class="rounded-lg p-3 bg-[#06B6D4]/15">
+        <div class="rounded-lg p-3 bg-[#06B6D4]/15 flex-shrink-0">
           <svg
             class="w-8 h-8 stroke-[#06B6D4]"
             fill="none"
@@ -84,8 +84,8 @@
     <!-- Hubble Status -->
     <div class="rounded-lg p-6 bg-[#242424] border border-dark-border">
       <div class="flex items-center justify-between">
-        <div>
-          <p class="text-sm font-medium mb-2 text-text-secondary">Hubble</p>
+        <div class="min-h-[3.5rem] flex flex-col justify-between">
+          <p class="text-sm font-medium text-text-secondary">Hubble</p>
           <p
             class="text-4xl font-semibold {% if hubble_enabled %}text-accent-green{% else %}text-text-muted{% endif %}"
           >
@@ -93,7 +93,7 @@
           </p>
         </div>
         <div
-          class="rounded-lg p-3 {% if hubble_enabled %}bg-accent-green/15{% else %}bg-text-muted/15{% endif %}"
+          class="rounded-lg p-3 {% if hubble_enabled %}bg-accent-green/15{% else %}bg-text-muted/15{% endif %} flex-shrink-0"
         >
           <svg
             class="w-8 h-8 {% if hubble_enabled %}stroke-accent-green{% else %}stroke-text-muted{% endif %}"
@@ -122,13 +122,13 @@
     <!-- Version -->
     <div class="rounded-lg p-6 bg-[#242424] border border-dark-border">
       <div class="flex items-center justify-between">
-        <div>
-          <p class="text-sm font-medium mb-2 text-text-secondary">Version</p>
+        <div class="min-h-[3.5rem] flex flex-col justify-between">
+          <p class="text-sm font-medium text-text-secondary">Version</p>
           <p class="text-4xl font-semibold text-text-primary">
             {{ cilium_version }}
           </p>
         </div>
-        <div class="rounded-lg p-3 bg-[#06B6D4]/15">
+        <div class="rounded-lg p-3 bg-[#06B6D4]/15 flex-shrink-0">
           <svg
             class="w-8 h-8 stroke-[#06B6D4]"
             fill="none"

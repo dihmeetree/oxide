@@ -56,15 +56,15 @@
     <!-- Total Nodes -->
     <div class="rounded-lg p-6 bg-[#242424] border border-dark-border">
       <div class="flex items-center justify-between">
-        <div>
-          <p class="text-sm font-medium mb-2 text-text-secondary">
+        <div class="min-h-[3.5rem] flex flex-col justify-between">
+          <p class="text-sm font-medium text-text-secondary">
             Total Nodes
           </p>
           <p class="text-4xl font-semibold text-text-primary">
             {{ nodes.len() }}
           </p>
         </div>
-        <div class="rounded-lg p-3 bg-accent-green/15">
+        <div class="rounded-lg p-3 bg-accent-green/15 flex-shrink-0">
           <svg
             class="w-8 h-8 stroke-accent-green"
             fill="none"
@@ -84,13 +84,13 @@
     <!-- Control Plane Nodes -->
     <div class="rounded-lg p-6 bg-[#242424] border border-dark-border">
       <div class="flex items-center justify-between">
-        <div>
-          <p class="text-sm font-medium mb-2 text-text-secondary">Control Plane</p>
+        <div class="min-h-[3.5rem] flex flex-col justify-between">
+          <p class="text-sm font-medium text-text-secondary">Control Plane</p>
           <p class="text-4xl font-semibold text-accent-blue">
             {{ control_plane_count }}
           </p>
         </div>
-        <div class="rounded-lg p-3 bg-accent-blue/15">
+        <div class="rounded-lg p-3 bg-accent-blue/15 flex-shrink-0">
           <svg
             class="w-8 h-8 stroke-accent-blue"
             fill="none"
@@ -110,13 +110,13 @@
     <!-- Worker Nodes -->
     <div class="rounded-lg p-6 bg-[#242424] border border-dark-border">
       <div class="flex items-center justify-between">
-        <div>
-          <p class="text-sm font-medium mb-2 text-text-secondary">Workers</p>
+        <div class="min-h-[3.5rem] flex flex-col justify-between">
+          <p class="text-sm font-medium text-text-secondary">Workers</p>
           <p class="text-4xl font-semibold text-text-primary">
             {{ worker_count }}
           </p>
         </div>
-        <div class="rounded-lg p-3 bg-text-secondary/15">
+        <div class="rounded-lg p-3 bg-text-secondary/15 flex-shrink-0">
           <svg
             class="w-8 h-8 stroke-text-secondary"
             fill="none"
@@ -136,13 +136,13 @@
     <!-- Running Nodes -->
     <div class="rounded-lg p-6 bg-[#242424] border border-dark-border">
       <div class="flex items-center justify-between">
-        <div>
-          <p class="text-sm font-medium mb-2 text-text-secondary">Running</p>
+        <div class="min-h-[3.5rem] flex flex-col justify-between">
+          <p class="text-sm font-medium text-text-secondary">Running</p>
           <p class="text-4xl font-semibold text-accent-green">
             {{ running_count }}
           </p>
         </div>
-        <div class="rounded-lg p-3 bg-accent-green/15">
+        <div class="rounded-lg p-3 bg-accent-green/15 flex-shrink-0">
           <svg
             class="w-8 h-8 stroke-accent-green"
             fill="none"

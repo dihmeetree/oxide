@@ -29,15 +29,15 @@
     <!-- Pods Running -->
     <div class="rounded-lg p-6 bg-[#242424] border border-dark-border">
       <div class="flex items-center justify-between">
-        <div>
-          <p class="text-sm font-medium mb-2 text-text-secondary">
+        <div class="min-h-[3.5rem] flex flex-col justify-between">
+          <p class="text-sm font-medium text-text-secondary">
             Envoy Pods
           </p>
           <p class="text-4xl font-semibold text-text-primary">
             {{ pods.len() }}
           </p>
         </div>
-        <div class="rounded-lg p-3 bg-[#F97316]/15">
+        <div class="rounded-lg p-3 bg-[#F97316]/15 flex-shrink-0">
           <svg
             class="w-8 h-8 stroke-[#F97316]"
             fill="none"
@@ -57,13 +57,13 @@
     <!-- Version -->
     <div class="rounded-lg p-6 bg-[#242424] border border-dark-border">
       <div class="flex items-center justify-between">
-        <div>
-          <p class="text-sm font-medium mb-2 text-text-secondary">Version</p>
+        <div class="min-h-[3.5rem] flex flex-col justify-between">
+          <p class="text-sm font-medium text-text-secondary">Version</p>
           <p class="text-4xl font-semibold text-text-primary">
             {{ envoy_version }}
           </p>
         </div>
-        <div class="rounded-lg p-3 bg-[#F97316]/15">
+        <div class="rounded-lg p-3 bg-[#F97316]/15 flex-shrink-0">
           <svg
             class="w-8 h-8 stroke-[#F97316]"
             fill="none"
