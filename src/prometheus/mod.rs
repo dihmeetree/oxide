@@ -920,18 +920,6 @@ pub struct Alert {
     pub value: Option<String>,
 }
 
-/// Insight information for cluster best practices
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct Insight {
-    pub title: String,
-    pub insight_type: String, // warning, info, optimization
-    pub severity: String,     // high, medium, low
-    pub description: String,
-    pub recommendation: String,
-    pub affected_resources: Vec<String>,
-    pub category: String, // resources, security, performance, cost
-}
-
 /// Query all alerts from Prometheus
 pub async fn query_alerts(kubeconfig_path: &std::path::Path) -> Result<Vec<Alert>> {
     // Get the Prometheus pod name
@@ -1090,120 +1078,6 @@ pub async fn query_alerts(kubeconfig_path: &std::path::Path) -> Result<Vec<Alert
         .collect();
 
     Ok(alerts)
-}
-
-/// Collect cluster insights for best practices
-pub async fn collect_insights(kubeconfig_path: &std::path::Path) -> Result<Vec<Insight>> {
-    let mut insights = Vec::new();
-
-    // Check for pods without resource limits
-    let pods_without_limits = check_pods_without_limits(kubeconfig_path).await?;
-    if !pods_without_limits.is_empty() {
-        insights.push(Insight {
-            title: "Pods Without Resource Limits".to_string(),
-            insight_type: "warning".to_string(),
-            severity: "medium".to_string(),
-            description: format!(
-                "{} pod(s) are running without CPU or memory limits set. This can lead to resource contention and instability.",
-                pods_without_limits.len()
-            ),
-            recommendation: "Set resource requests and limits for all pods to ensure predictable resource allocation and prevent resource exhaustion. Use 'kubectl set resources' or update pod manifests with appropriate limits.".to_string(),
-            affected_resources: pods_without_limits,
-            category: "resources".to_string(),
-        });
-    }
-
-    Ok(insights)
-}
-
-/// Check for pods without resource limits
-async fn check_pods_without_limits(kubeconfig_path: &std::path::Path) -> Result<Vec<String>> {
-    let output = CommandBuilder::new("kubectl")
-        .args(["get", "pods", "--all-namespaces", "-o", "json"])
-        .kubeconfig(kubeconfig_path)
-        .context("Failed to get pods")
-        .output()
-        .await?;
-
-    if !output.success {
-        tracing::warn!(
-            "Failed to get pods for insights check: {}",
-            output.stderr.trim()
-        );
-        return Ok(Vec::new());
-    }
-
-    #[derive(Deserialize)]
-    struct PodList {
-        items: Vec<Pod>,
-    }
-
-    #[derive(Deserialize)]
-    struct Pod {
-        metadata: PodMetadata,
-        spec: PodSpec,
-    }
-
-    #[derive(Deserialize)]
-    struct PodMetadata {
-        name: String,
-        namespace: String,
-    }
-
-    #[derive(Deserialize)]
-    struct PodSpec {
-        containers: Vec<Container>,
-    }
-
-    #[derive(Deserialize)]
-    struct Container {
-        #[allow(dead_code)]
-        name: String,
-        #[serde(default)]
-        resources: Resources,
-    }
-
-    #[derive(Deserialize, Default)]
-    struct Resources {
-        #[serde(default)]
-        limits: std::collections::HashMap<String, String>,
-        #[serde(default)]
-        #[allow(dead_code)]
-        requests: std::collections::HashMap<String, String>,
-    }
-
-    let pod_list: PodList =
-        serde_json::from_str(&output.stdout).context("Failed to parse pod list")?;
-
-    let mut pods_without_limits = Vec::new();
-
-    for pod in pod_list.items {
-        // Skip system namespaces
-        if pod.metadata.namespace == "kube-system"
-            || pod.metadata.namespace == "monitoring"
-            || pod.metadata.namespace == "kube-public"
-            || pod.metadata.namespace == "kube-node-lease"
-        {
-            continue;
-        }
-
-        let mut missing_limits = false;
-        for container in &pod.spec.containers {
-            // Check if CPU or memory limits are missing
-            if !container.resources.limits.contains_key("cpu")
-                || !container.resources.limits.contains_key("memory")
-            {
-                missing_limits = true;
-                break;
-            }
-        }
-
-        if missing_limits {
-            pods_without_limits.push(format!("{}/{}", pod.metadata.namespace, pod.metadata.name));
-        }
-    }
-
-    Ok(pods_without_limits)
 }
 
 /// Envoy metrics history for L7 request metrics

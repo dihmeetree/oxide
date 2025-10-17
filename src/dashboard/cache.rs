@@ -366,7 +366,7 @@ struct CacheData {
     envoy_version: Arc<str>,
     envoy_metrics_history: Arc<crate::prometheus::EnvoyMetricsHistory>,
     alerts: Arc<[crate::prometheus::Alert]>,
-    insights: Arc<[crate::prometheus::Insight]>,
+    insights: Arc<[super::insights::Insight]>,
     last_update: Instant,
     is_ready: bool,
     metrics_json_cache: Arc<str>,
@@ -557,7 +557,7 @@ impl ClusterCache {
 
     /// Get all insights from cache
     #[inline]
-    pub async fn get_insights(&self) -> Arc<[crate::prometheus::Insight]> {
+    pub async fn get_insights(&self) -> Arc<[super::insights::Insight]> {
         let data = self.inner.read().await;
         Arc::clone(&data.insights)
     }
@@ -2036,7 +2036,7 @@ async fn fetch_alerts(config_path: &std::path::Path) -> Vec<crate::prometheus::A
 }
 
 /// Fetch cluster insights
-async fn fetch_insights(config_path: &std::path::Path) -> Vec<crate::prometheus::Insight> {
+async fn fetch_insights(config_path: &std::path::Path) -> Vec<super::insights::Insight> {
     // Get the output directory from config path
     let output_dir = config_path
         .parent()
@@ -2046,7 +2046,7 @@ async fn fetch_insights(config_path: &std::path::Path) -> Vec<crate::prometheus:
 
     let kubeconfig = output_dir.join("kubeconfig");
 
-    crate::prometheus::collect_insights(&kubeconfig)
+    super::insights::collect_insights(&kubeconfig)
         .await
         .unwrap_or_else(|e| {
             error!("Failed to fetch insights: {}", e);

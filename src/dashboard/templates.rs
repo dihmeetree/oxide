@@ -168,7 +168,7 @@ pub struct AlertsTemplate<'a> {
 pub struct InsightsTemplate<'a> {
     pub active_page: String,
     pub version: String,
-    pub insights: &'a [crate::prometheus::Insight],
+    pub insights: &'a [super::insights::Insight],
     pub high_count: usize,
     pub medium_count: usize,
     pub low_count: usize,

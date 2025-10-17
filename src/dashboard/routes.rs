@@ -1357,6 +1357,109 @@ pub async fn insights(State(state): State<AppState>) -> impl IntoResponse {
     Html(template.render().unwrap()).into_response()
 }
 
+/// API endpoint for insights data
+pub async fn api_insights(State(state): State<AppState>) -> impl IntoResponse {
+    let cache_ready = state.cache.is_ready().await;
+
+    if !cache_ready {
+        return Json(serde_json::json!({
+            "error": "Cache not ready"
+        }))
+        .into_response();
+    }
+
+    // Get insights from cache
+    let mut insights = state.cache.get_insights().await.to_vec();
+
+    // Sort insights by severity (high, medium, low), then by title
+    insights.sort_by(|a, b| {
+        // Define severity priority
+        let severity_priority = |s: &str| match s {
+            "high" => 0,
+            "medium" => 1,
+            "low" => 2,
+            _ => 3,
+        };
+
+        // First compare by severity
+        match severity_priority(&a.severity).cmp(&severity_priority(&b.severity)) {
+            std::cmp::Ordering::Equal => {
+                // If same severity, compare by title
+                a.title.cmp(&b.title)
+            }
+            other => other,
+        }
+    });
+
+    // Count severity levels
+    let high_count = insights.iter().filter(|i| i.severity == "high").count();
+    let medium_count = insights.iter().filter(|i| i.severity == "medium").count();
+    let low_count = insights.iter().filter(|i| i.severity == "low").count();
+
+    Json(serde_json::json!({
+        "insights": insights,
+        "high_count": high_count,
+        "medium_count": medium_count,
+        "low_count": low_count,
+        "total_count": insights.len()
+    }))
+    .into_response()
+}
+
+/// API endpoint for alerts data
+pub async fn api_alerts(State(state): State<AppState>) -> impl IntoResponse {
+    let cache_ready = state.cache.is_ready().await;
+
+    if !cache_ready {
+        return Json(serde_json::json!({
+            "error": "Cache not ready"
+        }))
+        .into_response();
+    }
+
+    // Get alerts from cache
+    let mut alerts = state.cache.get_alerts().await.to_vec();
+
+    // Sort alerts by severity (critical, warning, info, none), then by state (firing first)
+    alerts.sort_by(|a, b| {
+        // Define severity priority
+        let severity_priority = |s: &str| match s {
+            "critical" => 0,
+            "warning" => 1,
+            "info" => 2,
+            _ => 3,
+        };
+
+        // Define state priority
+        let state_priority = |s: &str| match s {
+            "firing" => 0,
+            "pending" => 1,
+            _ => 2,
+        };
+
+        // First compare by severity
+        match severity_priority(&a.severity).cmp(&severity_priority(&b.severity)) {
+            std::cmp::Ordering::Equal => {
+                // If same severity, compare by state
+                state_priority(&a.state).cmp(&state_priority(&b.state))
+            }
+            other => other,
+        }
+    });
+
+    // Count alert states
+    let firing_count = alerts.iter().filter(|a| a.state == "firing").count();
+    let pending_count = alerts.iter().filter(|a| a.state == "pending").count();
+
+    Json(serde_json::json!({
+        "alerts": alerts,
+        "firing_count": firing_count,
+        "pending_count": pending_count,
+        "total_count": alerts.len()
+    }))
+    .into_response()
+}
+
 /// API endpoint for Cilium metrics data
 pub async fn api_cilium_metrics(State(state): State<AppState>) -> impl IntoResponse {
     let cache_ready = state.cache.is_ready().await;
