@@ -77,16 +77,15 @@ fn preloader_page() -> Html<String> {
                 }
                 .status-text {
                     color: #B8B8B8;
-                    font-size: 0.875rem;
+                    font-size: 1rem;
                     line-height: 1.6;
                     margin: 20px 0 8px 0;
-                    max-width: 480px;
+                    max-width: 520px;
                 }
                 .countdown-text {
                     color: #888888;
-                    font-size: 0.8125rem;
+                    font-size: 0.9375rem;
                     margin: 0;
-                    font-style: italic;
                 }
             </style>
         </head>
@@ -100,7 +99,7 @@ fn preloader_page() -> Html<String> {
                     <div class="spinner-ring animate-spin-slow"></div>
                 </div>
                 <h2 style="font-size: 1.75rem; font-weight: 600; margin-bottom: 4px; color: #E5E5E5;">Fetching Resources...</h2>
-                <p class="status-text">Collecting cluster data from the Kubernetes API and Prometheus metrics. This usually takes a few seconds on initial load.</p>
+                <p class="status-text">Collecting cluster data from the Kubernetes API and Prometheus metrics.</p>
                 <p class="countdown-text">Refreshing in <span id="countdown" style="display: inline-block; min-width: 1ch; text-align: center;">5</span> seconds...</p>
             </div>
             <script>
