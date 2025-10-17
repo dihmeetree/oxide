@@ -337,7 +337,7 @@
       <div class="flex flex-wrap gap-2">
         {% for label in pod.labels %}
         <span
-          class="inline-flex items-center px-3 py-1 rounded-md text-xs font-mono bg-accent-blue/15 text-accent-blue border border-accent-blue/30"
+          class="inline-flex items-center px-3 py-1 rounded-md text-base font-mono bg-accent-blue/15 text-accent-blue border border-accent-blue/30"
         >
           {{ label.0 }}={{ label.1 }}
         </span>
@@ -558,7 +558,7 @@
     // Format timestamps to local time
     const labels = data.timestamps.map(ts => {
       const date = new Date(ts * 1000);
-      return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
     });
 
     // CPU Chart - convert percentage to millicores
@@ -836,7 +836,7 @@
 
     const labels = data.timestamps.map(ts => {
       const date = new Date(ts * 1000);
-      return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
     });
 
     cpuChart.data.labels = labels;

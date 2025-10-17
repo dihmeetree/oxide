@@ -1,32 +1,30 @@
 {% extends "layout.html" %} {% block content %}
 <div class="space-y-6">
   <!-- Header -->
-  <div>
-    <div class="mb-3">
-      <a
-        href="/clusters"
-        class="inline-flex items-center px-3 py-1.5 rounded-lg text-sm font-medium transition bg-dark-hover hover:bg-dark-hoverAlt text-text-primaryAlt"
+  <div class="flex items-center gap-4">
+    <a
+      href="/clusters"
+      class="p-3 rounded-lg bg-dark-hover hover:bg-dark-hoverAlt transition flex-shrink-0"
+    >
+      <svg
+        class="w-8 h-8 stroke-text-primaryAlt"
+        fill="none"
+        viewBox="0 0 24 24"
+        stroke-width="2"
       >
-        <svg
-          class="w-4 h-4 mr-1.5"
-          fill="none"
-          stroke="currentColor"
-          viewBox="0 0 24 24"
-          stroke-width="2"
-        >
-          <path
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            d="M10 19l-7-7m0 0l7-7m-7 7h18"
-          ></path>
-        </svg>
-        Back to Clusters
-      </a>
+        <path
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          d="M15 19l-7-7 7-7"
+        ></path>
+      </svg>
+    </a>
+    <div>
+      <h2 class="text-3xl font-semibold text-text-primary">Create New Cluster</h2>
+      <p class="text-base text-text-secondary">
+        Deploy a new Talos Kubernetes cluster on Hetzner Cloud
+      </p>
     </div>
-    <h2 class="text-3xl font-semibold text-text-primary">Create New Cluster</h2>
-    <p class="mt-1 text-base text-text-secondary">
-      Deploy a new Talos Kubernetes cluster on Hetzner Cloud
-    </p>
   </div>
 
   <!-- Form -->

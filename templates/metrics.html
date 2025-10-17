@@ -436,7 +436,7 @@
         }
       });
 
-      // Format timestamps to local time (HH:MM)
+      // Format timestamps to local time (HH:MM - no seconds since range queries return rounded timestamps)
       const formattedTimestamps = data.timestamps.map((ts) => {
         const date = new Date(ts * 1000);
         return date.toLocaleTimeString([], {
@@ -1045,7 +1045,7 @@
       }
     });
 
-    // Format timestamps to local time
+    // Format timestamps to local time (HH:MM - no seconds since range queries return rounded timestamps)
     const formattedTimestamps = data.timestamps.map((ts) => {
       const date = new Date(ts * 1000);
       return date.toLocaleTimeString([], {

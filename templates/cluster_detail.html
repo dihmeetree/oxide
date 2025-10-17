@@ -757,12 +757,13 @@
       }
     });
 
-    // Format timestamps to local time (HH:MM)
+    // Format timestamps to local time (HH:MM:SS for uniqueness)
     const formattedTimestamps = metricsData.timestamps.map((ts) => {
       const date = new Date(ts * 1000);
       return date.toLocaleTimeString([], {
         hour: "2-digit",
         minute: "2-digit",
+        second: "2-digit",
       });
     });
 
@@ -1001,6 +1002,7 @@
         return date.toLocaleTimeString([], {
           hour: "2-digit",
           minute: "2-digit",
+          second: "2-digit",
         });
       });
 

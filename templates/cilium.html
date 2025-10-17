@@ -509,7 +509,7 @@
     // Format timestamps to local time
     const labels = data.timestamps.map(ts => {
       const date = new Date(ts * 1000);
-      return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
     });
 
     // Assign consistent colors to pods
@@ -808,7 +808,7 @@
 
     const labels = data.timestamps.map(ts => {
       const date = new Date(ts * 1000);
-      return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
     });
 
     // Assign colors to any new pods
