@@ -87,8 +87,8 @@ fn preloader_page() -> Html<String> {
                     <div class="spinner-ring animate-spin-slow"></div>
                 </div>
                 <h2 style="font-size: 1.75rem; font-weight: 600; margin-bottom: 8px; color: #E5E5E5;">Fetching Resources...</h2>
-                <p style="color: #AAAAAA; font-size: 0.9375rem; margin-bottom: 16px; max-width: 500px; line-height: 1.5;">Collecting cluster data from Kubernetes API and Prometheus metrics. This usually takes a few seconds on initial load.</p>
-                <p style="color: #888888; font-size: 0.875rem;">Refreshing in <span id="countdown" style="display: inline-block; min-width: 1ch; text-align: center;">5</span> seconds...</p>
+                <p style="color: #C8C8C8; font-size: 0.9375rem; margin-bottom: 16px; max-width: 500px; line-height: 1.5;">Collecting cluster data from Kubernetes API and Prometheus metrics. This usually takes a few seconds on initial load.</p>
+                <p style="color: #808080; font-size: 0.875rem;">Refreshing in <span id="countdown" style="display: inline-block; min-width: 1ch; text-align: center;">5</span> seconds...</p>
             </div>
             <script>
                 let seconds = 5;
