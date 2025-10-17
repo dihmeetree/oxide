@@ -270,7 +270,7 @@
         {% for pod_name in pod_names %}
         <button
           onclick="toggleDataset('ciliumCpu', {{ loop.index0 }})"
-          class="flex items-center gap-2 px-3 py-1.5 rounded-md transition bg-dark-hover"
+          class="flex items-center gap-2 px-3 py-1.5 rounded-md transition bg-dark-hover hover:bg-dark-hoverAlt"
           data-chart="ciliumCpu"
           data-index="{{ loop.index0 }}"
         >
@@ -322,7 +322,7 @@
         {% for pod_name in pod_names %}
         <button
           onclick="toggleDataset('ciliumMemory', {{ loop.index0 }})"
-          class="flex items-center gap-2 px-3 py-1.5 rounded-md transition bg-dark-hover"
+          class="flex items-center gap-2 px-3 py-1.5 rounded-md transition bg-dark-hover hover:bg-dark-hoverAlt"
           data-chart="ciliumMemory"
           data-index="{{ loop.index0 }}"
         >

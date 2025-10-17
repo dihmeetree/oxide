@@ -125,7 +125,7 @@
           {% for node_name in node_names %}
           <button
             onclick="toggleDataset('nodeCpu', {{ loop.index0 }})"
-            class="flex items-center gap-2 px-3 py-1.5 rounded-md transition bg-dark-hover"
+            class="flex items-center gap-2 px-3 py-1.5 rounded-md transition bg-dark-hover hover:bg-dark-hoverAlt"
             data-chart="nodeCpu"
             data-index="{{ loop.index0 }}"
           >
@@ -171,7 +171,7 @@
           {% for node_name in node_names %}
           <button
             onclick="toggleDataset('nodeMemory', {{ loop.index0 }})"
-            class="flex items-center gap-2 px-3 py-1.5 rounded-md transition bg-dark-hover"
+            class="flex items-center gap-2 px-3 py-1.5 rounded-md transition bg-dark-hover hover:bg-dark-hoverAlt"
             data-chart="nodeMemory"
             data-index="{{ loop.index0 }}"
           >
@@ -217,7 +217,7 @@
           {% for pod_name in pod_names %}
           <button
             onclick="toggleDataset('podCpu', {{ loop.index0 }})"
-            class="flex items-center gap-2 px-3 py-1.5 rounded-md transition bg-dark-hover"
+            class="flex items-center gap-2 px-3 py-1.5 rounded-md transition bg-dark-hover hover:bg-dark-hoverAlt"
             data-chart="podCpu"
             data-index="{{ loop.index0 }}"
           >
@@ -263,7 +263,7 @@
           {% for pod_name in pod_names %}
           <button
             onclick="toggleDataset('podMemory', {{ loop.index0 }})"
-            class="flex items-center gap-2 px-3 py-1.5 rounded-md transition bg-dark-hover"
+            class="flex items-center gap-2 px-3 py-1.5 rounded-md transition bg-dark-hover hover:bg-dark-hoverAlt"
             data-chart="podMemory"
             data-index="{{ loop.index0 }}"
           >

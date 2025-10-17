@@ -454,7 +454,7 @@
       const isVisible = chart.isDatasetVisible(i);
       legendHTML += `
         <button onclick="toggleDataset('${chartType}', ${i})"
-          class="flex items-center gap-2 px-3 py-1.5 rounded-md transition ${isVisible ? 'bg-dark-hover' : 'bg-dark-bg opacity-50'}">
+          class="flex items-center gap-2 px-3 py-1.5 rounded-md transition ${isVisible ? 'bg-dark-hover hover:bg-dark-hoverAlt' : 'bg-dark-bg opacity-50'}">
           <span class="w-2 h-2 rounded-full" style="background-color: ${dataset.borderColor}"></span>
           <span class="text-sm text-text-primary">${dataset.label}</span>
         </button>
