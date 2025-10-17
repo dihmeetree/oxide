@@ -75,6 +75,28 @@ fn preloader_page() -> Html<String> {
                     border-top-color: rgba(39, 118, 243, 1);
                     border-radius: 50%;
                 }
+                .status-box {
+                    margin-top: 20px;
+                    padding: 16px 20px;
+                    background: rgba(39, 118, 243, 0.08);
+                    border: 1px solid rgba(39, 118, 243, 0.2);
+                    border-radius: 8px;
+                    max-width: 480px;
+                    margin-left: auto;
+                    margin-right: auto;
+                }
+                .status-text {
+                    color: #B8B8B8;
+                    font-size: 0.875rem;
+                    line-height: 1.6;
+                    margin: 0 0 12px 0;
+                }
+                .countdown-text {
+                    color: #888888;
+                    font-size: 0.8125rem;
+                    margin: 0;
+                    font-style: italic;
+                }
             </style>
         </head>
         <body>
@@ -86,9 +108,11 @@ fn preloader_page() -> Html<String> {
                 <div class="spinner-container">
                     <div class="spinner-ring animate-spin-slow"></div>
                 </div>
-                <h2 style="font-size: 1.75rem; font-weight: 600; margin-bottom: 8px; color: #E5E5E5;">Fetching Resources...</h2>
-                <p style="color: #C8C8C8; font-size: 0.9375rem; margin-bottom: 16px; max-width: 500px; line-height: 1.5;">Collecting cluster data from Kubernetes API and Prometheus metrics. This usually takes a few seconds on initial load.</p>
-                <p style="color: #808080; font-size: 0.875rem;">Refreshing in <span id="countdown" style="display: inline-block; min-width: 1ch; text-align: center;">5</span> seconds...</p>
+                <h2 style="font-size: 1.75rem; font-weight: 600; margin-bottom: 4px; color: #E5E5E5;">Fetching Resources...</h2>
+                <div class="status-box">
+                    <p class="status-text">Collecting cluster data from the Kubernetes API and Prometheus metrics. This usually takes a few seconds on initial load.</p>
+                    <p class="countdown-text">Refreshing in <span id="countdown" style="display: inline-block; min-width: 1ch; text-align: center;">5</span> seconds...</p>
+                </div>
             </div>
             <script>
                 let seconds = 5;
