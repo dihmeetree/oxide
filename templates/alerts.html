@@ -96,7 +96,7 @@
         <!-- State Filter -->
         <select
           id="stateFilter"
-          class="px-4 py-2 rounded-lg bg-dark-bg border border-dark-border text-text-primary focus:outline-none focus:ring-2 focus:ring-[#F59E0B]/50 focus:border-[#F59E0B] transition"
+          class="px-4 py-2.5 rounded-lg bg-dark-bg border border-dark-border text-text-primary focus:outline-none focus:ring-2 focus:ring-[#F59E0B]/50 focus:border-[#F59E0B] transition min-w-[140px]"
           onchange="filterAlerts()"
         >
           <option value="all">All States</option>
@@ -107,7 +107,7 @@
         <!-- Severity Filter -->
         <select
           id="severityFilter"
-          class="px-4 py-2 rounded-lg bg-dark-bg border border-dark-border text-text-primary focus:outline-none focus:ring-2 focus:ring-[#F59E0B]/50 focus:border-[#F59E0B] transition"
+          class="px-4 py-2.5 rounded-lg bg-dark-bg border border-dark-border text-text-primary focus:outline-none focus:ring-2 focus:ring-[#F59E0B]/50 focus:border-[#F59E0B] transition min-w-[160px]"
           onchange="filterAlerts()"
         >
           <option value="all">All Severities</option>
@@ -119,7 +119,7 @@
         <!-- Sort -->
         <select
           id="sortBy"
-          class="px-4 py-2 rounded-lg bg-dark-bg border border-dark-border text-text-primary focus:outline-none focus:ring-2 focus:ring-[#F59E0B]/50 focus:border-[#F59E0B] transition"
+          class="px-4 py-2.5 rounded-lg bg-dark-bg border border-dark-border text-text-primary focus:outline-none focus:ring-2 focus:ring-[#F59E0B]/50 focus:border-[#F59E0B] transition min-w-[180px]"
           onchange="sortAlerts()"
         >
           <option value="severity">Sort by Severity</option>
@@ -150,10 +150,10 @@
   </div>
 
   <!-- Alerts List -->
-  <div id="alertsList" class="space-y-3" style="opacity: 0;">
+  <div id="alertsList" class="space-y-3">
     {% for alert in alerts %}
     <div
-      class="alert-card rounded-lg border bg-[#242424] border-dark-border transition hover:border-[#F59E0B]/30"
+      class="alert-card rounded-lg border bg-[#242424] border-dark-border transition hover:bg-dark-hover"
       data-state="{{ alert.state }}"
       data-severity="{{ alert.severity }}"
       data-name="{{ alert.name }}"
@@ -179,16 +179,16 @@
 
               <!-- Alert Name -->
               <h3 class="text-lg font-semibold text-text-primary">{{ alert.name }}</h3>
-
-              <!-- Expand/Collapse Icon -->
-              <svg class="expand-icon w-5 h-5 ml-auto text-text-muted transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
-              </svg>
             </div>
 
             <!-- Description (always visible) -->
             <p class="text-sm text-text-secondary line-clamp-2">{{ alert.description }}</p>
           </div>
+
+          <!-- Expand/Collapse Icon (moved outside) -->
+          <svg class="expand-icon w-5 h-5 flex-shrink-0 text-text-muted transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
+          </svg>
 
           <!-- Right side: Metadata -->
           <div class="flex flex-col items-end gap-1 text-sm text-right whitespace-nowrap">
@@ -411,17 +411,7 @@
 
   // Initialize
   document.addEventListener('DOMContentLoaded', function() {
-    const alertsList = document.getElementById('alertsList');
-
-    // Sort by severity by default
-    sortAlerts();
-
-    // Show alerts after sorting to prevent layout shift
-    if (alertsList) {
-      alertsList.style.opacity = '1';
-      alertsList.style.transition = 'opacity 0.15s ease-in';
-    }
-
+    // Alerts are already sorted on the server, no client-side sorting needed
     // Start auto-refresh countdown
     startRefreshCountdown();
   });

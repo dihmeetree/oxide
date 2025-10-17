@@ -75,21 +75,12 @@ fn preloader_page() -> Html<String> {
                     border-top-color: rgba(39, 118, 243, 1);
                     border-radius: 50%;
                 }
-                .status-box {
-                    margin-top: 20px;
-                    padding: 16px 20px;
-                    background: rgba(39, 118, 243, 0.08);
-                    border: 1px solid rgba(39, 118, 243, 0.2);
-                    border-radius: 8px;
-                    max-width: 480px;
-                    margin-left: auto;
-                    margin-right: auto;
-                }
                 .status-text {
                     color: #B8B8B8;
                     font-size: 0.875rem;
                     line-height: 1.6;
-                    margin: 0 0 12px 0;
+                    margin: 20px 0 8px 0;
+                    max-width: 480px;
                 }
                 .countdown-text {
                     color: #888888;
@@ -109,10 +100,8 @@ fn preloader_page() -> Html<String> {
                     <div class="spinner-ring animate-spin-slow"></div>
                 </div>
                 <h2 style="font-size: 1.75rem; font-weight: 600; margin-bottom: 4px; color: #E5E5E5;">Fetching Resources...</h2>
-                <div class="status-box">
-                    <p class="status-text">Collecting cluster data from the Kubernetes API and Prometheus metrics. This usually takes a few seconds on initial load.</p>
-                    <p class="countdown-text">Refreshing in <span id="countdown" style="display: inline-block; min-width: 1ch; text-align: center;">5</span> seconds...</p>
-                </div>
+                <p class="status-text">Collecting cluster data from the Kubernetes API and Prometheus metrics. This usually takes a few seconds on initial load.</p>
+                <p class="countdown-text">Refreshing in <span id="countdown" style="display: inline-block; min-width: 1ch; text-align: center;">5</span> seconds...</p>
             </div>
             <script>
                 let seconds = 5;
@@ -1123,7 +1112,34 @@ pub async fn alerts(State(state): State<AppState>) -> impl IntoResponse {
     }
 
     // Get alerts from cache
-    let alerts = state.cache.get_alerts().await;
+    let mut alerts = state.cache.get_alerts().await.to_vec();
+
+    // Sort alerts by severity (critical, warning, info, none), then by state (firing first)
+    alerts.sort_by(|a, b| {
+        // Define severity priority
+        let severity_priority = |s: &str| match s {
+            "critical" => 0,
+            "warning" => 1,
+            "info" => 2,
+            _ => 3,
+        };
+
+        // Define state priority
+        let state_priority = |s: &str| match s {
+            "firing" => 0,
+            "pending" => 1,
+            _ => 2,
+        };
+
+        // First compare by severity
+        match severity_priority(&a.severity).cmp(&severity_priority(&b.severity)) {
+            std::cmp::Ordering::Equal => {
+                // If same severity, compare by state
+                state_priority(&a.state).cmp(&state_priority(&b.state))
+            }
+            other => other,
+        }
+    });
 
     // Count alert states
     let firing_count = alerts.iter().filter(|a| a.state == "firing").count();
@@ -1132,7 +1148,7 @@ pub async fn alerts(State(state): State<AppState>) -> impl IntoResponse {
     let template = AlertsTemplate {
         active_page: "alerts".to_string(),
         version: env!("CARGO_PKG_VERSION").to_string(),
-        alerts: alerts.as_ref(),
+        alerts: &alerts,
         firing_count,
         pending_count,
         firing_alerts_count: firing_count,
