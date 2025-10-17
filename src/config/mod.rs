@@ -345,7 +345,7 @@ impl ClusterConfig {
                 },
             },
             talos: TalosConfig {
-                version: "v1.11.2".to_string(),
+                version: "v1.11.3".to_string(),
                 kubernetes_version: "1.34.1".to_string(),
                 cluster_endpoint: None,
                 hcloud_snapshot_id: None,

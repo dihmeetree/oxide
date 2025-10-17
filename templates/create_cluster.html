@@ -98,8 +98,8 @@
         id="talos_version"
         name="talos_version"
         required
-        value="v1.11.2"
-        placeholder="v1.11.2"
+        value="v1.11.3"
+        placeholder="v1.11.3"
         class="w-full px-4 py-2.5 rounded-lg transition focus:outline-none focus:ring-2 focus:ring-offset-0 bg-dark-hover border border-dark-border text-text-primary focus:ring-accent-blue"
       />
     </div>
@@ -191,19 +191,41 @@
           class="w-full px-4 py-2.5 rounded-lg transition focus:outline-none focus:ring-2 focus:ring-offset-0 bg-dark-hover border border-dark-border text-text-primary focus:ring-accent-blue"
         >
           <optgroup label="Shared vCPU (AMD EPYC)">
-            <option value="cpx11">CPX11 - 2 vCPU, 2 GB RAM, 40 GB (~€4.49/month)</option>
-            <option value="cpx21" selected>CPX21 - 3 vCPU, 4 GB RAM, 80 GB (~€8.99/month)</option>
-            <option value="cpx31">CPX31 - 4 vCPU, 8 GB RAM, 160 GB (~€15.99/month)</option>
-            <option value="cpx41">CPX41 - 8 vCPU, 16 GB RAM, 240 GB (~€29.99/month)</option>
-            <option value="cpx51">CPX51 - 16 vCPU, 32 GB RAM, 360 GB (~€59.99/month)</option>
+            <option value="cpx11">
+              CPX11 - 2 vCPU, 2 GB RAM, 40 GB (~€4.49/month)
+            </option>
+            <option value="cpx21" selected>
+              CPX21 - 3 vCPU, 4 GB RAM, 80 GB (~€8.99/month)
+            </option>
+            <option value="cpx31">
+              CPX31 - 4 vCPU, 8 GB RAM, 160 GB (~€15.99/month)
+            </option>
+            <option value="cpx41">
+              CPX41 - 8 vCPU, 16 GB RAM, 240 GB (~€29.99/month)
+            </option>
+            <option value="cpx51">
+              CPX51 - 16 vCPU, 32 GB RAM, 360 GB (~€59.99/month)
+            </option>
           </optgroup>
           <optgroup label="Dedicated vCPU (AMD EPYC)">
-            <option value="ccx13">CCX13 - 2 vCPU, 8 GB RAM, 80 GB (~€12.99/month)</option>
-            <option value="ccx23">CCX23 - 4 vCPU, 16 GB RAM, 160 GB (~€25.99/month)</option>
-            <option value="ccx33">CCX33 - 8 vCPU, 32 GB RAM, 240 GB (~€49.99/month)</option>
-            <option value="ccx43">CCX43 - 16 vCPU, 64 GB RAM, 360 GB (~€99.99/month)</option>
-            <option value="ccx53">CCX53 - 32 vCPU, 128 GB RAM, 600 GB (~€199.99/month)</option>
-            <option value="ccx63">CCX63 - 48 vCPU, 192 GB RAM, 960 GB (~€299.99/month)</option>
+            <option value="ccx13">
+              CCX13 - 2 vCPU, 8 GB RAM, 80 GB (~€12.99/month)
+            </option>
+            <option value="ccx23">
+              CCX23 - 4 vCPU, 16 GB RAM, 160 GB (~€25.99/month)
+            </option>
+            <option value="ccx33">
+              CCX33 - 8 vCPU, 32 GB RAM, 240 GB (~€49.99/month)
+            </option>
+            <option value="ccx43">
+              CCX43 - 16 vCPU, 64 GB RAM, 360 GB (~€99.99/month)
+            </option>
+            <option value="ccx53">
+              CCX53 - 32 vCPU, 128 GB RAM, 600 GB (~€199.99/month)
+            </option>
+            <option value="ccx63">
+              CCX63 - 48 vCPU, 192 GB RAM, 960 GB (~€299.99/month)
+            </option>
           </optgroup>
         </select>
       </div>
@@ -283,20 +305,70 @@
           ></path>
         </svg>
         <div class="text-sm">
-          <p class="font-medium mb-2 text-accent-blue">How to Create a Talos Snapshot</p>
-          <p class="text-text-secondary mb-2">Method 1: Rescue Mode (Recommended)</p>
-          <ol class="list-decimal list-inside space-y-1 text-text-secondary text-xs">
-            <li>Create temporary server: <code class="bg-dark-hover px-1">hcloud server create --type cx11 --name talos-snapshot --image ubuntu-22.04 --location nbg1</code></li>
-            <li>Enable rescue & reboot: <code class="bg-dark-hover px-1">hcloud server enable-rescue talos-snapshot && hcloud server reboot talos-snapshot</code></li>
-            <li>SSH into rescue system: <code class="bg-dark-hover px-1">ssh root@&lt;server-ip&gt;</code></li>
-            <li>Download and write Talos image:<br/>
-              <code class="block mt-1 p-2 rounded bg-dark-hover text-text-primary text-xs font-mono">cd /tmp<br/>wget -O /tmp/talos.raw.xz https://factory.talos.dev/image/376567988ad370138ad8b2698212367b8edcb69b5fd68c80be1f2ec7d603b4ba/v1.11.0/hcloud-amd64.raw.xz<br/>xz -d -c /tmp/talos.raw.xz | dd of=/dev/sda && sync<br/>shutdown -h now</code>
+          <p class="font-medium mb-2 text-accent-blue">
+            How to Create a Talos Snapshot
+          </p>
+          <p class="text-text-secondary mb-2">
+            Method 1: Rescue Mode (Recommended)
+          </p>
+          <ol
+            class="list-decimal list-inside space-y-1 text-text-secondary text-xs"
+          >
+            <li>
+              Create temporary server:
+              <code class="bg-dark-hover px-1"
+                >hcloud server create --type cx11 --name talos-snapshot --image
+                ubuntu-22.04 --location nbg1</code
+              >
             </li>
-            <li>Create snapshot: <code class="bg-dark-hover px-1">hcloud server create-image --type snapshot --description "Talos v1.11.0" talos-snapshot</code></li>
-            <li>Get snapshot ID: <code class="bg-dark-hover px-1">hcloud image list</code></li>
-            <li>Delete temporary server: <code class="bg-dark-hover px-1">hcloud server delete talos-snapshot</code></li>
+            <li>
+              Enable rescue & reboot:
+              <code class="bg-dark-hover px-1"
+                >hcloud server enable-rescue talos-snapshot && hcloud server
+                reboot talos-snapshot</code
+              >
+            </li>
+            <li>
+              SSH into rescue system:
+              <code class="bg-dark-hover px-1">ssh root@&lt;server-ip&gt;</code>
+            </li>
+            <li>
+              Download and write Talos image:<br />
+              <code
+                class="block mt-1 p-2 rounded bg-dark-hover text-text-primary text-xs font-mono"
+                >cd /tmp<br />wget -O /tmp/talos.raw.xz
+                https://factory.talos.dev/image/376567988ad370138ad8b2698212367b8edcb69b5fd68c80be1f2ec7d603b4ba/v1.11.0/hcloud-amd64.raw.xz<br />xz
+                -d -c /tmp/talos.raw.xz | dd of=/dev/sda && sync<br />shutdown
+                -h now</code
+              >
+            </li>
+            <li>
+              Create snapshot:
+              <code class="bg-dark-hover px-1"
+                >hcloud server create-image --type snapshot --description "Talos
+                v1.11.0" talos-snapshot</code
+              >
+            </li>
+            <li>
+              Get snapshot ID:
+              <code class="bg-dark-hover px-1">hcloud image list</code>
+            </li>
+            <li>
+              Delete temporary server:
+              <code class="bg-dark-hover px-1"
+                >hcloud server delete talos-snapshot</code
+              >
+            </li>
           </ol>
-          <p class="text-text-secondary mt-2 text-xs">Method 2: Use Packer (see <a href="https://www.talos.dev/v1.11/talos-guides/install/cloud-platforms/hetzner/" target="_blank" class="text-accent-blue hover:text-accent-blueHover">official docs</a>)</p>
+          <p class="text-text-secondary mt-2 text-xs">
+            Method 2: Use Packer (see
+            <a
+              href="https://www.talos.dev/v1.11/talos-guides/install/cloud-platforms/hetzner/"
+              target="_blank"
+              class="text-accent-blue hover:text-accent-blueHover"
+              >official docs</a
+            >)
+          </p>
         </div>
       </div>
     </div>
