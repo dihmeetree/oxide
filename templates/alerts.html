@@ -150,7 +150,7 @@
   </div>
 
   <!-- Alerts List -->
-  <div id="alertsList" class="space-y-3">
+  <div id="alertsList" class="space-y-3" style="opacity: 0;">
     {% for alert in alerts %}
     <div
       class="alert-card rounded-lg border bg-[#242424] border-dark-border transition hover:border-[#F59E0B]/30"
@@ -411,8 +411,16 @@
 
   // Initialize
   document.addEventListener('DOMContentLoaded', function() {
+    const alertsList = document.getElementById('alertsList');
+
     // Sort by severity by default
     sortAlerts();
+
+    // Show alerts after sorting to prevent layout shift
+    if (alertsList) {
+      alertsList.style.opacity = '1';
+      alertsList.style.transition = 'opacity 0.15s ease-in';
+    }
 
     // Start auto-refresh countdown
     startRefreshCountdown();
