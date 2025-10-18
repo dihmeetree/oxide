@@ -389,45 +389,14 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="/static/charts.js"></script>
 <script>
-  // Color palette
-  const colors = [
-    "#2776F3", "#10B981", "#F59E0B", "#8B5CF6", "#EC4899",
-    "#06B6D4", "#F43F5E", "#84CC16", "#A855F7", "#EAB308"
-  ];
-
   let cpuChart;
   let memoryChart;
   let isStacked = true;
   let nodeColorMap = {};
 
-  // Apply colors to server-rendered legend
-  function applyLegendColors(chart, containerId) {
-    const legendContainer = document.getElementById(containerId);
-    if (!legendContainer) return;
-
-    const colorSpans = legendContainer.querySelectorAll('[data-color-for]');
-    colorSpans.forEach((span) => {
-      const name = span.getAttribute('data-color-for');
-      const dataset = chart.data.datasets.find(ds => ds.label === name);
-      if (dataset) {
-        span.style.backgroundColor = dataset.borderColor;
-      }
-    });
-
-    // Update button states based on visibility
-    const buttons = legendContainer.querySelectorAll('button');
-    buttons.forEach((button, i) => {
-      const isVisible = chart.isDatasetVisible(i);
-      if (!isVisible) {
-        button.classList.add('opacity-50');
-        button.classList.remove('bg-dark-hover');
-        button.classList.add('bg-dark-bg');
-      }
-    });
-  }
-
-  // Toggle dataset visibility
+  // Toggle dataset visibility - wrapper for shared function
   function toggleDataset(chartType, index) {
     let chart, containerId;
 
@@ -442,36 +411,7 @@
         break;
     }
 
-    const isCurrentlyVisible = chart.isDatasetVisible(index);
-    let visibleCount = 0;
-    for (let i = 0; i < chart.data.datasets.length; i++) {
-      if (chart.isDatasetVisible(i)) visibleCount++;
-    }
-
-    if (visibleCount === 1 && isCurrentlyVisible) {
-      chart.data.datasets.forEach((dataset, i) => {
-        chart.setDatasetVisibility(i, true);
-      });
-    } else {
-      chart.data.datasets.forEach((dataset, i) => {
-        chart.setDatasetVisibility(i, i === index);
-      });
-    }
-    chart.update();
-
-    // Update button styles
-    const legendContainer = document.getElementById(containerId);
-    const buttons = legendContainer.querySelectorAll('button');
-    buttons.forEach((button, i) => {
-      const isVisible = chart.isDatasetVisible(i);
-      if (isVisible) {
-        button.classList.remove('opacity-50', 'bg-dark-bg');
-        button.classList.add('bg-dark-hover');
-      } else {
-        button.classList.add('opacity-50', 'bg-dark-bg');
-        button.classList.remove('bg-dark-hover');
-      }
-    });
+    toggleChartDataset(chart, containerId, index);
   }
 
   // Initialize charts
@@ -480,163 +420,86 @@
       return;
     }
 
-    // Sort nodes by name for consistent ordering
-    data.nodes.sort((a, b) => a.name.localeCompare(b.name));
+    // Sort nodes and assign colors using shared utilities
+    sortByName(data.nodes);
+    assignColors(data.nodes, nodeColorMap);
 
-    // Assign consistent colors to nodes
-    data.nodes.forEach((node) => {
-      if (!nodeColorMap[node.name]) {
-        nodeColorMap[node.name] = colors[Object.keys(nodeColorMap).length % colors.length];
+    // Format timestamps using shared utility
+    const formattedTimestamps = formatTimestamps(data.timestamps);
+
+    // CPU Chart - using shared utilities
+    if (cpuChart) cpuChart.destroy();
+
+    const cpuDatasets = data.nodes.map((node) =>
+      createDataset(node.name, node.cpu_history, nodeColorMap[node.name], {
+        fill: isStacked,
+        stacked: isStacked
+      })
+    );
+
+    cpuChart = createLineChart("cpuChart",
+      { labels: formattedTimestamps, datasets: cpuDatasets },
+      {
+        scales: {
+          x: { stacked: isStacked },
+          y: {
+            stacked: isStacked,
+            max: isStacked ? null : 100,
+            ticks: {
+              callback: function (value) { return value + "%"; }
+            },
+            title: { display: true, text: "CPU Usage (%)", color: "#AAAAAA" }
+          }
+        },
+        plugins: {
+          tooltip: {
+            callbacks: {
+              label: function (context) {
+                return context.dataset.label + ": " + context.parsed.y.toFixed(2) + "%";
+              }
+            }
+          }
+        }
       }
-    });
+    );
 
-    // Format timestamps
-    const formattedTimestamps = data.timestamps.map((ts) => {
-      const date = new Date(ts * 1000);
-      return date.toLocaleTimeString("en-US", {
-        hour: "2-digit",
-        minute: "2-digit",
-        second: "2-digit",
-      });
-    });
+    // Memory Chart - using shared utilities
+    if (memoryChart) memoryChart.destroy();
 
-    // CPU Chart
-    const cpuCtx = document.getElementById("cpuChart").getContext("2d");
-    if (cpuChart) {
-      cpuChart.destroy();
-    }
-    cpuChart = new Chart(cpuCtx, {
-      type: "line",
-      data: {
-        labels: formattedTimestamps,
-        datasets: data.nodes.map((node) => ({
-          label: node.name,
-          data: node.cpu_history,
-          borderColor: nodeColorMap[node.name],
-          backgroundColor: nodeColorMap[node.name] + (isStacked ? "80" : "20"),
-          borderWidth: 2,
-          fill: isStacked,
-          tension: 0.4,
-          pointRadius: 0,
-          pointHoverRadius: 5,
-        })),
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        animation: false,
-        interaction: {
-          mode: "index",
-          intersect: false,
+    const memoryDatasets = data.nodes.map((node) =>
+      createDataset(node.name, node.memory_history, nodeColorMap[node.name], {
+        fill: isStacked,
+        stacked: isStacked
+      })
+    );
+
+    memoryChart = createLineChart("memoryChart",
+      { labels: formattedTimestamps, datasets: memoryDatasets },
+      {
+        scales: {
+          x: { stacked: isStacked },
+          y: {
+            stacked: isStacked,
+            max: isStacked ? null : 100,
+            ticks: {
+              callback: function (value) { return value + "%"; }
+            },
+            title: { display: true, text: "Memory Usage (%)", color: "#AAAAAA" }
+          }
         },
         plugins: {
-          legend: { display: false },
           tooltip: {
-            backgroundColor: "#2A2A2A",
-            titleColor: "#F2F2F2",
-            bodyColor: "#E8E8E8",
-            borderColor: "#313131",
-            borderWidth: 1,
-            padding: 12,
-            displayColors: true,
             callbacks: {
               label: function (context) {
                 return context.dataset.label + ": " + context.parsed.y.toFixed(2) + "%";
-              },
-            },
-          },
-        },
-        scales: {
-          x: {
-            stacked: isStacked,
-            grid: { color: "#313131" },
-            ticks: { color: "#AAAAAA" },
-          },
-          y: {
-            stacked: isStacked,
-            beginAtZero: true,
-            max: isStacked ? null : 100,
-            grid: { color: "#313131" },
-            ticks: { color: "#AAAAAA" },
-            title: {
-              display: true,
-              text: "CPU Usage (%)",
-              color: "#AAAAAA",
-            },
-          },
-        },
-      },
-    });
+              }
+            }
+          }
+        }
+      }
+    );
 
-    // Memory Chart
-    const memoryCtx = document.getElementById("memoryChart").getContext("2d");
-    if (memoryChart) {
-      memoryChart.destroy();
-    }
-    memoryChart = new Chart(memoryCtx, {
-      type: "line",
-      data: {
-        labels: formattedTimestamps,
-        datasets: data.nodes.map((node) => ({
-          label: node.name,
-          data: node.memory_history,
-          borderColor: nodeColorMap[node.name],
-          backgroundColor: nodeColorMap[node.name] + (isStacked ? "80" : "20"),
-          borderWidth: 2,
-          fill: isStacked,
-          tension: 0.4,
-          pointRadius: 0,
-          pointHoverRadius: 5,
-        })),
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        animation: false,
-        interaction: {
-          mode: "index",
-          intersect: false,
-        },
-        plugins: {
-          legend: { display: false },
-          tooltip: {
-            backgroundColor: "#2A2A2A",
-            titleColor: "#F2F2F2",
-            bodyColor: "#E8E8E8",
-            borderColor: "#313131",
-            borderWidth: 1,
-            padding: 12,
-            displayColors: true,
-            callbacks: {
-              label: function (context) {
-                return context.dataset.label + ": " + context.parsed.y.toFixed(2) + "%";
-              },
-            },
-          },
-        },
-        scales: {
-          x: {
-            stacked: isStacked,
-            grid: { color: "#313131" },
-            ticks: { color: "#AAAAAA" },
-          },
-          y: {
-            stacked: isStacked,
-            beginAtZero: true,
-            max: isStacked ? null : 100,
-            grid: { color: "#313131" },
-            ticks: { color: "#AAAAAA" },
-            title: {
-              display: true,
-              text: "Memory Usage (%)",
-              color: "#AAAAAA",
-            },
-          },
-        },
-      },
-    });
-
-    // Generate legends
+    // Apply colors to server-rendered legends
     applyLegendColors(cpuChart, 'nodeCpuLegend');
     applyLegendColors(memoryChart, 'nodeMemoryLegend');
   }
@@ -651,60 +514,31 @@
         return;
       }
 
-      // Sort nodes by name for consistent ordering
-      data.nodes.sort((a, b) => a.name.localeCompare(b.name));
+      // Sort nodes and assign colors using shared utilities
+      sortByName(data.nodes);
+      assignColors(data.nodes, nodeColorMap);
 
-      // Assign colors to any new nodes (preserve existing mappings)
-      data.nodes.forEach((node) => {
-        if (!nodeColorMap[node.name]) {
-          nodeColorMap[node.name] = colors[Object.keys(nodeColorMap).length % colors.length];
-        }
-      });
+      // Format timestamps using shared utility
+      const formattedTimestamps = formatTimestamps(data.timestamps);
 
-      // Format timestamps
-      const formattedTimestamps = data.timestamps.map((ts) => {
-        const date = new Date(ts * 1000);
-        return date.toLocaleTimeString("en-US", {
-          hour: "2-digit",
-          minute: "2-digit",
-          second: "2-digit",
-        });
-      });
-
-      // Update CPU chart - preserve visibility state
-      const cpuVisibility = cpuChart.data.datasets.map((ds, i) => cpuChart.isDatasetVisible(i));
-      cpuChart.data.labels = formattedTimestamps;
-      cpuChart.data.datasets = data.nodes.map((node, i) => ({
-        label: node.name,
-        data: node.cpu_history,
-        borderColor: nodeColorMap[node.name],
-        backgroundColor: nodeColorMap[node.name] + (isStacked ? "80" : "20"),
-        borderWidth: 2,
-        fill: isStacked,
-        tension: 0.4,
-        pointRadius: 0,
-        pointHoverRadius: 5,
-        hidden: i < cpuVisibility.length ? !cpuVisibility[i] : false,
-      }));
-      cpuChart.update();
+      // Update CPU chart using shared utility
+      const cpuDatasets = data.nodes.map((node) =>
+        createDataset(node.name, node.cpu_history, nodeColorMap[node.name], {
+          fill: isStacked,
+          stacked: isStacked
+        })
+      );
+      updateChart(cpuChart, formattedTimestamps, cpuDatasets);
       applyLegendColors(cpuChart, 'nodeCpuLegend');
 
-      // Update memory chart - preserve visibility state
-      const memoryVisibility = memoryChart.data.datasets.map((ds, i) => memoryChart.isDatasetVisible(i));
-      memoryChart.data.labels = formattedTimestamps;
-      memoryChart.data.datasets = data.nodes.map((node, i) => ({
-        label: node.name,
-        data: node.memory_history,
-        borderColor: nodeColorMap[node.name],
-        backgroundColor: nodeColorMap[node.name] + (isStacked ? "80" : "20"),
-        borderWidth: 2,
-        fill: isStacked,
-        tension: 0.4,
-        pointRadius: 0,
-        pointHoverRadius: 5,
-        hidden: i < memoryVisibility.length ? !memoryVisibility[i] : false,
-      }));
-      memoryChart.update();
+      // Update memory chart using shared utility
+      const memoryDatasets = data.nodes.map((node) =>
+        createDataset(node.name, node.memory_history, nodeColorMap[node.name], {
+          fill: isStacked,
+          stacked: isStacked
+        })
+      );
+      updateChart(memoryChart, formattedTimestamps, memoryDatasets);
       applyLegendColors(memoryChart, 'nodeMemoryLegend');
     } catch (error) {
       console.error('Failed to refresh metrics:', error);

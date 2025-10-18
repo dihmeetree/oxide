@@ -284,21 +284,10 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="/static/charts.js"></script>
 <script>
   // Override scroll restoration hiding immediately for metrics page
   document.documentElement.style.visibility = "visible";
-
-  // Color palette
-  const colors = [
-    "#2776F3", // accent-blue
-    "#10B981", // accent-green
-    "#F59E0B", // orange
-    "#8B5CF6", // purple
-    "#EC4899", // pink
-    "#14B8A6", // teal
-    "#F97316", // orange-alt
-    "#6366F1", // indigo
-  ];
 
   let cpuChart;
   let memoryChart;
@@ -309,33 +298,7 @@
   let nodeColorMap = {}; // Store consistent colors for each node
   let podColorMap = {}; // Store consistent colors for each pod
 
-  // Apply colors to server-rendered legend
-  function applyLegendColors(chart, containerId) {
-    const legendContainer = document.getElementById(containerId);
-    if (!legendContainer) return;
-
-    const colorSpans = legendContainer.querySelectorAll('[data-color-for]');
-    colorSpans.forEach((span) => {
-      const name = span.getAttribute('data-color-for');
-      const dataset = chart.data.datasets.find(ds => ds.label === name);
-      if (dataset) {
-        span.style.backgroundColor = dataset.borderColor;
-      }
-    });
-
-    // Update button states based on visibility
-    const buttons = legendContainer.querySelectorAll('button');
-    buttons.forEach((button, i) => {
-      const isVisible = chart.isDatasetVisible(i);
-      if (!isVisible) {
-        button.classList.add('opacity-50');
-        button.classList.remove('bg-dark-hover');
-        button.classList.add('bg-dark-bg');
-      }
-    });
-  }
-
-  // Toggle dataset visibility
+  // Toggle dataset visibility - wrapper for shared function
   function toggleDataset(chartType, index) {
     let chart, containerId;
 
@@ -358,40 +321,7 @@
         break;
     }
 
-    const isCurrentlyVisible = chart.isDatasetVisible(index);
-
-    // Count how many datasets are currently visible
-    let visibleCount = 0;
-    for (let i = 0; i < chart.data.datasets.length; i++) {
-      if (chart.isDatasetVisible(i)) visibleCount++;
-    }
-
-    // If only one is visible and we click it, show all
-    if (visibleCount === 1 && isCurrentlyVisible) {
-      chart.data.datasets.forEach((dataset, i) => {
-        chart.setDatasetVisibility(i, true);
-      });
-    } else {
-      // Otherwise, show only the clicked one
-      chart.data.datasets.forEach((dataset, i) => {
-        chart.setDatasetVisibility(i, i === index);
-      });
-    }
-    chart.update();
-
-    // Update button styles
-    const legendContainer = document.getElementById(containerId);
-    const buttons = legendContainer.querySelectorAll('button');
-    buttons.forEach((button, i) => {
-      const isVisible = chart.isDatasetVisible(i);
-      if (isVisible) {
-        button.classList.remove('opacity-50', 'bg-dark-bg');
-        button.classList.add('bg-dark-hover');
-      } else {
-        button.classList.add('opacity-50', 'bg-dark-bg');
-        button.classList.remove('bg-dark-hover');
-      }
-    });
+    toggleChartDataset(chart, containerId, index);
   }
 
   // Initialize charts
@@ -425,25 +355,12 @@
         document.getElementById("metricsGrid").style.display = "grid";
       }
 
-      // Sort nodes by name for consistent ordering
-      data.nodes.sort((a, b) => a.name.localeCompare(b.name));
+      // Use shared utilities for consistent data preparation
+      sortByName(data.nodes);
+      assignColors(data.nodes, nodeColorMap);
 
-      // Assign consistent colors to nodes (only if not already assigned)
-      data.nodes.forEach((node) => {
-        if (!nodeColorMap[node.name]) {
-          nodeColorMap[node.name] =
-            colors[Object.keys(nodeColorMap).length % colors.length];
-        }
-      });
-
-      // Format timestamps to local time (HH:MM - no seconds since range queries return rounded timestamps)
-      const formattedTimestamps = data.timestamps.map((ts) => {
-        const date = new Date(ts * 1000);
-        return date.toLocaleTimeString([], {
-          hour: "2-digit",
-          minute: "2-digit",
-        });
-      });
+      // Format timestamps without seconds (range queries return rounded timestamps)
+      const formattedTimestamps = formatTimestamps(data.timestamps, { includeSeconds: false });
 
       // CPU Chart - only create if we don't already have one
       const cpuCtx = document.getElementById("cpuChart").getContext("2d");
@@ -737,21 +654,9 @@
 
       // Pod charts
       if (data.pods && data.pods.length > 0) {
-        // Sort pods by name for consistent ordering
-        data.pods.sort((a, b) => {
-          const fullNameA = `${a.namespace}/${a.name}`;
-          const fullNameB = `${b.namespace}/${b.name}`;
-          return fullNameA.localeCompare(fullNameB);
-        });
-
-        // Assign consistent colors to pods
-        data.pods.forEach((pod) => {
-          const podKey = `${pod.namespace}/${pod.name}`;
-          if (!podColorMap[podKey]) {
-            podColorMap[podKey] =
-              colors[Object.keys(podColorMap).length % colors.length];
-          }
-        });
+        // Sort and assign colors to pods
+        sortByName(data.pods, (pod) => `${pod.namespace}/${pod.name}`);
+        assignColors(data.pods, podColorMap, (pod) => `${pod.namespace}/${pod.name}`);
 
         // Pod CPU Chart
         const podCpuCtx = document.getElementById("podCpuChart").getContext("2d");
@@ -1034,25 +939,10 @@
     const response = await fetch(`/api/metrics?range=${currentTimeRange}`);
     const data = await response.json();
 
-    // Sort nodes by name for consistent ordering
-    data.nodes.sort((a, b) => a.name.localeCompare(b.name));
-
-    // Assign colors to any new nodes (preserve existing mappings)
-    data.nodes.forEach((node) => {
-      if (!nodeColorMap[node.name]) {
-        nodeColorMap[node.name] =
-          colors[Object.keys(nodeColorMap).length % colors.length];
-      }
-    });
-
-    // Format timestamps to local time (HH:MM - no seconds since range queries return rounded timestamps)
-    const formattedTimestamps = data.timestamps.map((ts) => {
-      const date = new Date(ts * 1000);
-      return date.toLocaleTimeString([], {
-        hour: "2-digit",
-        minute: "2-digit",
-      });
-    });
+    // Use shared utilities for consistent data preparation
+    sortByName(data.nodes);
+    assignColors(data.nodes, nodeColorMap);
+    const formattedTimestamps = formatTimestamps(data.timestamps, { includeSeconds: false });
 
     // Capture visibility states before making any changes
     const cpuVisibility = cpuChart.data.datasets.map((ds, i) => cpuChart.isDatasetVisible(i));
@@ -1098,21 +988,9 @@
 
     // Update pod charts if available
     if (data.pods && data.pods.length > 0 && podCpuChart && podMemoryChart) {
-      // Sort pods
-      data.pods.sort((a, b) => {
-        const fullNameA = `${a.namespace}/${a.name}`;
-        const fullNameB = `${b.namespace}/${b.name}`;
-        return fullNameA.localeCompare(fullNameB);
-      });
-
-      // Assign colors to any new pods
-      data.pods.forEach((pod) => {
-        const podKey = `${pod.namespace}/${pod.name}`;
-        if (!podColorMap[podKey]) {
-          podColorMap[podKey] =
-            colors[Object.keys(podColorMap).length % colors.length];
-        }
-      });
+      // Sort and assign colors to pods
+      sortByName(data.pods, (pod) => `${pod.namespace}/${pod.name}`);
+      assignColors(data.pods, podColorMap, (pod) => `${pod.namespace}/${pod.name}`);
 
       // Capture pod visibility states before making any changes
       const podCpuVisibility = podCpuChart.data.datasets.map((ds, i) => podCpuChart.isDatasetVisible(i));

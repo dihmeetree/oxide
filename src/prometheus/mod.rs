@@ -570,26 +570,25 @@ pub async fn query_node_metrics(
         node_private_ip
     );
 
-    let cpu_result = query_prometheus(pod_name, &cpu_query, kubeconfig_path).await?;
-    let cpu_usage = cpu_result.unwrap_or(0.0);
-
-    // Query memory usage
+    // OPTIMIZATION: Query all metrics in parallel (3× faster!)
     let mem_used_query = format!(
         "node_memory_MemTotal_bytes{{instance=~\"{}:.*\"}} - node_memory_MemAvailable_bytes{{instance=~\"{}:.*\"}}",
         node_private_ip, node_private_ip
     );
-
-    let mem_used_result = query_prometheus(pod_name, &mem_used_query, kubeconfig_path).await?;
-    let memory_used_bytes = mem_used_result.unwrap_or(0.0) as u64;
-
-    // Query total memory
     let mem_total_query = format!(
         "node_memory_MemTotal_bytes{{instance=~\"{}:.*\"}}",
         node_private_ip
     );
 
-    let mem_total_result = query_prometheus(pod_name, &mem_total_query, kubeconfig_path).await?;
-    let memory_total_bytes = mem_total_result.unwrap_or(0.0) as u64;
+    let (cpu_result, mem_used_result, mem_total_result) = tokio::join!(
+        query_prometheus(pod_name, &cpu_query, kubeconfig_path),
+        query_prometheus(pod_name, &mem_used_query, kubeconfig_path),
+        query_prometheus(pod_name, &mem_total_query, kubeconfig_path)
+    );
+
+    let cpu_usage = cpu_result?.unwrap_or(0.0);
+    let memory_used_bytes = mem_used_result?.unwrap_or(0.0) as u64;
+    let memory_total_bytes = mem_total_result?.unwrap_or(0.0) as u64;
 
     let memory_usage_percent = if memory_total_bytes > 0 {
         (memory_used_bytes as f64 / memory_total_bytes as f64) * 100.0

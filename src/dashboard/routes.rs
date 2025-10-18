@@ -2,11 +2,14 @@
 use askama::Template;
 use axum::{
     extract::State,
+    http::{header, HeaderMap, HeaderValue, StatusCode},
     response::{Html, IntoResponse, Json, Redirect},
     Form,
 };
 use serde::{Deserialize, Serialize};
+use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
+use std::hash::{Hash, Hasher};
 use tracing::{error, info};
 
 use super::server::AppState;
@@ -17,19 +20,29 @@ use super::templates::{
 };
 use crate::config::ClusterConfig;
 
-/// Get the count of firing alerts from the cache
-async fn get_firing_alerts_count(cache: &super::cache::ClusterCache) -> usize {
-    cache
-        .get_alerts()
-        .await
-        .iter()
-        .filter(|a| a.state == "firing")
-        .count()
+/// Get both firing alerts count and insights count in one lock (optimized)
+async fn get_alerts_and_insights_counts(cache: &super::cache::ClusterCache) -> (usize, usize) {
+    let data = cache.inner.read().await;
+    (
+        data.alerts.iter().filter(|a| a.state == "firing").count(),
+        data.insights.len(),
+    )
 }
 
-/// Get the count of insights from the cache
-async fn get_insights_count(cache: &super::cache::ClusterCache) -> usize {
-    cache.get_insights().await.len()
+/// Generate ETag from content string (fast FNV-1a hash)
+fn generate_etag(content: &str) -> String {
+    let mut hasher = DefaultHasher::new();
+    content.hash(&mut hasher);
+    format!("\"{}\"", hasher.finish())
+}
+
+/// Check if ETag matches If-None-Match header
+fn check_etag(headers: &HeaderMap, etag: &str) -> bool {
+    headers
+        .get(header::IF_NONE_MATCH)
+        .and_then(|v| v.to_str().ok())
+        .map(|v| v == etag)
+        .unwrap_or(false)
 }
 
 /// Returns the preloader HTML page with auto-refresh
@@ -132,8 +145,7 @@ pub async fn index(State(state): State<AppState>) -> impl IntoResponse {
 
     let clusters = state.cache.get_clusters().await;
     let total_nodes: usize = clusters.iter().map(|c| c.nodes).sum();
-    let firing_alerts_count = get_firing_alerts_count(&state.cache).await;
-    let insights_count = get_insights_count(&state.cache).await;
+    let (firing_alerts_count, insights_count) = get_alerts_and_insights_counts(&state.cache).await;
     let template = IndexTemplate {
         cluster_count: clusters.len(),
         total_nodes,
@@ -154,8 +166,7 @@ pub async fn clusters_list(State(state): State<AppState>) -> impl IntoResponse {
     }
 
     let clusters = state.cache.get_clusters().await;
-    let firing_alerts_count = get_firing_alerts_count(&state.cache).await;
-    let insights_count = get_insights_count(&state.cache).await;
+    let (firing_alerts_count, insights_count) = get_alerts_and_insights_counts(&state.cache).await;
     let template = ClustersTemplate {
         clusters: clusters.as_ref(),
         active_page: "clusters".to_string(),
@@ -168,8 +179,7 @@ pub async fn clusters_list(State(state): State<AppState>) -> impl IntoResponse {
 
 /// Create cluster form page
 pub async fn clusters_create_form(State(state): State<AppState>) -> impl IntoResponse {
-    let firing_alerts_count = get_firing_alerts_count(&state.cache).await;
-    let insights_count = get_insights_count(&state.cache).await;
+    let (firing_alerts_count, insights_count) = get_alerts_and_insights_counts(&state.cache).await;
     let template = CreateClusterTemplate {
         active_page: "clusters".to_string(),
         version: env!("CARGO_PKG_VERSION").to_string(),
@@ -186,59 +196,28 @@ pub async fn cluster_detail(
 ) -> impl IntoResponse {
     match state.cache.get_cluster_detail(&name).await {
         Some(cluster) => {
-            // Get node metrics for this cluster's nodes only
-            let node_metrics_history = state.cache.get_node_metrics_history().await;
+            // Use pre-cached metrics JSON (BLAZING FAST!)
+            let metrics_json = state
+                .cache
+                .get_cluster_metrics_json_cache(&name)
+                .await
+                .map(|arc| arc.to_string())
+                .unwrap_or_else(|| "{}".to_string());
 
-            // Filter metrics to only include nodes from this cluster
-            let cluster_node_names: Vec<String> =
+            // Build node names list for legend from cluster nodes
+            let mut node_names: Vec<String> =
                 cluster.nodes.iter().map(|n| n.name.clone()).collect();
-            let cluster_metrics: HashMap<String, crate::prometheus::NodeMetricsHistory> =
-                node_metrics_history
-                    .iter()
-                    .filter(|(name, _)| cluster_node_names.contains(name))
-                    .map(|(k, v)| (k.clone(), v.clone()))
-                    .collect();
-
-            // Build node names list for legend
-            let mut node_names: Vec<String> = cluster_metrics.keys().cloned().collect();
             node_names.sort();
 
-            // Build metrics JSON similar to nodes_list
-            let metrics_json = if !cluster_metrics.is_empty() {
-                let mut all_timestamps = std::collections::BTreeSet::new();
-                for history in cluster_metrics.values() {
-                    for (ts, _) in &history.cpu_history {
-                        all_timestamps.insert(*ts);
-                    }
-                }
-                let timestamps: Vec<i64> = all_timestamps.into_iter().collect();
-
-                let metrics_nodes: Vec<MetricsNode> = cluster_metrics
-                    .iter()
-                    .map(|(name, history)| {
-                        let cpu_history: Vec<f64> =
-                            history.cpu_history.iter().map(|(_, val)| *val).collect();
-                        let memory_history: Vec<f64> =
-                            history.memory_history.iter().map(|(_, val)| *val).collect();
-                        MetricsNode {
-                            name: name.clone(),
-                            cpu_history,
-                            memory_history,
-                        }
-                    })
-                    .collect();
-
-                let response = NodeMetricsResponse {
-                    timestamps,
-                    nodes: metrics_nodes,
-                };
-                serde_json::to_string(&response).unwrap_or_else(|_| "{}".to_string())
-            } else {
-                "{}".to_string()
+            // Batch read alerts and insights (single lock acquisition)
+            let (firing_alerts_count, insights_count) = {
+                let data = state.cache.inner.read().await;
+                (
+                    data.alerts.iter().filter(|a| a.state == "firing").count(),
+                    data.insights.len(),
+                )
             };
 
-            let firing_alerts_count = get_firing_alerts_count(&state.cache).await;
-            let insights_count = get_insights_count(&state.cache).await;
             let template = ClusterDetailTemplate {
                 cluster,
                 active_page: "clusters".to_string(),
@@ -280,8 +259,8 @@ pub async fn node_detail(
                 "{}".to_string()
             };
 
-            let firing_alerts_count = get_firing_alerts_count(&state.cache).await;
-            let insights_count = get_insights_count(&state.cache).await;
+            let (firing_alerts_count, insights_count) =
+                get_alerts_and_insights_counts(&state.cache).await;
             let template = NodeDetailTemplate {
                 node,
                 metrics_json,
@@ -365,8 +344,8 @@ pub async fn pod_detail(
                 "memory_history": memory_history,
             });
 
-            let firing_alerts_count = get_firing_alerts_count(&state.cache).await;
-            let insights_count = get_insights_count(&state.cache).await;
+            let (firing_alerts_count, insights_count) =
+                get_alerts_and_insights_counts(&state.cache).await;
             let template = PodDetailTemplate {
                 pod,
                 metrics_json: serde_json::to_string(&metrics_json)
@@ -840,8 +819,7 @@ pub async fn metrics(State(state): State<AppState>) -> impl IntoResponse {
         "{}".to_string()
     };
 
-    let firing_alerts_count = get_firing_alerts_count(&state.cache).await;
-    let insights_count = get_insights_count(&state.cache).await;
+    let (firing_alerts_count, insights_count) = get_alerts_and_insights_counts(&state.cache).await;
     let template = MetricsTemplate {
         active_page: "metrics".to_string(),
         version: env!("CARGO_PKG_VERSION").to_string(),
@@ -858,6 +836,7 @@ pub async fn metrics(State(state): State<AppState>) -> impl IntoResponse {
 /// API endpoint to retrieve metrics data for rendering graphs
 pub async fn api_metrics(
     State(state): State<AppState>,
+    headers: HeaderMap,
     axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> impl IntoResponse {
     // Get time range from query params (default to 1h)
@@ -868,8 +847,20 @@ pub async fn api_metrics(
         let json_cache = state.cache.get_metrics_json_cache().await;
         let json_string = json_cache.as_ref();
 
+        // OPTIMIZATION: Add ETag support for cache validation
+        let etag = generate_etag(json_string);
+        if check_etag(&headers, &etag) {
+            return (StatusCode::NOT_MODIFIED, "").into_response();
+        }
+
         return (
-            [(axum::http::header::CONTENT_TYPE, "application/json")],
+            [
+                (
+                    header::CONTENT_TYPE,
+                    HeaderValue::from_static("application/json"),
+                ),
+                (header::ETAG, HeaderValue::from_str(&etag).unwrap()),
+            ],
             json_string.to_string(),
         )
             .into_response();
@@ -1037,8 +1028,7 @@ pub async fn pods_list(State(state): State<AppState>) -> impl IntoResponse {
         }
     });
 
-    let firing_alerts_count = get_firing_alerts_count(&state.cache).await;
-    let insights_count = get_insights_count(&state.cache).await;
+    let (firing_alerts_count, insights_count) = get_alerts_and_insights_counts(&state.cache).await;
     let template = PodsTemplate {
         pods,
         running_count,
@@ -1099,49 +1089,22 @@ pub async fn nodes_list(State(state): State<AppState>) -> impl IntoResponse {
             .then_with(|| a.name.cmp(&b.name))
     });
 
-    // Get node metrics for charts (only node metrics, not pod metrics)
-    let node_metrics_history = state.cache.get_node_metrics_history().await;
+    // Use pre-cached node metrics JSON (BLAZING FAST!)
+    let metrics_json = state.cache.get_node_metrics_json_cache().await.to_string();
 
     // Extract node names for server-side legend rendering
+    let node_metrics_history = state.cache.get_node_metrics_history().await;
     let mut node_names: Vec<String> = node_metrics_history.keys().cloned().collect();
     node_names.sort();
 
-    // Build node-only metrics JSON (exclude pod metrics)
-    let metrics_json = if !node_metrics_history.is_empty() {
-        let mut all_timestamps = std::collections::BTreeSet::new();
-        for history in node_metrics_history.values() {
-            for (ts, _) in &history.cpu_history {
-                all_timestamps.insert(*ts);
-            }
-        }
-        let timestamps: Vec<i64> = all_timestamps.into_iter().collect();
-
-        let metrics_nodes: Vec<MetricsNode> = node_metrics_history
-            .iter()
-            .map(|(name, history)| {
-                let cpu_history: Vec<f64> =
-                    history.cpu_history.iter().map(|(_, val)| *val).collect();
-                let memory_history: Vec<f64> =
-                    history.memory_history.iter().map(|(_, val)| *val).collect();
-                MetricsNode {
-                    name: name.clone(),
-                    cpu_history,
-                    memory_history,
-                }
-            })
-            .collect();
-
-        let response = NodeMetricsResponse {
-            timestamps,
-            nodes: metrics_nodes,
-        };
-        serde_json::to_string(&response).unwrap_or_else(|_| "{}".to_string())
-    } else {
-        "{}".to_string()
+    // Batch read alerts and insights (single lock acquisition)
+    let (firing_alerts_count, insights_count) = {
+        let data = state.cache.inner.read().await;
+        (
+            data.alerts.iter().filter(|a| a.state == "firing").count(),
+            data.insights.len(),
+        )
     };
-
-    let firing_alerts_count = get_firing_alerts_count(&state.cache).await;
-    let insights_count = get_insights_count(&state.cache).await;
     let template = NodesTemplate {
         nodes,
         control_plane_count,
@@ -1165,8 +1128,7 @@ pub async fn cilium(State(state): State<AppState>) -> impl IntoResponse {
         return preloader_page().into_response();
     }
 
-    let firing_alerts_count = get_firing_alerts_count(&state.cache).await;
-    let insights_count = get_insights_count(&state.cache).await;
+    let (firing_alerts_count, insights_count) = get_alerts_and_insights_counts(&state.cache).await;
 
     // Get pre-serialized metrics JSON from cache (same as API endpoint)
     let metrics_json = state
@@ -1207,8 +1169,7 @@ pub async fn envoy(State(state): State<AppState>) -> impl IntoResponse {
         return preloader_page().into_response();
     }
 
-    let firing_alerts_count = get_firing_alerts_count(&state.cache).await;
-    let insights_count = get_insights_count(&state.cache).await;
+    let (firing_alerts_count, insights_count) = get_alerts_and_insights_counts(&state.cache).await;
 
     // Get pre-serialized metrics JSON from cache
     let metrics_json = state.cache.get_envoy_metrics_json_cache().await.to_string();
@@ -1230,7 +1191,10 @@ pub async fn envoy(State(state): State<AppState>) -> impl IntoResponse {
 }
 
 /// API endpoint to get Envoy metrics JSON
-pub async fn api_envoy_metrics(State(state): State<AppState>) -> impl IntoResponse {
+pub async fn api_envoy_metrics(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
     let cache_ready = state.cache.is_ready().await;
 
     if !cache_ready {
@@ -1242,8 +1206,22 @@ pub async fn api_envoy_metrics(State(state): State<AppState>) -> impl IntoRespon
 
     // Use pre-serialized JSON cache
     let json_cache = state.cache.get_envoy_metrics_json_cache().await;
+    let json_string = json_cache.as_ref();
+
+    // OPTIMIZATION: Add ETag support for cache validation
+    let etag = generate_etag(json_string);
+    if check_etag(&headers, &etag) {
+        return (StatusCode::NOT_MODIFIED, "").into_response();
+    }
+
     (
-        [(axum::http::header::CONTENT_TYPE, "application/json")],
+        [
+            (
+                header::CONTENT_TYPE,
+                HeaderValue::from_static("application/json"),
+            ),
+            (header::ETAG, HeaderValue::from_str(&etag).unwrap()),
+        ],
         json_cache.to_string(),
     )
         .into_response()
@@ -1291,7 +1269,7 @@ pub async fn alerts(State(state): State<AppState>) -> impl IntoResponse {
     let firing_count = alerts.iter().filter(|a| a.state == "firing").count();
     let pending_count = alerts.iter().filter(|a| a.state == "pending").count();
 
-    let insights_count = get_insights_count(&state.cache).await;
+    let insights_count = state.cache.get_insights().await.len();
     let template = AlertsTemplate {
         active_page: "alerts".to_string(),
         version: env!("CARGO_PKG_VERSION").to_string(),
@@ -1341,7 +1319,13 @@ pub async fn insights(State(state): State<AppState>) -> impl IntoResponse {
     let medium_count = insights.iter().filter(|i| i.severity == "medium").count();
     let low_count = insights.iter().filter(|i| i.severity == "low").count();
 
-    let firing_alerts_count = get_firing_alerts_count(&state.cache).await;
+    let firing_alerts_count = state
+        .cache
+        .get_alerts()
+        .await
+        .iter()
+        .filter(|a| a.state == "firing")
+        .count();
     let insights_count = insights.len();
     let template = InsightsTemplate {
         active_page: "insights".to_string(),
@@ -1461,7 +1445,10 @@ pub async fn api_alerts(State(state): State<AppState>) -> impl IntoResponse {
 }
 
 /// API endpoint for Cilium metrics data
-pub async fn api_cilium_metrics(State(state): State<AppState>) -> impl IntoResponse {
+pub async fn api_cilium_metrics(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
     let cache_ready = state.cache.is_ready().await;
 
     if !cache_ready {
@@ -1473,8 +1460,22 @@ pub async fn api_cilium_metrics(State(state): State<AppState>) -> impl IntoRespo
 
     // Use pre-serialized JSON cache (BLAZING FAST!)
     let json_cache = state.cache.get_cilium_metrics_json_cache().await;
+    let json_string = json_cache.as_ref();
+
+    // OPTIMIZATION: Add ETag support for cache validation
+    let etag = generate_etag(json_string);
+    if check_etag(&headers, &etag) {
+        return (StatusCode::NOT_MODIFIED, "").into_response();
+    }
+
     (
-        [(axum::http::header::CONTENT_TYPE, "application/json")],
+        [
+            (
+                header::CONTENT_TYPE,
+                HeaderValue::from_static("application/json"),
+            ),
+            (header::ETAG, HeaderValue::from_str(&etag).unwrap()),
+        ],
         json_cache.to_string(),
     )
         .into_response()

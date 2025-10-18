@@ -283,6 +283,7 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="/static/charts.js"></script>
 <script>
   let rpsChart;
   let statusCodesChart;
@@ -294,74 +295,32 @@
     }
 
     // Format timestamps
-    const formattedTimestamps = data.timestamps.map((ts) => {
-      const date = new Date(ts * 1000);
-      return date.toLocaleTimeString("en-US", {
-        hour: "2-digit",
-        minute: "2-digit",
-        second: "2-digit",
-      });
-    });
+    const formattedTimestamps = formatTimestamps(data.timestamps);
 
     // RPS Chart
     const rpsCtx = document.getElementById("rpsChart").getContext("2d");
     if (rpsChart) {
       rpsChart.destroy();
     }
-    rpsChart = new Chart(rpsCtx, {
-      type: "line",
-      data: {
-        labels: formattedTimestamps,
-        datasets: [{
-          label: "Requests/sec",
-          data: data.rpsHistory,
-          borderColor: "#2776F3",
-          backgroundColor: "#2776F320",
-          borderWidth: 2,
-          fill: true,
-          tension: 0.4,
-          pointRadius: 0,
-          pointHoverRadius: 5,
-        }],
+    rpsChart = createLineChart("rpsChart", {
+      labels: formattedTimestamps,
+      datasets: [createDataset("Requests/sec", data.rpsHistory, "#2776F3", { fill: true })],
+    }, {
+      plugins: {
+        tooltip: {
+          callbacks: {
+            label: function (context) {
+              return "RPS: " + context.parsed.y.toFixed(2);
+            },
+          },
+        },
       },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        animation: false,
-        interaction: {
-          mode: "index",
-          intersect: false,
-        },
-        plugins: {
-          legend: { display: false },
-          tooltip: {
-            backgroundColor: "#2A2A2A",
-            titleColor: "#F2F2F2",
-            bodyColor: "#E8E8E8",
-            borderColor: "#313131",
-            borderWidth: 1,
-            padding: 12,
-            callbacks: {
-              label: function (context) {
-                return "RPS: " + context.parsed.y.toFixed(2);
-              },
-            },
-          },
-        },
-        scales: {
-          x: {
-            grid: { color: "#313131", drawBorder: false },
-            ticks: { color: "#AAAAAA" },
-          },
-          y: {
-            beginAtZero: true,
-            grid: { color: "#313131", drawBorder: false },
-            ticks: { color: "#AAAAAA" },
-            title: {
-              display: true,
-              text: "Requests per Second",
-              color: "#AAAAAA",
-            },
+      scales: {
+        y: {
+          title: {
+            display: true,
+            text: "Requests per Second",
+            color: "#AAAAAA",
           },
         },
       },
@@ -372,97 +331,34 @@
     if (statusCodesChart) {
       statusCodesChart.destroy();
     }
-    statusCodesChart = new Chart(statusCtx, {
-      type: "line",
-      data: {
-        labels: formattedTimestamps,
-        datasets: [
-          {
-            label: "2xx",
-            data: data.status2xxHistory,
-            borderColor: "#10B981",
-            backgroundColor: "#10B98120",
-            borderWidth: 2,
-            fill: true,
-            tension: 0.4,
-            pointRadius: 0,
-            pointHoverRadius: 5,
+    statusCodesChart = createLineChart("statusCodesChart", {
+      labels: formattedTimestamps,
+      datasets: [
+        createDataset("2xx", data.status2xxHistory, "#10B981", { fill: true }),
+        createDataset("3xx", data.status3xxHistory, "#2776F3", { fill: true }),
+        createDataset("4xx", data.status4xxHistory, "#F59E0B", { fill: true }),
+        createDataset("5xx", data.status5xxHistory, "#FF4D4D", { fill: true }),
+      ],
+    }, {
+      plugins: {
+        tooltip: {
+          callbacks: {
+            label: function (context) {
+              return context.dataset.label + ": " + context.parsed.y.toFixed(2);
+            },
           },
-          {
-            label: "3xx",
-            data: data.status3xxHistory,
-            borderColor: "#2776F3",
-            backgroundColor: "#2776F320",
-            borderWidth: 2,
-            fill: true,
-            tension: 0.4,
-            pointRadius: 0,
-            pointHoverRadius: 5,
-          },
-          {
-            label: "4xx",
-            data: data.status4xxHistory,
-            borderColor: "#F59E0B",
-            backgroundColor: "#F59E0B20",
-            borderWidth: 2,
-            fill: true,
-            tension: 0.4,
-            pointRadius: 0,
-            pointHoverRadius: 5,
-          },
-          {
-            label: "5xx",
-            data: data.status5xxHistory,
-            borderColor: "#FF4D4D",
-            backgroundColor: "#FF4D4D20",
-            borderWidth: 2,
-            fill: true,
-            tension: 0.4,
-            pointRadius: 0,
-            pointHoverRadius: 5,
-          },
-        ],
+        },
       },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        animation: false,
-        interaction: {
-          mode: "index",
-          intersect: false,
+      scales: {
+        x: {
+          stacked: false,
         },
-        plugins: {
-          legend: { display: false },
-          tooltip: {
-            backgroundColor: "#2A2A2A",
-            titleColor: "#F2F2F2",
-            bodyColor: "#E8E8E8",
-            borderColor: "#313131",
-            borderWidth: 1,
-            padding: 12,
-            callbacks: {
-              label: function (context) {
-                return context.dataset.label + ": " + context.parsed.y.toFixed(2);
-              },
-            },
-          },
-        },
-        scales: {
-          x: {
-            stacked: false,
-            grid: { color: "#313131", drawBorder: false },
-            ticks: { color: "#AAAAAA" },
-          },
-          y: {
-            stacked: false,
-            beginAtZero: true,
-            grid: { color: "#313131", drawBorder: false },
-            ticks: { color: "#AAAAAA" },
-            title: {
-              display: true,
-              text: "Requests per Second",
-              color: "#AAAAAA",
-            },
+        y: {
+          stacked: false,
+          title: {
+            display: true,
+            text: "Requests per Second",
+            color: "#AAAAAA",
           },
         },
       },
@@ -488,14 +384,7 @@
     if (!rpsChart || !statusCodesChart) return;
 
     // Format timestamps
-    const formattedTimestamps = data.timestamps.map((ts) => {
-      const date = new Date(ts * 1000);
-      return date.toLocaleTimeString("en-US", {
-        hour: "2-digit",
-        minute: "2-digit",
-        second: "2-digit",
-      });
-    });
+    const formattedTimestamps = formatTimestamps(data.timestamps);
 
     // Update RPS chart
     rpsChart.data.labels = formattedTimestamps;
@@ -527,42 +416,7 @@
   // Toggle dataset visibility
   function toggleStatusDataset(index) {
     if (!statusCodesChart) return;
-
-    const isCurrentlyVisible = statusCodesChart.isDatasetVisible(index);
-
-    // Count how many datasets are currently visible
-    let visibleCount = 0;
-    for (let i = 0; i < statusCodesChart.data.datasets.length; i++) {
-      if (statusCodesChart.isDatasetVisible(i)) visibleCount++;
-    }
-
-    // If only one is visible and we click it, show all
-    if (visibleCount === 1 && isCurrentlyVisible) {
-      statusCodesChart.data.datasets.forEach((dataset, i) => {
-        statusCodesChart.setDatasetVisibility(i, true);
-      });
-    } else {
-      // Otherwise, show only the clicked one
-      statusCodesChart.data.datasets.forEach((dataset, i) => {
-        statusCodesChart.setDatasetVisibility(i, i === index);
-      });
-    }
-
-    statusCodesChart.update();
-
-    // Update button styles
-    const legendContainer = document.getElementById('statusCodesLegend');
-    const buttons = legendContainer.querySelectorAll('button');
-    buttons.forEach((button, i) => {
-      const isVisible = statusCodesChart.isDatasetVisible(i);
-      if (isVisible) {
-        button.classList.remove('opacity-50', 'bg-dark-bg');
-        button.classList.add('bg-dark-hover');
-      } else {
-        button.classList.add('opacity-50', 'bg-dark-bg');
-        button.classList.remove('bg-dark-hover');
-      }
-    });
+    toggleChartDataset(statusCodesChart, 'statusCodesLegend', index);
   }
 
   // Initialize on page load

@@ -337,6 +337,7 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="/static/charts.js"></script>
 <script>
   // Override scroll restoration hiding immediately
   document.documentElement.style.visibility = "visible";
@@ -424,23 +425,10 @@
 
     if (!chart) return;
 
-    const isCurrentlyVisible = chart.isDatasetVisible(index);
-    let visibleCount = 0;
-    for (let i = 0; i < chart.data.datasets.length; i++) {
-      if (chart.isDatasetVisible(i)) visibleCount++;
-    }
+    // Use shared toggle function
+    toggleChartDataset(chart, containerId, index);
 
-    // If only one visible and clicked, show all; otherwise show only clicked
-    if (visibleCount === 1 && isCurrentlyVisible) {
-      chart.data.datasets.forEach((dataset, i) => {
-        chart.setDatasetVisibility(i, true);
-      });
-    } else {
-      chart.data.datasets.forEach((dataset, i) => {
-        chart.setDatasetVisibility(i, i === index);
-      });
-    }
-    chart.update();
+    // Regenerate custom HTML legend
     generateLegend(chart, containerId, chartType);
   }
 
@@ -469,10 +457,7 @@
     }
 
     // Format timestamps to local time
-    const labels = data.timestamps.map(ts => {
-      const date = new Date(ts * 1000);
-      return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-    });
+    const labels = formatTimestamps(data.timestamps);
 
     // CPU Chart - convert percentage to millicores
     const cpuHistoryMillicores = data.cpu_history.map(v => v * 10);
@@ -526,40 +511,11 @@
         labels: labels,
         datasets: cpuDatasets,
       },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        animation: false,
+      options: getCommonChartOptions({
         plugins: {
-          legend: {
-            display: false,
-          },
           tooltip: {
-            enabled: true,
             mode: 'point',
             intersect: true,
-            backgroundColor: '#1A1A1A',
-            titleColor: '#FFFFFF',
-            titleFont: {
-              size: 14,
-              weight: '600',
-              family: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
-            },
-            bodyColor: '#E5E5E5',
-            bodyFont: {
-              size: 13,
-              weight: '500',
-            },
-            borderColor: '#404040',
-            borderWidth: 1,
-            padding: 16,
-            displayColors: true,
-            boxWidth: 10,
-            boxHeight: 10,
-            boxPadding: 6,
-            cornerRadius: 8,
-            caretSize: 6,
-            caretPadding: 12,
             callbacks: {
               title: function (context) {
                 return 'Time: ' + context[0].label;
@@ -575,35 +531,16 @@
           },
         },
         scales: {
-          x: {
-            display: true,
-            grid: {
-              color: '#313131',
-            },
-            ticks: {
-              color: '#AAAAAA',
-            },
-          },
           y: {
-            display: true,
             beginAtZero: true,
-            grid: {
-              color: '#313131',
-            },
             ticks: {
-              color: '#AAAAAA',
               callback: function (value) {
                 return value.toFixed(0) + 'm';
               },
             },
           },
         },
-        interaction: {
-          mode: 'nearest',
-          axis: 'x',
-          intersect: false,
-        },
-      },
+      }),
     });
 
     // Generate HTML legend for CPU chart
@@ -659,40 +596,11 @@
         labels: labels,
         datasets: memDatasets,
       },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        animation: false,
+      options: getCommonChartOptions({
         plugins: {
-          legend: {
-            display: false,
-          },
           tooltip: {
-            enabled: true,
             mode: 'point',
             intersect: true,
-            backgroundColor: '#1A1A1A',
-            titleColor: '#FFFFFF',
-            titleFont: {
-              size: 14,
-              weight: '600',
-              family: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
-            },
-            bodyColor: '#E5E5E5',
-            bodyFont: {
-              size: 13,
-              weight: '500',
-            },
-            borderColor: '#404040',
-            borderWidth: 1,
-            padding: 16,
-            displayColors: true,
-            boxWidth: 10,
-            boxHeight: 10,
-            boxPadding: 6,
-            cornerRadius: 8,
-            caretSize: 6,
-            caretPadding: 12,
             callbacks: {
               title: function (context) {
                 return 'Time: ' + context[0].label;
@@ -708,35 +616,16 @@
           },
         },
         scales: {
-          x: {
-            display: true,
-            grid: {
-              color: '#313131',
-            },
-            ticks: {
-              color: '#AAAAAA',
-            },
-          },
           y: {
-            display: true,
             beginAtZero: true,
-            grid: {
-              color: '#313131',
-            },
             ticks: {
-              color: '#AAAAAA',
               callback: function (value) {
                 return value.toFixed(0) + ' MB';
               },
             },
           },
         },
-        interaction: {
-          mode: 'nearest',
-          axis: 'x',
-          intersect: false,
-        },
-      },
+      }),
     });
 
     // Generate HTML legend for Memory chart
@@ -747,10 +636,7 @@
     const data = await fetchMetrics();
     if (!data || !cpuChart || !memoryChart) return;
 
-    const labels = data.timestamps.map(ts => {
-      const date = new Date(ts * 1000);
-      return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-    });
+    const labels = formatTimestamps(data.timestamps);
 
     cpuChart.data.labels = labels;
     cpuChart.data.datasets[0].data = data.cpu_history.map(v => v * 10);

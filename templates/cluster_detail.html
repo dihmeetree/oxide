@@ -646,50 +646,13 @@
 </script>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="/static/charts.js"></script>
 <script>
-  // Color palette
-  const colors = [
-    "#2776F3", // accent-blue
-    "#10B981", // accent-green
-    "#F59E0B", // orange
-    "#8B5CF6", // purple
-    "#EC4899", // pink
-    "#14B8A6", // teal
-    "#F97316", // orange-alt
-    "#6366F1", // indigo
-  ];
-
   let cpuChart;
   let memoryChart;
-  let nodeColorMap = {}; // Store consistent colors for each node
+  let nodeColorMap = {};
 
-  // Apply colors to server-rendered legend
-  function applyLegendColors(chart, containerId) {
-    const legendContainer = document.getElementById(containerId);
-    if (!legendContainer) return;
-
-    const colorSpans = legendContainer.querySelectorAll('[data-color-for]');
-    colorSpans.forEach((span) => {
-      const name = span.getAttribute('data-color-for');
-      const dataset = chart.data.datasets.find(ds => ds.label === name);
-      if (dataset) {
-        span.style.backgroundColor = dataset.borderColor;
-      }
-    });
-
-    // Update button states based on visibility
-    const buttons = legendContainer.querySelectorAll('button');
-    buttons.forEach((button, i) => {
-      const isVisible = chart.isDatasetVisible(i);
-      if (!isVisible) {
-        button.classList.add('opacity-50');
-        button.classList.remove('bg-dark-hover');
-        button.classList.add('bg-dark-bg');
-      }
-    });
-  }
-
-  // Toggle dataset visibility
+  // Toggle dataset visibility - wrapper for shared function
   function toggleDataset(chartType, index) {
     let chart, containerId;
 
@@ -704,40 +667,7 @@
         break;
     }
 
-    const isCurrentlyVisible = chart.isDatasetVisible(index);
-
-    // Count how many datasets are currently visible
-    let visibleCount = 0;
-    for (let i = 0; i < chart.data.datasets.length; i++) {
-      if (chart.isDatasetVisible(i)) visibleCount++;
-    }
-
-    // If only one is visible and we click it, show all
-    if (visibleCount === 1 && isCurrentlyVisible) {
-      chart.data.datasets.forEach((dataset, i) => {
-        chart.setDatasetVisibility(i, true);
-      });
-    } else {
-      // Otherwise, show only the clicked one
-      chart.data.datasets.forEach((dataset, i) => {
-        chart.setDatasetVisibility(i, i === index);
-      });
-    }
-    chart.update();
-
-    // Update button styles
-    const legendContainer = document.getElementById(containerId);
-    const buttons = legendContainer.querySelectorAll('button');
-    buttons.forEach((button, i) => {
-      const isVisible = chart.isDatasetVisible(i);
-      if (isVisible) {
-        button.classList.remove('opacity-50', 'bg-dark-bg');
-        button.classList.add('bg-dark-hover');
-      } else {
-        button.classList.add('opacity-50', 'bg-dark-bg');
-        button.classList.remove('bg-dark-hover');
-      }
-    });
+    toggleChartDataset(chart, containerId, index);
   }
 
   // Initialize charts
@@ -746,82 +676,72 @@
       return;
     }
 
-    // Sort nodes by name for consistent ordering
-    metricsData.nodes.sort((a, b) => a.name.localeCompare(b.name));
+    // Use shared utilities for consistent data preparation
+    sortByName(metricsData.nodes);
+    assignColors(metricsData.nodes, nodeColorMap);
+    const formattedTimestamps = formatTimestamps(metricsData.timestamps);
 
-    // Assign consistent colors to nodes
-    metricsData.nodes.forEach((node) => {
-      if (!nodeColorMap[node.name]) {
-        nodeColorMap[node.name] =
-          colors[Object.keys(nodeColorMap).length % colors.length];
+    // Build datasets for CPU chart
+    const cpuDatasets = metricsData.nodes.map((node) =>
+      createDataset(node.name, node.cpu_history, nodeColorMap[node.name])
+    );
+
+    // Create CPU chart with shared utilities and custom Y-axis formatter
+    if (cpuChart) cpuChart.destroy();
+    cpuChart = createLineChart("cpuChart",
+      { labels: formattedTimestamps, datasets: cpuDatasets },
+      {
+        scales: {
+          y: {
+            max: 100,
+            ticks: {
+              callback: function (value) {
+                return value + "%";
+              },
+            },
+          },
+        },
+        plugins: {
+          tooltip: {
+            callbacks: {
+              title: function (context) {
+                return "Time: " + context[0].label;
+              },
+              label: function (context) {
+                const value = context.parsed.y.toFixed(1);
+                return " " + context.dataset.label + ": " + value + "%";
+              },
+              labelTextColor: function (context) {
+                return context.dataset.borderColor;
+              },
+            },
+          },
+        },
       }
-    });
+    );
 
-    // Format timestamps to local time (HH:MM:SS for uniqueness)
-    const formattedTimestamps = metricsData.timestamps.map((ts) => {
-      const date = new Date(ts * 1000);
-      return date.toLocaleTimeString([], {
-        hour: "2-digit",
-        minute: "2-digit",
-        second: "2-digit",
-      });
-    });
+    // Build datasets for memory chart
+    const memoryDatasets = metricsData.nodes.map((node) =>
+      createDataset(node.name, node.memory_history, nodeColorMap[node.name])
+    );
 
-    // CPU Chart
-    const cpuCtx = document.getElementById("cpuChart").getContext("2d");
-    if (cpuChart) {
-      cpuChart.destroy();
-    }
-    cpuChart = new Chart(cpuCtx, {
-      type: "line",
-      data: {
-        labels: formattedTimestamps,
-        datasets: metricsData.nodes.map((node) => ({
-          label: node.name,
-          data: node.cpu_history,
-          borderColor: nodeColorMap[node.name],
-          backgroundColor: nodeColorMap[node.name] + "20",
-          borderWidth: 2,
-          fill: false,
-          tension: 0.4,
-          pointRadius: 0,
-          pointHoverRadius: 5,
-        })),
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        animation: false,
-        plugins: {
-          legend: {
-            display: false,
+    // Create Memory chart with shared utilities and custom Y-axis formatter
+    if (memoryChart) memoryChart.destroy();
+    memoryChart = createLineChart("memoryChart",
+      { labels: formattedTimestamps, datasets: memoryDatasets },
+      {
+        scales: {
+          y: {
+            max: 100,
+            ticks: {
+              callback: function (value) {
+                return value + "%";
+              },
+            },
           },
+        },
+        plugins: {
           tooltip: {
-            enabled: true,
-            mode: "index",
-            intersect: false,
-            backgroundColor: "#1A1A1A",
-            titleColor: "#FFFFFF",
-            titleFont: {
-              size: 14,
-              weight: "600",
-              family: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
-            },
-            bodyColor: "#E5E5E5",
-            bodyFont: {
-              size: 13,
-              weight: "500",
-            },
-            borderColor: "#404040",
-            borderWidth: 1,
-            padding: 16,
-            displayColors: true,
-            boxWidth: 10,
-            boxHeight: 10,
-            boxPadding: 6,
-            cornerRadius: 8,
-            caretSize: 6,
-            caretPadding: 12,
             callbacks: {
               title: function (context) {
                 return "Time: " + context[0].label;
@@ -836,140 +756,8 @@
             },
           },
         },
-        scales: {
-          x: {
-            display: true,
-            grid: {
-              color: "#313131",
-            },
-            ticks: {
-              color: "#AAAAAA",
-            },
-          },
-          y: {
-            display: true,
-            min: 0,
-            max: 100,
-            grid: {
-              color: "#313131",
-            },
-            ticks: {
-              color: "#AAAAAA",
-              callback: function (value) {
-                return value + "%";
-              },
-            },
-          },
-        },
-        interaction: {
-          mode: "nearest",
-          axis: "x",
-          intersect: false,
-        },
-      },
-    });
-
-    // Memory Chart
-    const memoryCtx = document.getElementById("memoryChart").getContext("2d");
-    if (memoryChart) {
-      memoryChart.destroy();
-    }
-    memoryChart = new Chart(memoryCtx, {
-      type: "line",
-      data: {
-        labels: formattedTimestamps,
-        datasets: metricsData.nodes.map((node) => ({
-          label: node.name,
-          data: node.memory_history,
-          borderColor: nodeColorMap[node.name],
-          backgroundColor: nodeColorMap[node.name] + "20",
-          borderWidth: 2,
-          fill: false,
-          tension: 0.4,
-          pointRadius: 0,
-          pointHoverRadius: 5,
-        })),
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        animation: false,
-        plugins: {
-          legend: {
-            display: false,
-          },
-          tooltip: {
-            enabled: true,
-            mode: "index",
-            intersect: false,
-            backgroundColor: "#1A1A1A",
-            titleColor: "#FFFFFF",
-            titleFont: {
-              size: 14,
-              weight: "600",
-              family: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
-            },
-            bodyColor: "#E5E5E5",
-            bodyFont: {
-              size: 13,
-              weight: "500",
-            },
-            borderColor: "#404040",
-            borderWidth: 1,
-            padding: 16,
-            displayColors: true,
-            boxWidth: 10,
-            boxHeight: 10,
-            boxPadding: 6,
-            cornerRadius: 8,
-            caretSize: 6,
-            caretPadding: 12,
-            callbacks: {
-              title: function (context) {
-                return "Time: " + context[0].label;
-              },
-              label: function (context) {
-                const value = context.parsed.y.toFixed(1);
-                return " " + context.dataset.label + ": " + value + "%";
-              },
-              labelTextColor: function (context) {
-                return context.dataset.borderColor;
-              },
-            },
-          },
-        },
-        scales: {
-          x: {
-            display: true,
-            grid: {
-              color: "#313131",
-            },
-            ticks: {
-              color: "#AAAAAA",
-            },
-          },
-          y: {
-            display: true,
-            min: 0,
-            max: 100,
-            grid: {
-              color: "#313131",
-            },
-            ticks: {
-              color: "#AAAAAA",
-              callback: function (value) {
-                return value + "%";
-              },
-            },
-          },
-        },
-        interaction: {
-          mode: "nearest",
-          axis: "x",
-          intersect: false,
-        },
-      },
-    });
+      }
+    );
 
     // Apply colors to server-rendered legends
     applyLegendColors(cpuChart, 'nodeCpuLegend');
@@ -986,60 +774,25 @@
         return;
       }
 
-      // Sort nodes by name for consistent ordering
-      data.nodes.sort((a, b) => a.name.localeCompare(b.name));
+      // Use shared utilities for consistent data preparation
+      sortByName(data.nodes);
+      assignColors(data.nodes, nodeColorMap);
+      const formattedTimestamps = formatTimestamps(data.timestamps);
 
-      // Assign colors to any new nodes (preserve existing mappings)
-      data.nodes.forEach((node) => {
-        if (!nodeColorMap[node.name]) {
-          nodeColorMap[node.name] = colors[Object.keys(nodeColorMap).length % colors.length];
-        }
-      });
+      // Build new datasets
+      const cpuDatasets = data.nodes.map((node) =>
+        createDataset(node.name, node.cpu_history, nodeColorMap[node.name])
+      );
+      const memoryDatasets = data.nodes.map((node) =>
+        createDataset(node.name, node.memory_history, nodeColorMap[node.name])
+      );
 
-      // Format timestamps
-      const formattedTimestamps = data.timestamps.map((ts) => {
-        const date = new Date(ts * 1000);
-        return date.toLocaleTimeString([], {
-          hour: "2-digit",
-          minute: "2-digit",
-          second: "2-digit",
-        });
-      });
+      // Update charts using shared utility (preserves visibility state)
+      updateChart(cpuChart, formattedTimestamps, cpuDatasets);
+      updateChart(memoryChart, formattedTimestamps, memoryDatasets);
 
-      // Update CPU chart - preserve visibility state
-      const cpuVisibility = cpuChart.data.datasets.map((ds, i) => cpuChart.isDatasetVisible(i));
-      cpuChart.data.labels = formattedTimestamps;
-      cpuChart.data.datasets = data.nodes.map((node, i) => ({
-        label: node.name,
-        data: node.cpu_history,
-        borderColor: nodeColorMap[node.name],
-        backgroundColor: nodeColorMap[node.name] + "20",
-        borderWidth: 2,
-        fill: false,
-        tension: 0.4,
-        pointRadius: 0,
-        pointHoverRadius: 5,
-        hidden: i < cpuVisibility.length ? !cpuVisibility[i] : false,
-      }));
-      cpuChart.update();
+      // Update legend colors
       applyLegendColors(cpuChart, 'nodeCpuLegend');
-
-      // Update memory chart - preserve visibility state
-      const memoryVisibility = memoryChart.data.datasets.map((ds, i) => memoryChart.isDatasetVisible(i));
-      memoryChart.data.labels = formattedTimestamps;
-      memoryChart.data.datasets = data.nodes.map((node, i) => ({
-        label: node.name,
-        data: node.memory_history,
-        borderColor: nodeColorMap[node.name],
-        backgroundColor: nodeColorMap[node.name] + "20",
-        borderWidth: 2,
-        fill: false,
-        tension: 0.4,
-        pointRadius: 0,
-        pointHoverRadius: 5,
-        hidden: i < memoryVisibility.length ? !memoryVisibility[i] : false,
-      }));
-      memoryChart.update();
       applyLegendColors(memoryChart, 'nodeMemoryLegend');
     } catch (error) {
       console.error('Failed to refresh metrics:', error);

@@ -346,32 +346,34 @@ use crate::k8s::client::KubernetesClient;
 /// Cache for cluster data
 #[derive(Clone)]
 pub struct ClusterCache {
-    inner: Arc<RwLock<CacheData>>,
+    pub(super) inner: Arc<RwLock<CacheData>>,
 }
 
-struct CacheData {
-    clusters: Arc<[ClusterInfo]>,
-    servers: Arc<[Server]>,
-    node_details: Arc<DashMap<String, NodeDetail>>,
-    node_metrics_history:
+pub(super) struct CacheData {
+    pub(super) clusters: Arc<[ClusterInfo]>,
+    pub(super) servers: Arc<[Server]>,
+    pub(super) node_details: Arc<DashMap<String, NodeDetail>>,
+    pub(super) node_metrics_history:
         Arc<std::collections::HashMap<String, crate::prometheus::NodeMetricsHistory>>,
-    pod_details: Arc<DashMap<String, super::templates::PodDetail>>,
-    pod_metrics_history:
+    pub(super) pod_details: Arc<DashMap<String, super::templates::PodDetail>>,
+    pub(super) pod_metrics_history:
         Arc<std::collections::HashMap<String, crate::prometheus::NodeMetricsHistory>>,
-    cilium_pods: Arc<[super::templates::CiliumPod]>,
-    cilium_version: Arc<str>,
-    hubble_enabled: bool,
-    ipv6_enabled: bool,
-    envoy_pods: Arc<[super::templates::EnvoyPod]>,
-    envoy_version: Arc<str>,
-    envoy_metrics_history: Arc<crate::prometheus::EnvoyMetricsHistory>,
-    alerts: Arc<[crate::prometheus::Alert]>,
-    insights: Arc<[super::insights::Insight]>,
-    last_update: Instant,
-    is_ready: bool,
-    metrics_json_cache: Arc<str>,
-    cilium_metrics_json_cache: Arc<str>,
-    envoy_metrics_json_cache: Arc<str>,
+    pub(super) cilium_pods: Arc<[super::templates::CiliumPod]>,
+    pub(super) cilium_version: Arc<str>,
+    pub(super) hubble_enabled: bool,
+    pub(super) ipv6_enabled: bool,
+    pub(super) envoy_pods: Arc<[super::templates::EnvoyPod]>,
+    pub(super) envoy_version: Arc<str>,
+    pub(super) envoy_metrics_history: Arc<crate::prometheus::EnvoyMetricsHistory>,
+    pub(super) alerts: Arc<[crate::prometheus::Alert]>,
+    pub(super) insights: Arc<[super::insights::Insight]>,
+    pub(super) last_update: Instant,
+    pub(super) is_ready: bool,
+    pub(super) metrics_json_cache: Arc<str>,
+    pub(super) cilium_metrics_json_cache: Arc<str>,
+    pub(super) envoy_metrics_json_cache: Arc<str>,
+    pub(super) cluster_metrics_json_cache: Arc<std::collections::HashMap<String, Arc<str>>>,
+    pub(super) node_metrics_json_cache: Arc<str>,
 }
 
 impl ClusterCache {
@@ -399,6 +401,8 @@ impl ClusterCache {
                 metrics_json_cache: Arc::from("{}"),
                 cilium_metrics_json_cache: Arc::from("{}"),
                 envoy_metrics_json_cache: Arc::from("{}"),
+                cluster_metrics_json_cache: Arc::new(std::collections::HashMap::new()),
+                node_metrics_json_cache: Arc::from("{}"),
             })),
         }
     }
@@ -641,6 +645,20 @@ impl ClusterCache {
         Arc::clone(&data.envoy_metrics_json_cache)
     }
 
+    /// Get pre-serialized cluster metrics JSON from cache
+    pub async fn get_cluster_metrics_json_cache(&self, cluster_name: &str) -> Option<Arc<str>> {
+        let data = self.inner.read().await;
+        data.cluster_metrics_json_cache
+            .get(cluster_name)
+            .map(Arc::clone)
+    }
+
+    /// Get pre-serialized node-only metrics JSON from cache
+    pub async fn get_node_metrics_json_cache(&self) -> Arc<str> {
+        let data = self.inner.read().await;
+        Arc::clone(&data.node_metrics_json_cache)
+    }
+
     /// Get cache age
     #[allow(dead_code)]
     pub async fn cache_age(&self) -> Duration {
@@ -673,7 +691,7 @@ impl ClusterCache {
         let clusters = group_servers_into_clusters(&servers);
 
         // Fetch all Kubernetes/Prometheus data in parallel
-        info!("Fetching Kubernetes and Prometheus data in parallel...");
+        info!("Fetching Kubernetes and Prometheus data...");
         let (
             mut node_details,
             mut pod_details,
@@ -740,6 +758,13 @@ impl ClusterCache {
         // Pre-serialize Envoy metrics JSON
         let envoy_metrics_json_cache = build_envoy_metrics_json_cache(&envoy_metrics_history);
 
+        // Pre-serialize per-cluster metrics JSON
+        let cluster_metrics_json_cache =
+            build_cluster_metrics_json_caches(&servers, &node_metrics_history);
+
+        // Pre-serialize node-only metrics JSON
+        let node_metrics_json_cache = build_node_metrics_json_cache(&node_metrics_history);
+
         // Update cache
         let mut data = self.inner.write().await;
         data.clusters = Arc::from(clusters.into_boxed_slice());
@@ -760,6 +785,8 @@ impl ClusterCache {
         data.metrics_json_cache = metrics_json_cache;
         data.cilium_metrics_json_cache = cilium_metrics_json_cache;
         data.envoy_metrics_json_cache = envoy_metrics_json_cache;
+        data.cluster_metrics_json_cache = Arc::new(cluster_metrics_json_cache);
+        data.node_metrics_json_cache = node_metrics_json_cache;
         data.last_update = Instant::now();
         data.is_ready = true;
 
@@ -858,6 +885,15 @@ impl ClusterCache {
             build_cilium_metrics_json_cache(&pod_metrics_history, &cilium_pods);
         let envoy_metrics_json_cache = build_envoy_metrics_json_cache(&envoy_metrics_history);
 
+        // Get servers for cluster metrics cache (need to read from current data)
+        let (cluster_metrics_json_cache, node_metrics_json_cache) = {
+            let data = self.inner.read().await;
+            (
+                build_cluster_metrics_json_caches(&data.servers, &node_metrics_history),
+                build_node_metrics_json_cache(&node_metrics_history),
+            )
+        };
+
         // Update cache with Kubernetes/Prometheus data
         let mut data = self.inner.write().await;
         data.pod_details = Arc::new(pod_details.into_iter().collect());
@@ -875,6 +911,8 @@ impl ClusterCache {
         data.metrics_json_cache = metrics_json_cache;
         data.cilium_metrics_json_cache = cilium_metrics_json_cache;
         data.envoy_metrics_json_cache = envoy_metrics_json_cache;
+        data.cluster_metrics_json_cache = Arc::new(cluster_metrics_json_cache);
+        data.node_metrics_json_cache = node_metrics_json_cache;
         data.last_update = Instant::now();
 
         info!(
@@ -1338,6 +1376,149 @@ fn build_envoy_metrics_json_cache(
     } else {
         Arc::from("{}")
     }
+}
+
+/// Build node-only metrics JSON cache (excludes pod metrics)
+#[inline]
+fn build_node_metrics_json_cache(
+    node_metrics_history: &HashMap<String, crate::prometheus::NodeMetricsHistory>,
+) -> Arc<str> {
+    use serde::Serialize;
+
+    #[derive(Serialize)]
+    struct NodeMetricsResponse {
+        timestamps: Vec<i64>,
+        nodes: Vec<MetricsNode>,
+    }
+
+    #[derive(Serialize)]
+    struct MetricsNode {
+        name: String,
+        cpu_history: Vec<f64>,
+        memory_history: Vec<f64>,
+    }
+
+    if !node_metrics_history.is_empty() {
+        let mut all_timestamps = std::collections::BTreeSet::new();
+        for history in node_metrics_history.values() {
+            for (ts, _) in &history.cpu_history {
+                all_timestamps.insert(*ts);
+            }
+        }
+        let timestamps: Vec<i64> = all_timestamps.into_iter().collect();
+
+        let nodes: Vec<MetricsNode> = node_metrics_history
+            .iter()
+            .map(|(name, history)| {
+                let cpu_history: Vec<f64> =
+                    history.cpu_history.iter().map(|(_, val)| *val).collect();
+                let memory_history: Vec<f64> =
+                    history.memory_history.iter().map(|(_, val)| *val).collect();
+                MetricsNode {
+                    name: name.clone(),
+                    cpu_history,
+                    memory_history,
+                }
+            })
+            .collect();
+
+        let response = NodeMetricsResponse { timestamps, nodes };
+        Arc::from(
+            serde_json::to_string(&response)
+                .unwrap_or_else(|_| "{}".to_string())
+                .as_str(),
+        )
+    } else {
+        Arc::from("{}")
+    }
+}
+
+/// Build per-cluster metrics JSON caches for fast cluster detail pages
+#[inline]
+fn build_cluster_metrics_json_caches(
+    servers: &[Server],
+    node_metrics_history: &HashMap<String, crate::prometheus::NodeMetricsHistory>,
+) -> HashMap<String, Arc<str>> {
+    use serde::Serialize;
+
+    #[derive(Serialize)]
+    struct NodeMetricsResponse {
+        timestamps: Vec<i64>,
+        nodes: Vec<MetricsNode>,
+    }
+
+    #[derive(Serialize)]
+    struct MetricsNode {
+        name: String,
+        cpu_history: Vec<f64>,
+        memory_history: Vec<f64>,
+    }
+
+    // Group servers by cluster name
+    let mut cluster_servers: HashMap<String, Vec<&Server>> = HashMap::new();
+    for server in servers {
+        let parts: Vec<&str> = server.name.split('-').collect();
+        if let Some(&cluster_name) = parts.first() {
+            cluster_servers
+                .entry(cluster_name.to_string())
+                .or_default()
+                .push(server);
+        }
+    }
+
+    // Build metrics JSON for each cluster
+    cluster_servers
+        .into_iter()
+        .map(|(cluster_name, servers)| {
+            // Get node names for this cluster
+            let node_names: std::collections::HashSet<&str> =
+                servers.iter().map(|s| s.name.as_str()).collect();
+
+            // Filter metrics to this cluster's nodes
+            let cluster_metrics: HashMap<&str, &crate::prometheus::NodeMetricsHistory> =
+                node_metrics_history
+                    .iter()
+                    .filter(|(name, _)| node_names.contains(name.as_str()))
+                    .map(|(k, v)| (k.as_str(), v))
+                    .collect();
+
+            let json = if !cluster_metrics.is_empty() {
+                let mut all_timestamps = std::collections::BTreeSet::new();
+                for history in cluster_metrics.values() {
+                    for (ts, _) in &history.cpu_history {
+                        all_timestamps.insert(*ts);
+                    }
+                }
+                let timestamps: Vec<i64> = all_timestamps.into_iter().collect();
+
+                let nodes: Vec<MetricsNode> = cluster_metrics
+                    .iter()
+                    .map(|(name, history)| {
+                        let cpu_history: Vec<f64> =
+                            history.cpu_history.iter().map(|(_, val)| *val).collect();
+                        let memory_history: Vec<f64> =
+                            history.memory_history.iter().map(|(_, val)| *val).collect();
+                        MetricsNode {
+                            name: (*name).to_string(),
+                            cpu_history,
+                            memory_history,
+                        }
+                    })
+                    .collect();
+
+                let response = NodeMetricsResponse { timestamps, nodes };
+                Arc::from(
+                    serde_json::to_string(&response)
+                        .unwrap_or_else(|_| "{}".to_string())
+                        .as_str(),
+                )
+            } else {
+                Arc::from("{}")
+            };
+
+            (cluster_name, json)
+        })
+        .collect()
 }
 
 /// Group servers into cluster info

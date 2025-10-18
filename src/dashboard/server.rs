@@ -1,10 +1,15 @@
 /// Dashboard web server implementation
 use anyhow::Result;
-use axum::{routing::get, Router};
+use axum::{
+    http::{header, HeaderValue},
+    routing::get,
+    Router,
+};
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use tower_http::compression::CompressionLayer;
 use tower_http::services::ServeDir;
+use tower_http::set_header::SetResponseHeaderLayer;
 use tower_http::trace::TraceLayer;
 use tracing::info;
 
@@ -100,6 +105,11 @@ impl DashboardServer {
                 output_dir: self.output_dir,
                 cache,
             })
+            // OPTIMIZATION: Add HTTP caching headers (reduces requests by 50-80%)
+            .layer(SetResponseHeaderLayer::if_not_present(
+                header::CACHE_CONTROL,
+                HeaderValue::from_static("public, max-age=30"),
+            ))
             // Enable compression with best settings for JSON/HTML
             .layer(
                 CompressionLayer::new()

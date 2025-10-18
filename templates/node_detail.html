@@ -378,6 +378,7 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="/static/charts.js"></script>
 <script>
   // Override scroll restoration hiding immediately
   document.documentElement.style.visibility = "visible";
@@ -392,86 +393,41 @@
     }
 
     // Format timestamps to local time
-    const labels = data.timestamps.map(ts => {
-      const date = new Date(ts * 1000);
-      return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-    });
+    const labels = formatTimestamps(data.timestamps);
 
     // CPU Chart
     const cpuCtx = document.getElementById('cpuChart').getContext('2d');
-    cpuChart = new Chart(cpuCtx, {
-      type: 'line',
-      data: {
-        labels: labels,
-        datasets: [{
-          label: nodeName,
-          data: data.cpu_history,
-          borderColor: '#60A5FA',
-          backgroundColor: '#60A5FA20',
-          borderWidth: 2,
-          fill: true,
-          tension: 0.4,
-          pointRadius: 0,
-          pointHoverRadius: 5,
-        }]
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        animation: false,
-        interaction: {
-          mode: 'index',
-          intersect: false,
-        },
-        plugins: {
-          legend: {
-            display: false
-          },
-          tooltip: {
-            backgroundColor: '#1f1f1f',
-            titleColor: '#E5E7EB',
-            bodyColor: '#E5E7EB',
-            borderColor: '#374151',
-            borderWidth: 1,
-            padding: 12,
-            displayColors: true,
-            callbacks: {
-              label: function(context) {
-                return context.dataset.label + ': ' + context.parsed.y.toFixed(2) + '%';
-              }
+    cpuChart = createLineChart('cpuChart', {
+      labels: labels,
+      datasets: [createDataset(nodeName, data.cpu_history, '#60A5FA', { fill: true })]
+    }, {
+      plugins: {
+        tooltip: {
+          callbacks: {
+            label: function(context) {
+              return context.dataset.label + ': ' + context.parsed.y.toFixed(2) + '%';
             }
           }
+        }
+      },
+      scales: {
+        x: {
+          ticks: {
+            maxRotation: 45,
+            minRotation: 45
+          }
         },
-        scales: {
-          x: {
-            grid: {
-              color: '#313131',
-              drawBorder: false,
-            },
-            ticks: {
-              color: '#AAAAAA',
-              maxRotation: 45,
-              minRotation: 45
+        y: {
+          max: 100,
+          ticks: {
+            callback: function(value) {
+              return value.toFixed(0) + '%';
             }
           },
-          y: {
-            beginAtZero: true,
-            max: 100,
-            grid: {
-              color: '#313131',
-              drawBorder: false,
-            },
-            ticks: {
-              color: '#AAAAAA',
-              callback: function(value) {
-                return value.toFixed(0) + '%';
-              }
-            },
-            title: {
-              display: true,
-              text: 'CPU Usage (%)',
-              color: '#AAAAAA'
-            }
+          title: {
+            display: true,
+            text: 'CPU Usage (%)',
+            color: '#AAAAAA'
           }
         }
       }
@@ -479,79 +435,37 @@
 
     // Memory Chart
     const memoryCtx = document.getElementById('memoryChart').getContext('2d');
-    memoryChart = new Chart(memoryCtx, {
-      type: 'line',
-      data: {
-        labels: labels,
-        datasets: [{
-          label: nodeName,
-          data: data.memory_history,
-          borderColor: '#34D399',
-          backgroundColor: '#34D39920',
-          borderWidth: 2,
-          fill: true,
-          tension: 0.4,
-          pointRadius: 0,
-          pointHoverRadius: 5,
-        }]
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        animation: false,
-        interaction: {
-          mode: 'index',
-          intersect: false,
-        },
-        plugins: {
-          legend: {
-            display: false
-          },
-          tooltip: {
-            backgroundColor: '#1f1f1f',
-            titleColor: '#E5E7EB',
-            bodyColor: '#E5E7EB',
-            borderColor: '#374151',
-            borderWidth: 1,
-            padding: 12,
-            displayColors: true,
-            callbacks: {
-              label: function(context) {
-                return context.dataset.label + ': ' + context.parsed.y.toFixed(2) + '%';
-              }
+    memoryChart = createLineChart('memoryChart', {
+      labels: labels,
+      datasets: [createDataset(nodeName, data.memory_history, '#34D399', { fill: true })]
+    }, {
+      plugins: {
+        tooltip: {
+          callbacks: {
+            label: function(context) {
+              return context.dataset.label + ': ' + context.parsed.y.toFixed(2) + '%';
             }
           }
+        }
+      },
+      scales: {
+        x: {
+          ticks: {
+            maxRotation: 45,
+            minRotation: 45
+          }
         },
-        scales: {
-          x: {
-            grid: {
-              color: '#313131',
-              drawBorder: false,
-            },
-            ticks: {
-              color: '#AAAAAA',
-              maxRotation: 45,
-              minRotation: 45
+        y: {
+          max: 100,
+          ticks: {
+            callback: function(value) {
+              return value.toFixed(0) + '%';
             }
           },
-          y: {
-            beginAtZero: true,
-            max: 100,
-            grid: {
-              color: '#313131',
-              drawBorder: false,
-            },
-            ticks: {
-              color: '#AAAAAA',
-              callback: function(value) {
-                return value.toFixed(0) + '%';
-              }
-            },
-            title: {
-              display: true,
-              text: 'Memory Usage (%)',
-              color: '#AAAAAA'
-            }
+          title: {
+            display: true,
+            text: 'Memory Usage (%)',
+            color: '#AAAAAA'
           }
         }
       }
