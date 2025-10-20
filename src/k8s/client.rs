@@ -11,6 +11,7 @@ pub struct KubernetesClient;
 pub struct PodInfo {
     pub name: String,
     pub namespace: String,
+    pub node_name: String,
     pub status: String,
     pub restarts: u32,
     pub cpu: String,
@@ -61,6 +62,7 @@ pub struct EventInfo {
     pub message: String,
     pub object_kind: String,
     pub object_name: String,
+    pub object_node: Option<String>,
     pub source: String,
     pub count: u32,
     pub first_seen: String,
@@ -117,6 +119,10 @@ impl KubernetesClient {
                     .as_str()
                     .unwrap_or("default")
                     .to_string();
+                let node_name = pod["spec"]["nodeName"]
+                    .as_str()
+                    .unwrap_or("N/A")
+                    .to_string();
                 let status = pod["status"]["phase"]
                     .as_str()
                     .unwrap_or("Unknown")
@@ -140,6 +146,7 @@ impl KubernetesClient {
                 pods.push(PodInfo {
                     name,
                     namespace,
+                    node_name,
                     status,
                     restarts,
                     cpu,
@@ -620,6 +627,15 @@ impl KubernetesClient {
                     "Unknown".to_string()
                 };
 
+                // For Pod events, try to get the node name
+                let object_node = if object_kind == "Pod" {
+                    Self::get_pod_node(kubeconfig, &namespace, &object_name)
+                        .await
+                        .ok()
+                } else {
+                    None
+                };
+
                 events.push(EventInfo {
                     namespace,
                     name,
@@ -628,6 +644,7 @@ impl KubernetesClient {
                     message,
                     object_kind,
                     object_name,
+                    object_node,
                     source,
                     count,
                     first_seen,
@@ -637,6 +654,41 @@ impl KubernetesClient {
         }
 
         Ok(events)
+    }
+
+    /// Get the node name for a specific pod
+    async fn get_pod_node(kubeconfig: &Path, namespace: &str, pod_name: &str) -> Result<String> {
+        let output = Command::new("kubectl")
+            .arg("--kubeconfig")
+            .arg(kubeconfig)
+            .arg("get")
+            .arg("pod")
+            .arg(pod_name)
+            .arg("-n")
+            .arg(namespace)
+            .arg("-o")
+            .arg("jsonpath={.spec.nodeName}")
+            .output()
+            .await
+            .context("Failed to execute kubectl get pod")?;
+
+        if !output.status.success() {
+            anyhow::bail!(
+                "kubectl get pod failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+
+        let node_name = String::from_utf8(output.stdout)
+            .context("Failed to parse pod node name")?
+            .trim()
+            .to_string();
+
+        if node_name.is_empty() {
+            anyhow::bail!("Pod has no node assigned");
+        }
+
+        Ok(node_name)
     }
 
     /// Calculate age from creation timestamp

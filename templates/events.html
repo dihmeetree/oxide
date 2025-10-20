@@ -141,8 +141,8 @@
             </td>
             <td class="px-6 py-4">
               <div class="flex flex-col">
-                {% if event.object_kind == "Pod" %}
-                <a href="/pods/{{ event.namespace }}/{{ event.object_name }}" class="text-base font-medium text-accent-blue hover:text-accent-blueHover transition">{{ event.object_name }}</a>
+                {% if event.object_kind == "Pod" && event.object_node.is_some() %}
+                <a href="/clusters/{{ event.cluster_name }}/nodes/{{ event.object_node.as_ref().unwrap() }}/pods/{{ event.namespace }}/{{ event.object_name }}" class="text-base font-medium text-accent-blue hover:text-accent-blueHover transition">{{ event.object_name }}</a>
                 {% elif event.object_kind == "Deployment" %}
                 <a href="/deployments/{{ event.namespace }}/{{ event.object_name }}" class="text-base font-medium text-accent-blue hover:text-accent-blueHover transition">{{ event.object_name }}</a>
                 {% elif event.object_kind == "Service" %}

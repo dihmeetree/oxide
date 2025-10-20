@@ -458,6 +458,7 @@ pub struct EventInfo {
     pub message: String,
     pub object_kind: String,
     pub object_name: String,
+    pub object_node: Option<String>,
     pub source: String,
     pub count: u32,
     pub first_seen: String,

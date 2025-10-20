@@ -246,7 +246,7 @@
         </thead>
         <tbody class="divide-y divide-dark-border">
           {% for pod in deployment.pods %}
-          <tr class="hover:bg-dark-hover transition cursor-pointer" onclick="window.location='/pods/{{ pod.namespace }}/{{ pod.name }}'">
+          <tr class="hover:bg-dark-hover transition cursor-pointer" onclick="window.location='/clusters/{{ deployment.cluster_name }}/nodes/{{ pod.node_name }}/pods/{{ pod.namespace }}/{{ pod.name }}'">
             <td class="px-6 py-4">
               <span class="text-base font-medium font-mono text-text-primary block truncate max-w-xs">
                 {{ pod.name }}

@@ -2933,6 +2933,7 @@ async fn fetch_all_events(
                     message: event.message,
                     object_kind: event.object_kind,
                     object_name: event.object_name,
+                    object_node: event.object_node,
                     source: event.source,
                     count: event.count,
                     first_seen: event.first_seen,
@@ -3301,6 +3302,10 @@ async fn fetch_all_deployment_details(
                                                 pod["metadata"]["name"].as_str()?.to_string();
                                             let pod_namespace =
                                                 pod["metadata"]["namespace"].as_str()?.to_string();
+                                            let pod_node_name = pod["spec"]["nodeName"]
+                                                .as_str()
+                                                .unwrap_or("N/A")
+                                                .to_string();
                                             let pod_status =
                                                 pod["status"]["phase"].as_str()?.to_string();
 
@@ -3320,6 +3325,7 @@ async fn fetch_all_deployment_details(
                                             Some(crate::k8s::client::PodInfo {
                                                 name: pod_name,
                                                 namespace: pod_namespace,
+                                                node_name: pod_node_name,
                                                 status: pod_status,
                                                 restarts,
                                                 cpu: "N/A".to_string(),
