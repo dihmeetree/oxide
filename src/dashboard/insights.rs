@@ -69,6 +69,38 @@ pub async fn collect_insights(kubeconfig_path: &std::path::Path) -> Result<Vec<I
         });
     }
 
+    let over_provisioned_pods = check_over_provisioned_pods(kubeconfig_path).await?;
+    if !over_provisioned_pods.is_empty() {
+        insights.push(Insight {
+            title: "Over-Provisioned Pods".to_string(),
+            insight_type: "optimization".to_string(),
+            severity: "low".to_string(),
+            description: format!(
+                "{} pod(s) are using less than 20% of their requested resources. This leads to resource waste and inefficient cluster utilization.",
+                over_provisioned_pods.len()
+            ),
+            recommendation: "Review and reduce resource requests to match actual usage patterns. This will improve cluster efficiency and allow better pod scheduling.".to_string(),
+            affected_resources: over_provisioned_pods,
+            category: "resources".to_string(),
+        });
+    }
+
+    let under_provisioned_pods = check_under_provisioned_pods(kubeconfig_path).await?;
+    if !under_provisioned_pods.is_empty() {
+        insights.push(Insight {
+            title: "Under-Provisioned Pods".to_string(),
+            insight_type: "warning".to_string(),
+            severity: "high".to_string(),
+            description: format!(
+                "{} pod(s) are using more than 90% of their resource limits. This can lead to throttling (CPU) or OOMKills (memory).",
+                under_provisioned_pods.len()
+            ),
+            recommendation: "Increase resource limits for these pods to prevent performance degradation and crashes. Monitor actual usage and set limits with appropriate headroom.".to_string(),
+            affected_resources: under_provisioned_pods,
+            category: "resources".to_string(),
+        });
+    }
+
     // Security Insights
     let pods_running_as_root = check_pods_running_as_root(kubeconfig_path).await?;
     if !pods_running_as_root.is_empty() {
@@ -1354,4 +1386,272 @@ async fn check_namespaces_without_quotas(kubeconfig_path: &std::path::Path) -> R
     }
 
     Ok(namespaces_without_quotas)
+}
+
+/// Check for over-provisioned pods (using <20% of requests)
+async fn check_over_provisioned_pods(kubeconfig_path: &std::path::Path) -> Result<Vec<String>> {
+    // Get pods with resource specs
+    let pods_output = CommandBuilder::new("kubectl")
+        .args(["get", "pods", "--all-namespaces", "-o", "json"])
+        .kubeconfig(kubeconfig_path)
+        .context("Failed to get pods")
+        .output()
+        .await?;
+
+    if !pods_output.success {
+        return Ok(Vec::new());
+    }
+
+    // Get pod metrics
+    let metrics_output = CommandBuilder::new("kubectl")
+        .args(["top", "pods", "--all-namespaces", "--no-headers"])
+        .kubeconfig(kubeconfig_path)
+        .context("Failed to get pod metrics")
+        .output()
+        .await?;
+
+    if !metrics_output.success {
+        return Ok(Vec::new());
+    }
+
+    #[derive(Deserialize)]
+    struct PodList {
+        items: Vec<Pod>,
+    }
+
+    #[derive(Deserialize)]
+    struct Pod {
+        metadata: PodMetadata,
+        spec: PodSpec,
+    }
+
+    #[derive(Deserialize)]
+    struct PodMetadata {
+        name: String,
+        namespace: String,
+    }
+
+    #[derive(Deserialize)]
+    struct PodSpec {
+        containers: Vec<Container>,
+    }
+
+    #[derive(Deserialize)]
+    struct Container {
+        #[serde(default)]
+        resources: Resources,
+    }
+
+    #[derive(Deserialize, Default)]
+    struct Resources {
+        #[serde(default)]
+        requests: std::collections::HashMap<String, String>,
+    }
+
+    let pod_list: PodList = serde_json::from_str(&pods_output.stdout)?;
+
+    // Parse metrics into a map
+    let mut pod_metrics: std::collections::HashMap<String, (f64, f64)> =
+        std::collections::HashMap::new();
+    for line in metrics_output.stdout.lines() {
+        let parts: Vec<&str> = line.split_whitespace().collect();
+        if parts.len() >= 4 {
+            let namespace = parts[0];
+            let name = parts[1];
+            let cpu = parts[2].trim_end_matches("m").parse::<f64>().unwrap_or(0.0);
+            let memory = parts[3]
+                .trim_end_matches("Mi")
+                .parse::<f64>()
+                .unwrap_or(0.0);
+            pod_metrics.insert(format!("{}/{}", namespace, name), (cpu, memory));
+        }
+    }
+
+    let mut over_provisioned_pods = Vec::new();
+
+    for pod in pod_list.items {
+        if should_skip_namespace(&pod.metadata.namespace) {
+            continue;
+        }
+
+        let pod_key = format!("{}/{}", pod.metadata.namespace, pod.metadata.name);
+        if let Some((actual_cpu, actual_memory)) = pod_metrics.get(&pod_key) {
+            for container in &pod.spec.containers {
+                // Check CPU over-provisioning
+                if let Some(cpu_request) = container.resources.requests.get("cpu") {
+                    let requested_cpu = parse_cpu_to_millicores(cpu_request);
+                    if requested_cpu > 0.0 && *actual_cpu < requested_cpu * 0.2 {
+                        over_provisioned_pods.push(format!(
+                            "{} (using {}m of {}m CPU requested)",
+                            pod_key, *actual_cpu as u64, requested_cpu as u64
+                        ));
+                        break;
+                    }
+                }
+
+                // Check Memory over-provisioning
+                if let Some(memory_request) = container.resources.requests.get("memory") {
+                    let requested_memory = parse_memory_to_mi(memory_request);
+                    if requested_memory > 0.0 && *actual_memory < requested_memory * 0.2 {
+                        over_provisioned_pods.push(format!(
+                            "{} (using {}Mi of {}Mi memory requested)",
+                            pod_key, *actual_memory as u64, requested_memory as u64
+                        ));
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(over_provisioned_pods)
+}
+
+/// Check for under-provisioned pods (using >90% of limits)
+async fn check_under_provisioned_pods(kubeconfig_path: &std::path::Path) -> Result<Vec<String>> {
+    // Get pods with resource specs
+    let pods_output = CommandBuilder::new("kubectl")
+        .args(["get", "pods", "--all-namespaces", "-o", "json"])
+        .kubeconfig(kubeconfig_path)
+        .context("Failed to get pods")
+        .output()
+        .await?;
+
+    if !pods_output.success {
+        return Ok(Vec::new());
+    }
+
+    // Get pod metrics
+    let metrics_output = CommandBuilder::new("kubectl")
+        .args(["top", "pods", "--all-namespaces", "--no-headers"])
+        .kubeconfig(kubeconfig_path)
+        .context("Failed to get pod metrics")
+        .output()
+        .await?;
+
+    if !metrics_output.success {
+        return Ok(Vec::new());
+    }
+
+    #[derive(Deserialize)]
+    struct PodList {
+        items: Vec<Pod>,
+    }
+
+    #[derive(Deserialize)]
+    struct Pod {
+        metadata: PodMetadata,
+        spec: PodSpec,
+    }
+
+    #[derive(Deserialize)]
+    struct PodMetadata {
+        name: String,
+        namespace: String,
+    }
+
+    #[derive(Deserialize)]
+    struct PodSpec {
+        containers: Vec<Container>,
+    }
+
+    #[derive(Deserialize)]
+    struct Container {
+        #[serde(default)]
+        resources: Resources,
+    }
+
+    #[derive(Deserialize, Default)]
+    struct Resources {
+        #[serde(default)]
+        limits: std::collections::HashMap<String, String>,
+    }
+
+    let pod_list: PodList = serde_json::from_str(&pods_output.stdout)?;
+
+    // Parse metrics into a map
+    let mut pod_metrics: std::collections::HashMap<String, (f64, f64)> =
+        std::collections::HashMap::new();
+    for line in metrics_output.stdout.lines() {
+        let parts: Vec<&str> = line.split_whitespace().collect();
+        if parts.len() >= 4 {
+            let namespace = parts[0];
+            let name = parts[1];
+            let cpu = parts[2].trim_end_matches("m").parse::<f64>().unwrap_or(0.0);
+            let memory = parts[3]
+                .trim_end_matches("Mi")
+                .parse::<f64>()
+                .unwrap_or(0.0);
+            pod_metrics.insert(format!("{}/{}", namespace, name), (cpu, memory));
+        }
+    }
+
+    let mut under_provisioned_pods = Vec::new();
+
+    for pod in pod_list.items {
+        if should_skip_namespace(&pod.metadata.namespace) {
+            continue;
+        }
+
+        let pod_key = format!("{}/{}", pod.metadata.namespace, pod.metadata.name);
+        if let Some((actual_cpu, actual_memory)) = pod_metrics.get(&pod_key) {
+            for container in &pod.spec.containers {
+                // Check CPU under-provisioning
+                if let Some(cpu_limit) = container.resources.limits.get("cpu") {
+                    let limit_cpu = parse_cpu_to_millicores(cpu_limit);
+                    if limit_cpu > 0.0 && *actual_cpu > limit_cpu * 0.9 {
+                        under_provisioned_pods.push(format!(
+                            "{} (using {}m of {}m CPU limit)",
+                            pod_key, *actual_cpu as u64, limit_cpu as u64
+                        ));
+                        break;
+                    }
+                }
+
+                // Check Memory under-provisioning
+                if let Some(memory_limit) = container.resources.limits.get("memory") {
+                    let limit_memory = parse_memory_to_mi(memory_limit);
+                    if limit_memory > 0.0 && *actual_memory > limit_memory * 0.9 {
+                        under_provisioned_pods.push(format!(
+                            "{} (using {}Mi of {}Mi memory limit)",
+                            pod_key, *actual_memory as u64, limit_memory as u64
+                        ));
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(under_provisioned_pods)
+}
+
+/// Parse CPU resource string to millicores
+fn parse_cpu_to_millicores(cpu: &str) -> f64 {
+    if let Some(millicores) = cpu.strip_suffix('m') {
+        millicores.parse::<f64>().unwrap_or(0.0)
+    } else {
+        // Full cores (e.g., "1" or "0.5")
+        cpu.parse::<f64>().unwrap_or(0.0) * 1000.0
+    }
+}
+
+/// Parse memory resource string to Mi
+fn parse_memory_to_mi(memory: &str) -> f64 {
+    if let Some(mi) = memory.strip_suffix("Mi") {
+        mi.parse::<f64>().unwrap_or(0.0)
+    } else if let Some(gi) = memory.strip_suffix("Gi") {
+        gi.parse::<f64>().unwrap_or(0.0) * 1024.0
+    } else if let Some(ki) = memory.strip_suffix("Ki") {
+        ki.parse::<f64>().unwrap_or(0.0) / 1024.0
+    } else if let Some(m) = memory.strip_suffix('M') {
+        m.parse::<f64>().unwrap_or(0.0)
+    } else if let Some(g) = memory.strip_suffix('G') {
+        g.parse::<f64>().unwrap_or(0.0) * 1024.0
+    } else if let Some(k) = memory.strip_suffix('K') {
+        k.parse::<f64>().unwrap_or(0.0) / 1024.0
+    } else {
+        // Bytes
+        memory.parse::<f64>().unwrap_or(0.0) / (1024.0 * 1024.0)
+    }
 }
