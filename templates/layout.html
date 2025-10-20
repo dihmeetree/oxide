@@ -154,6 +154,15 @@
             color: #888888;
             opacity: 1;
         }
+        /* Prevent hover effect on active navigation links */
+        nav a.bg-accent-blue:hover,
+        nav button.bg-accent-blue:hover {
+            background-color: #2776F3 !important;
+        }
+        /* Keep active nav button blue even when hovering over dropdown */
+        nav button.bg-accent-blue.bg-\[#252525\] {
+            background-color: #2776F3 !important;
+        }
     </style>
     <script>
         // Enable smooth scroll restoration
@@ -185,9 +194,9 @@
                     if (chevron) {
                         chevron.style.transform = 'rotate(0deg)';
                     }
-                    // Remove hover state from button
+                    // Remove hover state from button (only if not active)
                     const button = document.getElementById(dropdownId + '-button');
-                    if (button) {
+                    if (button && !button.classList.contains('bg-accent-blue')) {
                         button.classList.remove('bg-[#252525]');
                     }
                 }
@@ -200,9 +209,9 @@
             if (chevron) {
                 chevron.style.transform = 'rotate(180deg)';
             }
-            // Add hover state to button
+            // Add hover state to button (only if not active)
             const button = document.getElementById(id + '-button');
-            if (button) {
+            if (button && !button.classList.contains('bg-accent-blue')) {
                 button.classList.add('bg-[#252525]');
             }
         }
@@ -215,9 +224,9 @@
                 if (chevron) {
                     chevron.style.transform = 'rotate(0deg)';
                 }
-                // Remove hover state from button
+                // Remove hover state from button (only if not active)
                 const button = document.getElementById(id + '-button');
-                if (button) {
+                if (button && !button.classList.contains('bg-accent-blue')) {
                     button.classList.remove('bg-[#252525]');
                 }
             }, 200);
@@ -243,7 +252,7 @@
 
                         <!-- Resources Dropdown -->
                         <div class="relative" onmouseenter="showDropdown('resources')" onmouseleave="hideDropdown('resources')">
-                            <button id="resources-button" class="flex items-center gap-1.5 px-4 py-2 rounded-md text-sm font-medium transition {% if active_page == "clusters" %}bg-accent-blue text-text-primary{% elif active_page == "nodes" %}bg-accent-blue text-text-primary{% elif active_page == "pods" %}bg-accent-blue text-text-primary{% else %}text-text-primaryAlt hover:bg-[#252525] hover:text-text-primary{% endif %}">
+                            <button id="resources-button" class="flex items-center gap-1.5 px-4 py-2 rounded-md text-sm font-medium transition {% if active_page == "clusters" %}bg-accent-blue text-text-primary{% elif active_page == "nodes" %}bg-accent-blue text-text-primary{% elif active_page == "pods" %}bg-accent-blue text-text-primary{% elif active_page == "services" %}bg-accent-blue text-text-primary{% elif active_page == "deployments" %}bg-accent-blue text-text-primary{% else %}text-text-primaryAlt hover:bg-[#252525] hover:text-text-primary{% endif %}">
                                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
                                     <path stroke-linecap="round" stroke-linejoin="round" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
                                 </svg>
@@ -271,6 +280,18 @@
                                             <path stroke-linecap="round" stroke-linejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
                                         </svg>
                                         Pods
+                                    </a>
+                                    <a href="/services" class="flex items-center gap-2 px-4 py-2 text-sm text-text-primaryAlt hover:bg-[#252525] hover:text-text-primary transition">
+                                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+                                            <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 3v1.5M4.5 8.25H3m18 0h-1.5M4.5 12H3m18 0h-1.5m-15 3.75H3m18 0h-1.5M8.25 19.5V21M12 3v1.5m0 15V21m3.75-18v1.5m0 15V21m-9-1.5h10.5a2.25 2.25 0 002.25-2.25V6.75a2.25 2.25 0 00-2.25-2.25H6.75A2.25 2.25 0 004.5 6.75v10.5a2.25 2.25 0 002.25 2.25zm.75-12h9v9h-9v-9z" />
+                                        </svg>
+                                        Services
+                                    </a>
+                                    <a href="/deployments" class="flex items-center gap-2 px-4 py-2 text-sm text-text-primaryAlt hover:bg-[#252525] hover:text-text-primary transition">
+                                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+                                            <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                        </svg>
+                                        Deployments
                                     </a>
                                 </div>
                             </div>
@@ -305,6 +326,17 @@
                             </div>
                         </div>
 
+                        <a href="/events" class="flex items-center gap-1.5 px-4 py-2 rounded-md text-sm font-medium transition {% if active_page == "events" %}bg-accent-blue text-text-primary{% else %}text-text-primaryAlt hover:bg-[#252525] hover:text-text-primary{% endif %}">
+                            <div class="relative">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                </svg>
+                                {% if warning_events_count > 0 %}
+                                <span class="absolute -top-1 -right-1 w-3.5 h-3.5 flex items-center justify-center text-[0.5625rem] font-bold rounded-full leading-none {% if active_page == "events" %}bg-white text-gray-900{% else %}bg-[#EC4899] text-white{% endif %}">{{ warning_events_count }}</span>
+                                {% endif %}
+                            </div>
+                            Events
+                        </a>
                         <a href="/metrics" class="flex items-center gap-1.5 px-4 py-2 rounded-md text-sm font-medium transition {% if active_page == "metrics" %}bg-accent-blue text-text-primary{% else %}text-text-primaryAlt hover:bg-[#252525] hover:text-text-primary{% endif %}">
                             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
                                 <path stroke-linecap="round" stroke-linejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />

@@ -1,0 +1,463 @@
+{% extends "layout.html" %} {% block content %}
+<style>
+  /* Prevent hover effect on active filter buttons */
+  .filter-btn.bg-accent-blue:hover {
+    background-color: #2776F3 !important; /* Keep the accent-blue color */
+  }
+</style>
+<div class="space-y-6">
+  <!-- Header -->
+  <div class="flex items-center justify-between">
+    <div class="flex items-center gap-4">
+      <a
+        href="/clusters/{{ pod.cluster_name }}/nodes/{{ pod.node_name }}/pods/{{ pod.namespace }}/{{ pod.name }}"
+        class="p-3 rounded-lg bg-dark-hover hover:bg-dark-hoverAlt transition flex-shrink-0"
+      >
+        <svg
+          class="w-8 h-8 stroke-text-primaryAlt"
+          fill="none"
+          viewBox="0 0 24 24"
+          stroke-width="2"
+        >
+          <path
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            d="M15 19l-7-7 7-7"
+          ></path>
+        </svg>
+      </a>
+      <div>
+        <div class="flex items-center gap-2">
+          <h2 class="text-3xl font-semibold text-text-primary">{{ pod.name }} Logs</h2>
+        </div>
+        <p class="text-base text-text-secondary">
+          Pod in {{ pod.namespace}} namespace on {{ pod.node_name }}
+        </p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Container Selection -->
+  {% if pod.containers.len() > 1 %}
+  <div class="rounded-lg p-4 bg-[#242424] border border-dark-border">
+    <div class="flex items-center gap-4">
+      <label class="text-base font-medium text-text-secondary">Container:</label>
+      <div class="flex gap-2">
+        {% for container in pod.containers %}
+        <a
+          href="?container={{ container.name }}&tail={{ tail_lines }}"
+          class="px-4 py-2 rounded-md text-base font-medium
+            {% if selected_container.is_some() && selected_container.as_ref().unwrap() == &container.name %}
+              bg-accent-blue text-white
+            {% else %}
+              bg-dark-hover text-text-secondary hover:bg-dark-hoverAlt hover:text-text-primary
+            {% endif %}"
+        >
+          {{ container.name }}
+        </a>
+        {% endfor %}
+        <a
+          href="?tail={{ tail_lines }}"
+          class="px-4 py-2 rounded-md text-base font-medium
+            {% if selected_container.is_none() %}
+              bg-accent-blue text-white
+            {% else %}
+              bg-dark-hover text-text-secondary hover:bg-dark-hoverAlt hover:text-text-primary
+            {% endif %}"
+        >
+          All Containers
+        </a>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- Controls -->
+  <div class="rounded-lg p-4 bg-[#242424] border border-dark-border">
+    <div class="flex items-center justify-between">
+      <div class="flex items-center gap-4">
+        <label class="text-base font-medium text-text-secondary">Tail Lines:</label>
+        <div class="flex gap-2">
+          <a
+            href="?{% if selected_container.is_some() %}container={{ selected_container.as_ref().unwrap() }}&{% endif %}tail=100"
+            class="px-3 py-1.5 rounded text-sm font-medium
+              {% if tail_lines == 100 %}
+                bg-accent-blue text-white
+              {% else %}
+                bg-dark-hover text-text-secondary hover:bg-dark-hoverAlt
+              {% endif %}"
+          >
+            100
+          </a>
+          <a
+            href="?{% if selected_container.is_some() %}container={{ selected_container.as_ref().unwrap() }}&{% endif %}tail=500"
+            class="px-3 py-1.5 rounded text-sm font-medium
+              {% if tail_lines == 500 %}
+                bg-accent-blue text-white
+              {% else %}
+                bg-dark-hover text-text-secondary hover:bg-dark-hoverAlt
+              {% endif %}"
+          >
+            500
+          </a>
+          <a
+            href="?{% if selected_container.is_some() %}container={{ selected_container.as_ref().unwrap() }}&{% endif %}tail=1000"
+            class="px-3 py-1.5 rounded text-sm font-medium
+              {% if tail_lines == 1000 %}
+                bg-accent-blue text-white
+              {% else %}
+                bg-dark-hover text-text-secondary hover:bg-dark-hoverAlt
+              {% endif %}"
+          >
+            1000
+          </a>
+          <a
+            href="?{% if selected_container.is_some() %}container={{ selected_container.as_ref().unwrap() }}&{% endif %}tail=5000"
+            class="px-3 py-1.5 rounded text-sm font-medium
+              {% if tail_lines == 5000 %}
+                bg-accent-blue text-white
+              {% else %}
+                bg-dark-hover text-text-secondary hover:bg-dark-hoverAlt
+              {% endif %}"
+          >
+            5000
+          </a>
+        </div>
+      </div>
+      <button
+        onclick="window.location.reload()"
+        class="px-4 py-2 rounded-md text-sm font-medium bg-accent-blue hover:bg-accent-blue/80 text-white transition"
+      >
+        <div class="flex items-center gap-2">
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+          </svg>
+          Refresh
+        </div>
+      </button>
+    </div>
+  </div>
+
+  <!-- Search and Filters -->
+  <div class="rounded-lg p-4 bg-[#242424] border border-dark-border">
+    <div class="flex items-center gap-4 mb-4">
+      <label class="text-base font-medium text-text-secondary">Search:</label>
+      <div class="flex-1 max-w-md relative">
+        <input
+          type="text"
+          id="search-input"
+          placeholder="Search logs..."
+          oninput="debouncedApplyFilters()"
+          class="w-full px-4 py-2 rounded-md bg-dark-hover border border-dark-border text-text-primary text-base placeholder-text-muted focus:outline-none focus:border-accent-blue"
+        />
+        <button
+          id="clear-search"
+          onclick="clearSearch()"
+          class="absolute right-2 top-1/2 -translate-y-1/2 px-2 py-1 text-sm text-text-muted hover:text-text-primary"
+          style="display: none;"
+        >
+          ✕
+        </button>
+      </div>
+      <span id="filter-count" class="text-sm text-text-muted ml-auto"></span>
+    </div>
+    <div class="flex items-center gap-4">
+      <label class="text-base font-medium text-text-secondary">Filter by Level:</label>
+      <div class="flex gap-2">
+        <button
+          onclick="filterByLevel('all')"
+          id="filter-all"
+          class="filter-btn px-3 py-1.5 rounded text-sm font-medium bg-accent-blue text-white"
+        >
+          All
+        </button>
+        <button
+          onclick="filterByLevel('error')"
+          id="filter-error"
+          class="filter-btn px-3 py-1.5 rounded text-sm font-medium bg-dark-hover text-text-secondary hover:bg-dark-hoverAlt"
+        >
+          <span class="inline-flex items-center gap-1">
+            <span class="w-2 h-2 rounded-full bg-red-400"></span>
+            Error
+          </span>
+        </button>
+        <button
+          onclick="filterByLevel('warning')"
+          id="filter-warning"
+          class="filter-btn px-3 py-1.5 rounded text-sm font-medium bg-dark-hover text-text-secondary hover:bg-dark-hoverAlt"
+        >
+          <span class="inline-flex items-center gap-1">
+            <span class="w-2 h-2 rounded-full bg-yellow-400"></span>
+            Warning
+          </span>
+        </button>
+        <button
+          onclick="filterByLevel('info')"
+          id="filter-info"
+          class="filter-btn px-3 py-1.5 rounded text-sm font-medium bg-dark-hover text-text-secondary hover:bg-dark-hoverAlt"
+        >
+          <span class="inline-flex items-center gap-1">
+            <span class="w-2 h-2 rounded-full bg-blue-400"></span>
+            Info
+          </span>
+        </button>
+        <button
+          onclick="filterByLevel('debug')"
+          id="filter-debug"
+          class="filter-btn px-3 py-1.5 rounded text-sm font-medium bg-dark-hover text-text-secondary hover:bg-dark-hoverAlt"
+        >
+          <span class="inline-flex items-center gap-1">
+            <span class="w-2 h-2 rounded-full bg-purple-400"></span>
+            Debug
+          </span>
+        </button>
+        <button
+          onclick="filterByLevel('trace')"
+          id="filter-trace"
+          class="filter-btn px-3 py-1.5 rounded text-sm font-medium bg-dark-hover text-text-secondary hover:bg-dark-hoverAlt"
+        >
+          <span class="inline-flex items-center gap-1">
+            <span class="w-2 h-2 rounded-full bg-gray-400"></span>
+            Trace
+          </span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Error Message -->
+  {% if error_message.is_some() %}
+  <div class="rounded-lg p-6 bg-red-500/10 border border-red-500/30">
+    <div class="flex items-start gap-3">
+      <svg class="w-6 h-6 stroke-red-500 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke-width="2">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+      </svg>
+      <div>
+        <h3 class="text-lg font-semibold text-red-500 mb-1">Error Fetching Logs</h3>
+        <p class="text-base text-red-400">{{ error_message.as_ref().unwrap() }}</p>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- Logs Container -->
+  <div class="rounded-lg bg-[#242424] border border-dark-border overflow-hidden">
+    <div class="bg-[#1a1a1a] px-4 py-2 border-b border-dark-border flex items-center justify-between">
+      <span class="text-base font-medium text-text-secondary">
+        Logs (Last {{ tail_lines }} lines)
+        {% if selected_container.is_some() %} - Container: {{ selected_container.as_ref().unwrap() }}{% endif %}
+      </span>
+      <button
+        onclick="copyLogs()"
+        class="px-3 py-1 rounded text-sm font-medium bg-dark-hover hover:bg-dark-hoverAlt text-text-secondary hover:text-text-primary"
+      >
+        Copy
+      </button>
+    </div>
+    <div id="log-container" class="max-h-[70vh] overflow-y-auto">
+      {% if log_lines.is_empty() %}
+        <p class="text-text-muted text-base italic p-4">No logs available</p>
+      {% else %}
+        <div id="no-logs-message" class="hidden p-8 text-center">
+          <svg class="w-16 h-16 mx-auto mb-4 stroke-text-muted" fill="none" viewBox="0 0 24 24" stroke-width="1.5">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607zM10.5 7.5v6m3-3h-6" />
+          </svg>
+          <p class="text-lg font-medium text-text-secondary mb-2">No logs found</p>
+          <p class="text-base text-text-muted">Try adjusting your filters or search terms</p>
+        </div>
+        <div id="log-content" class="text-xs font-mono">
+          {% for line in log_lines %}
+          <div class="log-line px-4 py-2 hover:bg-[#2a2a2a] border-b border-dark-border/30 cursor-text text-base flex items-start gap-3" onclick="copyLine(this)"
+               data-level="{% match line.level %}{% when LogLevel::Error %}error{% when LogLevel::Warning %}warning{% when LogLevel::Info %}info{% when LogLevel::Debug %}debug{% when LogLevel::Trace %}trace{% when LogLevel::Unknown %}unknown{% endmatch %}">
+            {% match line.level %}
+              {% when LogLevel::Error %}
+                <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-500/15 text-red-400 border border-red-500/30 flex-shrink-0">ERROR</span>
+              {% when LogLevel::Warning %}
+                <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-yellow-500/15 text-yellow-400 border border-yellow-500/30 flex-shrink-0">WARN</span>
+              {% when LogLevel::Info %}
+                <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-500/15 text-blue-400 border border-blue-500/30 flex-shrink-0">INFO</span>
+              {% when LogLevel::Debug %}
+                <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-purple-500/15 text-purple-400 border border-purple-500/30 flex-shrink-0">DEBUG</span>
+              {% when LogLevel::Trace %}
+                <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-500/15 text-gray-400 border border-gray-500/30 flex-shrink-0">TRACE</span>
+              {% when LogLevel::Unknown %}
+                <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-text-muted/10 text-text-muted border border-text-muted/20 flex-shrink-0">LOG</span>
+            {% endmatch %}
+            <span class="flex-1">{{ line.content }}</span>
+          </div>
+          {% endfor %}
+        </div>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- Auto-refresh Info -->
+  <div class="text-center text-base text-text-muted">
+    <p>Logs are not automatically refreshed. Click the Refresh button to see updated logs.</p>
+  </div>
+</div>
+
+<script>
+  let currentFilter = 'all';
+  let currentSearch = '';
+
+  // Cache DOM elements and precompute log text for performance
+  let logLinesCache = [];
+  let logTextCache = [];
+  let elementsCache = {
+    searchInput: null,
+    clearBtn: null,
+    noLogsMessage: null,
+    logContent: null,
+    filterCount: null,
+    filterButtons: null
+  };
+  let debounceTimer = null;
+
+  // Initialize cache on page load
+  function initializeCache() {
+    const logLines = document.querySelectorAll('.log-line');
+    logLinesCache = Array.from(logLines);
+
+    // Precompute lowercase text content once for all lines
+    logTextCache = logLinesCache.map(line => line.textContent.toLowerCase());
+
+    // Cache DOM elements
+    elementsCache.searchInput = document.getElementById('search-input');
+    elementsCache.clearBtn = document.getElementById('clear-search');
+    elementsCache.noLogsMessage = document.getElementById('no-logs-message');
+    elementsCache.logContent = document.getElementById('log-content');
+    elementsCache.filterCount = document.getElementById('filter-count');
+    elementsCache.filterButtons = Array.from(document.querySelectorAll('.filter-btn'));
+  }
+
+  // Debounced search for better performance
+  function debouncedApplyFilters() {
+    if (debounceTimer) clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(applyFilters, 150);
+  }
+
+  // Apply both level filter and search filter (optimized)
+  function applyFilters() {
+    currentSearch = elementsCache.searchInput ? elementsCache.searchInput.value.toLowerCase() : '';
+
+    // Show/hide clear button
+    if (elementsCache.clearBtn) {
+      elementsCache.clearBtn.style.display = currentSearch ? 'block' : 'none';
+    }
+
+    let visibleCount = 0;
+    const hasSearch = currentSearch !== '';
+    const filterAll = currentFilter === 'all';
+
+    // Batch DOM updates using requestAnimationFrame for smoother performance
+    requestAnimationFrame(() => {
+      // Use cached data instead of querying DOM repeatedly
+      for (let i = 0; i < logLinesCache.length; i++) {
+        const line = logLinesCache[i];
+        const lineLevel = line.dataset.level; // Use dataset instead of getAttribute
+        const lineText = logTextCache[i];
+
+        // Check if line matches both level filter and search text
+        const matchesLevel = filterAll || lineLevel === currentFilter;
+        const matchesSearch = !hasSearch || lineText.includes(currentSearch);
+
+        if (matchesLevel && matchesSearch) {
+          line.style.display = 'flex';
+          visibleCount++;
+        } else {
+          line.style.display = 'none';
+        }
+      }
+
+      // Show/hide "no logs found" message
+      if (elementsCache.noLogsMessage && elementsCache.logContent) {
+        if (visibleCount === 0) {
+          elementsCache.noLogsMessage.classList.remove('hidden');
+          elementsCache.logContent.classList.add('hidden');
+        } else {
+          elementsCache.noLogsMessage.classList.add('hidden');
+          elementsCache.logContent.classList.remove('hidden');
+        }
+      }
+
+      // Update count display
+      if (elementsCache.filterCount) {
+        const totalCount = logLinesCache.length;
+        if (filterAll && !hasSearch) {
+          elementsCache.filterCount.textContent = `Showing all ${totalCount} logs`;
+        } else {
+          elementsCache.filterCount.textContent = `Showing ${visibleCount} of ${totalCount} logs`;
+        }
+      }
+    });
+  }
+
+  // Filter logs by level (optimized)
+  function filterByLevel(level) {
+    currentFilter = level;
+
+    // Update filter button states using cached elements
+    elementsCache.filterButtons.forEach(btn => {
+      btn.classList.remove('bg-accent-blue', 'text-white');
+      btn.classList.add('bg-dark-hover', 'text-text-secondary');
+    });
+
+    const activeBtn = document.getElementById(`filter-${level}`);
+    if (activeBtn) {
+      activeBtn.classList.remove('bg-dark-hover', 'text-text-secondary');
+      activeBtn.classList.add('bg-accent-blue', 'text-white');
+    }
+
+    // Re-apply all filters without debounce (instant feedback for button clicks)
+    applyFilters();
+  }
+
+  // Clear search input
+  function clearSearch() {
+    if (elementsCache.searchInput) {
+      elementsCache.searchInput.value = '';
+      currentSearch = '';
+      applyFilters();
+    }
+  }
+
+  // Initialize on page load
+  window.addEventListener('DOMContentLoaded', function() {
+    initializeCache();
+    applyFilters();
+  });
+
+  // Copy individual line to clipboard (just the log content, not the label)
+  function copyLine(element) {
+    const logText = element.querySelector('.flex-1');
+    if (logText) {
+      navigator.clipboard.writeText(logText.textContent);
+    }
+  }
+
+  // Copy all logs to clipboard
+  function copyLogs() {
+    const logContent = document.getElementById('log-content');
+    if (logContent) {
+      const allLines = Array.from(logContent.children).map(div => {
+        const logText = div.querySelector('.flex-1');
+        return logText ? logText.textContent : '';
+      }).join('\n');
+      navigator.clipboard.writeText(allLines).then(() => {
+        const btn = event.target;
+        const originalText = btn.textContent;
+        btn.textContent = 'Copied!';
+        btn.classList.add('bg-accent-green', 'text-white');
+        setTimeout(() => {
+          btn.textContent = originalText;
+          btn.classList.remove('bg-accent-green', 'text-white');
+        }, 2000);
+      }).catch(err => {
+        console.error('Failed to copy logs:', err);
+      });
+    }
+  }
+</script>
+
+{% endblock %}

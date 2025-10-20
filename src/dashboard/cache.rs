@@ -18,7 +18,7 @@ const KUBERNETES_REFRESH_INTERVAL_SECS: u64 = 30; // Fast refresh for K8s data
 const KUBERNETES_REFRESH_INITIAL_DELAY_SECS: u64 = 5; // Wait before starting K8s refresh
 
 /// Calculate human-readable age from ISO 8601 timestamp
-fn calculate_age(timestamp: &str) -> String {
+pub(super) fn calculate_age(timestamp: &str) -> String {
     use chrono::{DateTime, Utc};
 
     let created = match DateTime::parse_from_rfc3339(timestamp) {
@@ -40,6 +40,57 @@ fn calculate_age(timestamp: &str) -> String {
     } else {
         format!("{}m", minutes)
     }
+}
+
+/// Sort alerts by severity (critical, warning, info, none), then by state (firing first)
+fn sort_alerts(alerts: &mut [crate::prometheus::Alert]) {
+    alerts.sort_by(|a, b| {
+        // Define severity priority
+        let severity_priority = |s: &str| match s {
+            "critical" => 0,
+            "warning" => 1,
+            "info" => 2,
+            _ => 3,
+        };
+
+        // Define state priority
+        let state_priority = |s: &str| match s {
+            "firing" => 0,
+            "pending" => 1,
+            _ => 2,
+        };
+
+        // First compare by severity
+        match severity_priority(&a.severity).cmp(&severity_priority(&b.severity)) {
+            std::cmp::Ordering::Equal => {
+                // If same severity, compare by state
+                state_priority(&a.state).cmp(&state_priority(&b.state))
+            }
+            other => other,
+        }
+    });
+}
+
+/// Sort insights by severity (high, medium, low), then by title
+fn sort_insights(insights: &mut [super::insights::Insight]) {
+    insights.sort_by(|a, b| {
+        // Define severity priority
+        let severity_priority = |s: &str| match s {
+            "high" => 0,
+            "medium" => 1,
+            "low" => 2,
+            _ => 3,
+        };
+
+        // First compare by severity
+        match severity_priority(&a.severity).cmp(&severity_priority(&b.severity)) {
+            std::cmp::Ordering::Equal => {
+                // If same severity, compare by title
+                a.title.cmp(&b.title)
+            }
+            other => other,
+        }
+    });
 }
 
 /// Parse CPU resource string to millicores
@@ -87,6 +138,39 @@ fn parse_memory_resource(value: &str) -> Option<f64> {
     }
 }
 
+/// Calculate total resource requests and limits from container list
+/// Returns (cpu_limit, cpu_request, memory_limit_mib, memory_request_mib)
+fn calculate_pod_resource_totals(
+    containers: &[super::templates::ContainerInfo],
+) -> (f64, f64, f64, f64) {
+    let mut total_cpu_limit = 0.0;
+    let mut total_cpu_request = 0.0;
+    let mut total_memory_limit = 0.0;
+    let mut total_memory_request = 0.0;
+
+    for container in containers {
+        if let Some(val) = parse_cpu_resource(&container.cpu_limit) {
+            total_cpu_limit += val;
+        }
+        if let Some(val) = parse_cpu_resource(&container.cpu_request) {
+            total_cpu_request += val;
+        }
+        if let Some(val) = parse_memory_resource(&container.memory_limit) {
+            total_memory_limit += val;
+        }
+        if let Some(val) = parse_memory_resource(&container.memory_request) {
+            total_memory_request += val;
+        }
+    }
+
+    (
+        total_cpu_limit,
+        total_cpu_request,
+        total_memory_limit,
+        total_memory_request,
+    )
+}
+
 /// Update pod details with metrics from history (consolidated function to avoid duplication)
 fn update_pod_details_with_metrics(
     pod_details: &mut HashMap<String, super::templates::PodDetail>,
@@ -94,42 +178,9 @@ fn update_pod_details_with_metrics(
 ) {
     for (key, history) in pod_metrics_history {
         if let Some(pod_detail) = pod_details.get_mut(key) {
-            // Calculate total limits and requests from containers
-            let mut total_cpu_limit = 0.0;
-            let mut total_cpu_request = 0.0;
-            let mut total_memory_limit = 0.0;
-            let mut total_memory_request = 0.0;
-
-            for container in &pod_detail.containers {
-                // Parse CPU limit/request (handle "m" suffix and plain numbers)
-                if let Ok(limit) = container.cpu_limit.trim_end_matches('m').parse::<f64>() {
-                    total_cpu_limit += limit;
-                }
-                if let Ok(request) = container.cpu_request.trim_end_matches('m').parse::<f64>() {
-                    total_cpu_request += request;
-                }
-
-                // Parse memory limit/request (handle "Mi" and "Gi" suffixes)
-                if let Some(val) = container.memory_limit.strip_suffix("Gi") {
-                    if let Ok(gib) = val.parse::<f64>() {
-                        total_memory_limit += gib * 1024.0;
-                    }
-                } else if let Some(val) = container.memory_limit.strip_suffix("Mi") {
-                    if let Ok(mib) = val.parse::<f64>() {
-                        total_memory_limit += mib;
-                    }
-                }
-
-                if let Some(val) = container.memory_request.strip_suffix("Gi") {
-                    if let Ok(gib) = val.parse::<f64>() {
-                        total_memory_request += gib * 1024.0;
-                    }
-                } else if let Some(val) = container.memory_request.strip_suffix("Mi") {
-                    if let Ok(mib) = val.parse::<f64>() {
-                        total_memory_request += mib;
-                    }
-                }
-            }
+            // Calculate total limits and requests from containers using helper
+            let (total_cpu_limit, total_cpu_request, total_memory_limit, total_memory_request) =
+                calculate_pod_resource_totals(&pod_detail.containers);
 
             // Update CPU usage and calculate percentage
             if let Some(&(_, cpu_value)) = history.cpu_history.last() {
@@ -196,42 +247,9 @@ fn set_pod_resource_limits(pod_details: &mut HashMap<String, super::templates::P
             continue;
         }
 
-        // Calculate total limits and requests from containers
-        let mut total_cpu_limit = 0.0;
-        let mut total_cpu_request = 0.0;
-        let mut total_memory_limit = 0.0;
-        let mut total_memory_request = 0.0;
-
-        for container in &pod_detail.containers {
-            // Parse CPU limit/request
-            if let Ok(limit) = container.cpu_limit.trim_end_matches('m').parse::<f64>() {
-                total_cpu_limit += limit;
-            }
-            if let Ok(request) = container.cpu_request.trim_end_matches('m').parse::<f64>() {
-                total_cpu_request += request;
-            }
-
-            // Parse memory limit/request
-            if let Some(val) = container.memory_limit.strip_suffix("Gi") {
-                if let Ok(gib) = val.parse::<f64>() {
-                    total_memory_limit += gib * 1024.0;
-                }
-            } else if let Some(val) = container.memory_limit.strip_suffix("Mi") {
-                if let Ok(mib) = val.parse::<f64>() {
-                    total_memory_limit += mib;
-                }
-            }
-
-            if let Some(val) = container.memory_request.strip_suffix("Gi") {
-                if let Ok(gib) = val.parse::<f64>() {
-                    total_memory_request += gib * 1024.0;
-                }
-            } else if let Some(val) = container.memory_request.strip_suffix("Mi") {
-                if let Ok(mib) = val.parse::<f64>() {
-                    total_memory_request += mib;
-                }
-            }
-        }
+        // Calculate total limits and requests from containers using helper
+        let (total_cpu_limit, total_cpu_request, total_memory_limit, total_memory_request) =
+            calculate_pod_resource_totals(&pod_detail.containers);
 
         // Set limit/request strings
         pod_detail.cpu_limit = if total_cpu_limit > 0.0 {
@@ -268,26 +286,9 @@ fn update_envoy_pod_resources(
             envoy_pod.cpu = pod_detail.cpu.clone();
             envoy_pod.memory = pod_detail.memory.clone();
 
-            // Calculate total requests and limits from all containers
-            let mut cpu_req_total = 0.0;
-            let mut cpu_lim_total = 0.0;
-            let mut mem_req_total = 0.0;
-            let mut mem_lim_total = 0.0;
-
-            for container in &pod_detail.containers {
-                if let Some(val) = parse_cpu_resource(&container.cpu_request) {
-                    cpu_req_total += val;
-                }
-                if let Some(val) = parse_cpu_resource(&container.cpu_limit) {
-                    cpu_lim_total += val;
-                }
-                if let Some(val) = parse_memory_resource(&container.memory_request) {
-                    mem_req_total += val;
-                }
-                if let Some(val) = parse_memory_resource(&container.memory_limit) {
-                    mem_lim_total += val;
-                }
-            }
+            // Calculate total requests and limits from all containers using helper
+            let (cpu_lim_total, cpu_req_total, mem_lim_total, mem_req_total) =
+                calculate_pod_resource_totals(&pod_detail.containers);
 
             envoy_pod.cpu_request = cpu_req_total;
             envoy_pod.cpu_limit = cpu_lim_total;
@@ -308,26 +309,9 @@ fn update_cilium_pod_resources(
             cilium_pod.cpu = pod_detail.cpu.clone();
             cilium_pod.memory = pod_detail.memory.clone();
 
-            // Calculate total requests and limits from all containers
-            let mut cpu_req_total = 0.0;
-            let mut cpu_lim_total = 0.0;
-            let mut mem_req_total = 0.0;
-            let mut mem_lim_total = 0.0;
-
-            for container in &pod_detail.containers {
-                if let Some(val) = parse_cpu_resource(&container.cpu_request) {
-                    cpu_req_total += val;
-                }
-                if let Some(val) = parse_cpu_resource(&container.cpu_limit) {
-                    cpu_lim_total += val;
-                }
-                if let Some(val) = parse_memory_resource(&container.memory_request) {
-                    mem_req_total += val;
-                }
-                if let Some(val) = parse_memory_resource(&container.memory_limit) {
-                    mem_lim_total += val;
-                }
-            }
+            // Calculate total requests and limits from all containers using helper
+            let (cpu_lim_total, cpu_req_total, mem_lim_total, mem_req_total) =
+                calculate_pod_resource_totals(&pod_detail.containers);
 
             cilium_pod.cpu_request = cpu_req_total;
             cilium_pod.cpu_limit = cpu_lim_total;
@@ -358,6 +342,9 @@ pub(super) struct CacheData {
     pub(super) pod_details: Arc<DashMap<String, super::templates::PodDetail>>,
     pub(super) pod_metrics_history:
         Arc<std::collections::HashMap<String, crate::prometheus::NodeMetricsHistory>>,
+    pub(super) services: Arc<DashMap<String, super::templates::ServiceInfo>>,
+    pub(super) service_details: Arc<DashMap<String, super::templates::ServiceDetail>>,
+    pub(super) deployment_details: Arc<DashMap<String, super::templates::DeploymentDetail>>,
     pub(super) cilium_pods: Arc<[super::templates::CiliumPod]>,
     pub(super) cilium_version: Arc<str>,
     pub(super) hubble_enabled: bool,
@@ -367,6 +354,11 @@ pub(super) struct CacheData {
     pub(super) envoy_metrics_history: Arc<crate::prometheus::EnvoyMetricsHistory>,
     pub(super) alerts: Arc<[crate::prometheus::Alert]>,
     pub(super) insights: Arc<[super::insights::Insight]>,
+    pub(super) events: Arc<[super::templates::EventInfo]>,
+    pub(super) deployments: Arc<[super::templates::DeploymentInfo]>,
+    pub(super) firing_alerts_count: usize,
+    pub(super) insights_count: usize,
+    pub(super) warning_events_count: usize,
     pub(super) last_update: Instant,
     pub(super) is_ready: bool,
     pub(super) metrics_json_cache: Arc<str>,
@@ -387,6 +379,9 @@ impl ClusterCache {
                 node_metrics_history: Arc::new(std::collections::HashMap::new()),
                 pod_details: Arc::new(DashMap::new()),
                 pod_metrics_history: Arc::new(std::collections::HashMap::new()),
+                services: Arc::new(DashMap::new()),
+                service_details: Arc::new(DashMap::new()),
+                deployment_details: Arc::new(DashMap::new()),
                 cilium_pods: Arc::from([]),
                 cilium_version: Arc::from("N/A"),
                 hubble_enabled: false,
@@ -396,6 +391,11 @@ impl ClusterCache {
                 envoy_metrics_history: Arc::new(crate::prometheus::EnvoyMetricsHistory::default()),
                 alerts: Arc::from([]),
                 insights: Arc::from([]),
+                events: Arc::from([]),
+                deployments: Arc::from([]),
+                firing_alerts_count: 0,
+                insights_count: 0,
+                warning_events_count: 0,
                 last_update: Instant::now(),
                 is_ready: false,
                 metrics_json_cache: Arc::from("{}"),
@@ -463,6 +463,71 @@ impl ClusterCache {
         data.pod_details.get(&key).map(|v| v.clone())
     }
 
+    /// Get service detail from cache
+    pub async fn get_service_detail(
+        &self,
+        namespace: &str,
+        service_name: &str,
+    ) -> Option<super::templates::ServiceDetail> {
+        let data = self.inner.read().await;
+        let key = format!("{}/{}", namespace, service_name);
+        data.service_details.get(&key).map(|v| v.clone())
+    }
+
+    /// Get deployment detail from cache
+    pub async fn get_deployment_detail(
+        &self,
+        namespace: &str,
+        deployment_name: &str,
+    ) -> Option<super::templates::DeploymentDetail> {
+        let data = self.inner.read().await;
+        let key = format!("{}/{}", namespace, deployment_name);
+        data.deployment_details.get(&key).map(|v| v.clone())
+    }
+
+    /// Get all events from cache
+    pub async fn get_events(&self) -> (Arc<[super::templates::EventInfo]>, usize, usize) {
+        let data = self.inner.read().await;
+        let normal_count = data
+            .events
+            .iter()
+            .filter(|e| e.event_type == "Normal")
+            .count();
+        (
+            Arc::clone(&data.events),
+            data.warning_events_count,
+            normal_count,
+        )
+    }
+
+    /// Get all deployments from cache with status counts
+    pub async fn get_deployments(
+        &self,
+    ) -> (Arc<[super::templates::DeploymentInfo]>, usize, usize, usize) {
+        let data = self.inner.read().await;
+        let available_count = data
+            .deployments
+            .iter()
+            .filter(|d| d.status == "Available")
+            .count();
+        let progressing_count = data
+            .deployments
+            .iter()
+            .filter(|d| d.status == "Progressing")
+            .count();
+        let unavailable_count = data
+            .deployments
+            .iter()
+            .filter(|d| d.status == "Unavailable")
+            .count();
+        (
+            Arc::clone(&data.deployments),
+            available_count,
+            progressing_count,
+            unavailable_count,
+        )
+    }
+
     /// Get pod metrics history from cache
     pub async fn get_pod_metrics(
         &self,
@@ -474,22 +539,75 @@ impl ClusterCache {
         data.pod_metrics_history.get(&key).cloned()
     }
 
+    /// Fetch pod logs using kubectl
+    /// Returns logs as a String or an error
+    pub async fn get_pod_logs(
+        &self,
+        _cluster_name: &str,
+        namespace: &str,
+        pod_name: &str,
+        container: Option<&str>,
+        tail: Option<usize>,
+        follow: bool,
+    ) -> Result<String, String> {
+        // Build kubeconfig path - it's in the output directory directly
+        let kubeconfig_path = std::path::PathBuf::from("output").join("kubeconfig");
+
+        if !kubeconfig_path.exists() {
+            return Err(format!(
+                "Kubeconfig not found at: {}",
+                kubeconfig_path.display()
+            ));
+        }
+
+        // Build kubectl logs command
+        let mut args = vec!["logs", pod_name, "-n", namespace];
+
+        // Add container flag if specified
+        let container_str;
+        if let Some(cont) = container {
+            container_str = cont.to_string();
+            args.push("-c");
+            args.push(&container_str);
+        }
+
+        // Add tail flag if specified
+        let tail_str;
+        if let Some(tail_lines) = tail {
+            tail_str = format!("{}", tail_lines);
+            args.push("--tail");
+            args.push(&tail_str);
+        }
+
+        // Add follow flag if enabled (streaming logs)
+        if follow {
+            args.push("--follow");
+        }
+
+        // Execute kubectl command
+        let output = crate::utils::command::CommandBuilder::new("kubectl")
+            .args(&args)
+            .kubeconfig(&kubeconfig_path)
+            .context(format!(
+                "Failed to fetch logs for pod {}/{}",
+                namespace, pod_name
+            ))
+            .output()
+            .await;
+
+        match output {
+            Ok(result) if result.success => Ok(result.stdout),
+            Ok(result) => Err(format!("Failed to fetch logs: {}", result.stderr)),
+            Err(e) => Err(format!("Error executing kubectl: {}", e)),
+        }
+    }
+
     /// Get all node metrics history from cache
     pub async fn get_node_metrics_history(
         &self,
     ) -> Arc<std::collections::HashMap<String, crate::prometheus::NodeMetricsHistory>> {
         let data = self.inner.read().await;
         Arc::clone(&data.node_metrics_history)
-    }
-
-    /// Process node metrics history with a closure to avoid cloning
-    #[allow(dead_code)]
-    pub async fn with_node_metrics_history<F, R>(&self, f: F) -> R
-    where
-        F: FnOnce(&std::collections::HashMap<String, crate::prometheus::NodeMetricsHistory>) -> R,
-    {
-        let data = self.inner.read().await;
-        f(&data.node_metrics_history)
     }
 
     /// Get all node details map from cache
@@ -519,6 +637,15 @@ impl ClusterCache {
             .collect()
     }
 
+    /// Get all services from cache
+    pub async fn get_all_services(&self) -> Vec<super::templates::ServiceInfo> {
+        let data = self.inner.read().await;
+        data.services
+            .iter()
+            .map(|entry| entry.value().clone())
+            .collect()
+    }
+
     /// Get all pod metrics history from cache
     pub async fn get_pod_metrics_history(
         &self,
@@ -527,18 +654,7 @@ impl ClusterCache {
         Arc::clone(&data.pod_metrics_history)
     }
 
-    /// Process pod metrics history with a closure to avoid cloning
-    #[allow(dead_code)]
-    pub async fn with_pod_metrics_history<F, R>(&self, f: F) -> R
-    where
-        F: FnOnce(&std::collections::HashMap<String, crate::prometheus::NodeMetricsHistory>) -> R,
-    {
-        let data = self.inner.read().await;
-        f(&data.pod_metrics_history)
-    }
-
     /// Get Cilium pod information from cache
-    #[allow(dead_code)]
     #[inline]
     pub async fn get_cilium_data(
         &self,
@@ -564,43 +680,6 @@ impl ClusterCache {
     pub async fn get_insights(&self) -> Arc<[super::insights::Insight]> {
         let data = self.inner.read().await;
         Arc::clone(&data.insights)
-    }
-
-    /// Process Cilium data with a closure to avoid cloning
-    #[allow(dead_code)]
-    pub async fn with_cilium_data<F, R>(&self, f: F) -> R
-    where
-        F: FnOnce(&[super::templates::CiliumPod], &str, bool, bool) -> R,
-    {
-        let data = self.inner.read().await;
-        f(
-            &data.cilium_pods,
-            &data.cilium_version,
-            data.hubble_enabled,
-            data.ipv6_enabled,
-        )
-    }
-
-    /// Process both Cilium data and pod metrics history together to avoid multiple locks
-    #[allow(dead_code)]
-    pub async fn with_cilium_and_pod_metrics<F, R>(&self, f: F) -> R
-    where
-        F: FnOnce(
-            &[super::templates::CiliumPod],
-            &str,
-            bool,
-            bool,
-            &std::collections::HashMap<String, crate::prometheus::NodeMetricsHistory>,
-        ) -> R,
-    {
-        let data = self.inner.read().await;
-        f(
-            &data.cilium_pods,
-            &data.cilium_version,
-            data.hubble_enabled,
-            data.ipv6_enabled,
-            &data.pod_metrics_history,
-        )
     }
 
     /// Get both node and pod metrics history together in one lock
@@ -659,13 +738,6 @@ impl ClusterCache {
         Arc::clone(&data.node_metrics_json_cache)
     }
 
-    /// Get cache age
-    #[allow(dead_code)]
-    pub async fn cache_age(&self) -> Duration {
-        let data = self.inner.read().await;
-        data.last_update.elapsed()
-    }
-
     /// Check if cache has been populated at least once
     pub async fn is_ready(&self) -> bool {
         let data = self.inner.read().await;
@@ -695,21 +767,31 @@ impl ClusterCache {
         let (
             mut node_details,
             mut pod_details,
+            services,
+            service_details,
+            deployment_details,
             pod_metrics_history,
             node_metrics_history,
             cilium_data,
             envoy_data,
             alerts,
             insights,
+            events,
+            deployments,
         ) = tokio::join!(
             fetch_all_node_details(&servers, config_path),
             fetch_all_pod_details(config_path, &config.cluster_name),
+            fetch_all_services(config_path, &config.cluster_name),
+            fetch_all_service_details(config_path, &config.cluster_name),
+            fetch_all_deployment_details(config_path, &config.cluster_name),
             fetch_all_pod_metrics_history(config_path),
             fetch_all_node_metrics_history(&servers, config_path),
             fetch_cilium_data(config_path, &config, &config.cluster_name),
             fetch_envoy_data(config_path, &config.cluster_name),
             fetch_alerts(config_path),
-            fetch_insights(config_path)
+            fetch_insights(config_path),
+            fetch_all_events(config_path, &config.cluster_name),
+            fetch_all_deployments(config_path, &config.cluster_name)
         );
 
         // Unpack Cilium data
@@ -765,12 +847,27 @@ impl ClusterCache {
         // Pre-serialize node-only metrics JSON
         let node_metrics_json_cache = build_node_metrics_json_cache(&node_metrics_history);
 
+        // Sort alerts, insights, and events before storing (pre-sorted for all handlers)
+        let mut alerts = alerts;
+        let mut insights = insights;
+        // Events are already sorted by lastTimestamp from kubectl (no sorting needed)
+        sort_alerts(&mut alerts);
+        sort_insights(&mut insights);
+
+        // Calculate cached counts (after sorting, before moving)
+        let firing_alerts_count = alerts.iter().filter(|a| a.state == "firing").count();
+        let insights_count = insights.len();
+        let warning_events_count = events.iter().filter(|e| e.event_type == "Warning").count();
+
         // Update cache
         let mut data = self.inner.write().await;
         data.clusters = Arc::from(clusters.into_boxed_slice());
         data.servers = Arc::from(servers.into_boxed_slice());
         data.node_details = Arc::new(node_details.into_iter().collect());
         data.pod_details = Arc::new(pod_details.into_iter().collect());
+        data.services = Arc::new(services.into_iter().collect());
+        data.service_details = Arc::new(service_details.into_iter().collect());
+        data.deployment_details = Arc::new(deployment_details.into_iter().collect());
         data.pod_metrics_history = Arc::new(pod_metrics_history);
         data.node_metrics_history = Arc::new(node_metrics_history);
         data.cilium_pods = Arc::from(cilium_pods.into_boxed_slice());
@@ -782,6 +879,11 @@ impl ClusterCache {
         data.envoy_metrics_history = Arc::new(envoy_metrics_history);
         data.alerts = Arc::from(alerts.into_boxed_slice());
         data.insights = Arc::from(insights.into_boxed_slice());
+        data.events = Arc::from(events.into_boxed_slice());
+        data.deployments = Arc::from(deployments.into_boxed_slice());
+        data.firing_alerts_count = firing_alerts_count;
+        data.insights_count = insights_count;
+        data.warning_events_count = warning_events_count;
         data.metrics_json_cache = metrics_json_cache;
         data.cilium_metrics_json_cache = cilium_metrics_json_cache;
         data.envoy_metrics_json_cache = envoy_metrics_json_cache;
@@ -791,10 +893,12 @@ impl ClusterCache {
         data.is_ready = true;
 
         info!(
-            "Full cache refresh completed - {} clusters, {} nodes, {} pods, {} alerts, {} insights",
+            "Full cache refresh completed - {} clusters, {} nodes, {} pods, {} services ({} with details), {} alerts, {} insights",
             data.clusters.len(),
             data.node_details.len(),
             data.pod_details.len(),
+            data.services.len(),
+            data.service_details.len(),
             data.alerts.len(),
             data.insights.len()
         );
@@ -826,23 +930,33 @@ impl ClusterCache {
         let config: ClusterConfig = serde_yaml::from_str(&config_str)?;
 
         // Fetch all Kubernetes/Prometheus data in parallel
-        info!("Fetching pods, metrics, Cilium data, Envoy data, alerts, and insights...");
+        info!("Fetching pods, services, metrics, Cilium data, Envoy data, alerts, insights, and events...");
         let (
             mut pod_details,
+            services,
+            service_details,
+            deployment_details,
             pod_metrics_history,
             node_metrics_history,
             cilium_data,
             envoy_data,
             alerts,
             insights,
+            events,
+            deployments,
         ) = tokio::join!(
             fetch_all_pod_details(config_path, &cluster_name),
+            fetch_all_services(config_path, &cluster_name),
+            fetch_all_service_details(config_path, &cluster_name),
+            fetch_all_deployment_details(config_path, &cluster_name),
             fetch_all_pod_metrics_history(config_path),
             fetch_all_node_metrics_history(&servers, config_path),
             fetch_cilium_data(config_path, &config, &cluster_name),
             fetch_envoy_data(config_path, &cluster_name),
             fetch_alerts(config_path),
-            fetch_insights(config_path)
+            fetch_insights(config_path),
+            fetch_all_events(config_path, &cluster_name),
+            fetch_all_deployments(config_path, &cluster_name)
         );
 
         // Unpack Cilium data
@@ -894,9 +1008,24 @@ impl ClusterCache {
             )
         };
 
+        // Sort alerts, insights, and events before storing (pre-sorted for all handlers)
+        let mut alerts = alerts;
+        let mut insights = insights;
+        // Events are already sorted by lastTimestamp from kubectl (no sorting needed)
+        sort_alerts(&mut alerts);
+        sort_insights(&mut insights);
+
+        // Calculate cached counts (after sorting, before moving)
+        let firing_alerts_count = alerts.iter().filter(|a| a.state == "firing").count();
+        let insights_count = insights.len();
+        let warning_events_count = events.iter().filter(|e| e.event_type == "Warning").count();
+
         // Update cache with Kubernetes/Prometheus data
         let mut data = self.inner.write().await;
         data.pod_details = Arc::new(pod_details.into_iter().collect());
+        data.services = Arc::new(services.into_iter().collect());
+        data.service_details = Arc::new(service_details.into_iter().collect());
+        data.deployment_details = Arc::new(deployment_details.into_iter().collect());
         data.pod_metrics_history = Arc::new(pod_metrics_history);
         data.node_metrics_history = Arc::new(node_metrics_history);
         data.cilium_pods = Arc::from(cilium_pods.into_boxed_slice());
@@ -908,6 +1037,11 @@ impl ClusterCache {
         data.envoy_metrics_history = Arc::new(envoy_metrics_history);
         data.alerts = Arc::from(alerts.into_boxed_slice());
         data.insights = Arc::from(insights.into_boxed_slice());
+        data.events = Arc::from(events.into_boxed_slice());
+        data.deployments = Arc::from(deployments.into_boxed_slice());
+        data.firing_alerts_count = firing_alerts_count;
+        data.insights_count = insights_count;
+        data.warning_events_count = warning_events_count;
         data.metrics_json_cache = metrics_json_cache;
         data.cilium_metrics_json_cache = cilium_metrics_json_cache;
         data.envoy_metrics_json_cache = envoy_metrics_json_cache;
@@ -916,8 +1050,10 @@ impl ClusterCache {
         data.last_update = Instant::now();
 
         info!(
-            "Kubernetes/Prometheus refresh completed - {} pods, {} alerts, {} insights",
+            "Kubernetes/Prometheus refresh completed - {} pods, {} services ({} with details), {} alerts, {} insights",
             data.pod_details.len(),
+            data.services.len(),
+            data.service_details.len(),
             data.alerts.len(),
             data.insights.len()
         );
@@ -2439,6 +2575,714 @@ async fn fetch_all_pod_details(
     }
 
     pod_details
+}
+
+/// Fetch all services from the cluster
+async fn fetch_all_services(
+    config_path: &std::path::Path,
+    cluster_name: &str,
+) -> std::collections::HashMap<String, super::templates::ServiceInfo> {
+    let mut services = std::collections::HashMap::new();
+
+    let output_dir = config_path
+        .parent()
+        .and_then(|p| p.parent())
+        .map(|p| p.join("output"))
+        .unwrap_or_else(|| std::path::PathBuf::from("output"));
+
+    let kubeconfig = output_dir.join("kubeconfig");
+
+    // Check if kubeconfig exists
+    if !kubeconfig.exists() {
+        info!("Kubeconfig not found, skipping services fetch");
+        return services;
+    }
+
+    // Get all services from Kubernetes
+    match crate::k8s::client::KubernetesClient::get_services(&kubeconfig).await {
+        Ok(svc_list) => {
+            for svc in svc_list {
+                let service_info = super::templates::ServiceInfo {
+                    cluster_name: cluster_name.to_string(),
+                    name: svc.name.clone(),
+                    namespace: svc.namespace.clone(),
+                    service_type: svc.service_type,
+                    cluster_ip: svc.cluster_ip,
+                    external_ip: svc.external_ip,
+                    ports: svc.ports,
+                    age: svc.age,
+                    selector: svc.selector,
+                };
+
+                let key = format!("{}/{}", svc.namespace, svc.name);
+                services.insert(key, service_info);
+            }
+        }
+        Err(e) => {
+            info!("Failed to fetch services: {}", e);
+        }
+    }
+
+    services
+}
+
+/// Fetch all service details from the cluster (with endpoints)
+async fn fetch_all_service_details(
+    config_path: &std::path::Path,
+    cluster_name: &str,
+) -> std::collections::HashMap<String, super::templates::ServiceDetail> {
+    let mut service_details = std::collections::HashMap::new();
+
+    let output_dir = config_path
+        .parent()
+        .and_then(|p| p.parent())
+        .map(|p| p.join("output"))
+        .unwrap_or_else(|| std::path::PathBuf::from("output"));
+
+    let kubeconfig = output_dir.join("kubeconfig");
+
+    // Check if kubeconfig exists
+    if !kubeconfig.exists() {
+        info!("Kubeconfig not found, skipping service details fetch");
+        return service_details;
+    }
+
+    // Get all services from Kubernetes first
+    let services = match crate::k8s::client::KubernetesClient::get_services(&kubeconfig).await {
+        Ok(svc_list) => svc_list,
+        Err(e) => {
+            info!("Failed to fetch services for details: {}", e);
+            return service_details;
+        }
+    };
+
+    // For each service, fetch full details including endpoints
+    for svc in services {
+        // Fetch detailed service info
+        let service_json = match crate::k8s::client::KubernetesClient::get_service_detail(
+            &kubeconfig,
+            &svc.namespace,
+            &svc.name,
+        )
+        .await
+        {
+            Ok(Some(json)) => json,
+            Ok(None) => {
+                info!("Service {}/{} not found", svc.namespace, svc.name);
+                continue;
+            }
+            Err(e) => {
+                info!(
+                    "Failed to fetch service detail for {}/{}: {}",
+                    svc.namespace, svc.name, e
+                );
+                continue;
+            }
+        };
+
+        // Extract service type
+        let service_type = service_json["spec"]["type"]
+            .as_str()
+            .unwrap_or("ClusterIP")
+            .to_string();
+
+        // Extract cluster IP
+        let cluster_ip = service_json["spec"]["clusterIP"]
+            .as_str()
+            .unwrap_or("N/A")
+            .to_string();
+
+        // Extract external IP
+        let external_ip = if let Some(external_ips) =
+            service_json["status"]["loadBalancer"]["ingress"].as_array()
+        {
+            if let Some(first_ingress) = external_ips.first() {
+                first_ingress["ip"]
+                    .as_str()
+                    .or_else(|| first_ingress["hostname"].as_str())
+                    .unwrap_or("<pending>")
+                    .to_string()
+            } else {
+                "<none>".to_string()
+            }
+        } else {
+            "<none>".to_string()
+        };
+
+        // Extract session affinity
+        let session_affinity = service_json["spec"]["sessionAffinity"]
+            .as_str()
+            .unwrap_or("None")
+            .to_string();
+
+        // Extract selector
+        let mut selector = Vec::new();
+        if let Some(selector_obj) = service_json["spec"]["selector"].as_object() {
+            for (k, v) in selector_obj {
+                if let Some(v_str) = v.as_str() {
+                    selector.push((k.clone(), v_str.to_string()));
+                }
+            }
+        }
+
+        // Extract labels
+        let mut labels = Vec::new();
+        if let Some(labels_obj) = service_json["metadata"]["labels"].as_object() {
+            for (k, v) in labels_obj {
+                if let Some(v_str) = v.as_str() {
+                    labels.push((k.clone(), v_str.to_string()));
+                }
+            }
+        }
+
+        // Extract ports
+        let mut ports = Vec::new();
+        if let Some(ports_array) = service_json["spec"]["ports"].as_array() {
+            for port_obj in ports_array {
+                let name = port_obj["name"].as_str().unwrap_or("").to_string();
+                let protocol = port_obj["protocol"].as_str().unwrap_or("TCP").to_string();
+                let port = port_obj["port"].as_u64().unwrap_or(0) as u32;
+                let target_port = if let Some(tp) = port_obj["targetPort"].as_u64() {
+                    tp.to_string()
+                } else {
+                    port_obj["targetPort"]
+                        .as_str()
+                        .unwrap_or(&port.to_string())
+                        .to_string()
+                };
+                let node_port = port_obj["nodePort"].as_u64().map(|np| np as u32);
+
+                ports.push(super::templates::ServicePort {
+                    name,
+                    protocol,
+                    port,
+                    target_port,
+                    node_port,
+                });
+            }
+        }
+
+        // Fetch endpoints
+        let endpoints = match crate::k8s::client::KubernetesClient::get_service_endpoints(
+            &kubeconfig,
+            &svc.namespace,
+            &svc.name,
+        )
+        .await
+        {
+            Ok(eps) => eps,
+            Err(e) => {
+                info!(
+                    "Failed to fetch endpoints for {}/{}: {}",
+                    svc.namespace, svc.name, e
+                );
+                Vec::new()
+            }
+        };
+
+        // Calculate age
+        let age = if let Some(created_str) = service_json["metadata"]["creationTimestamp"].as_str()
+        {
+            calculate_age(created_str)
+        } else {
+            "N/A".to_string()
+        };
+
+        let service_detail = super::templates::ServiceDetail {
+            cluster_name: cluster_name.to_string(),
+            name: svc.name.clone(),
+            namespace: svc.namespace.clone(),
+            service_type,
+            cluster_ip,
+            external_ip,
+            ports,
+            age,
+            selector,
+            endpoints,
+            session_affinity,
+            labels,
+        };
+
+        let key = format!("{}/{}", svc.namespace, svc.name);
+        service_details.insert(key, service_detail);
+    }
+
+    service_details
+}
+
+/// Fetch all events from the cluster
+async fn fetch_all_events(
+    config_path: &std::path::Path,
+    cluster_name: &str,
+) -> Vec<super::templates::EventInfo> {
+    let mut events = Vec::new();
+
+    let output_dir = config_path
+        .parent()
+        .and_then(|p| p.parent())
+        .map(|p| p.join("output"))
+        .unwrap_or_else(|| std::path::PathBuf::from("output"));
+
+    let kubeconfig = output_dir.join("kubeconfig");
+
+    // Check if kubeconfig exists
+    if !kubeconfig.exists() {
+        info!("Kubeconfig not found, skipping events fetch");
+        return events;
+    }
+
+    // Get all events from Kubernetes
+    match crate::k8s::client::KubernetesClient::get_events(&kubeconfig).await {
+        Ok(event_list) => {
+            for event in event_list {
+                let event_info = super::templates::EventInfo {
+                    cluster_name: cluster_name.to_string(),
+                    namespace: event.namespace,
+                    name: event.name,
+                    event_type: event.event_type,
+                    reason: event.reason,
+                    message: event.message,
+                    object_kind: event.object_kind,
+                    object_name: event.object_name,
+                    source: event.source,
+                    count: event.count,
+                    first_seen: event.first_seen,
+                    last_seen: event.last_seen,
+                };
+                events.push(event_info);
+            }
+        }
+        Err(e) => {
+            info!("Failed to fetch events: {}", e);
+        }
+    }
+
+    events
+}
+
+/// Fetch all deployments from Kubernetes
+async fn fetch_all_deployments(
+    config_path: &std::path::Path,
+    cluster_name: &str,
+) -> Vec<super::templates::DeploymentInfo> {
+    let mut deployments = Vec::new();
+
+    let output_dir = config_path
+        .parent()
+        .and_then(|p| p.parent())
+        .map(|p| p.join("output"))
+        .unwrap_or_else(|| std::path::PathBuf::from("output"));
+
+    let kubeconfig = output_dir.join("kubeconfig");
+
+    // Check if kubeconfig exists
+    if !kubeconfig.exists() {
+        info!("Kubeconfig not found, skipping deployments fetch");
+        return deployments;
+    }
+
+    // Get all deployments from Kubernetes
+    let output = match tokio::process::Command::new("kubectl")
+        .arg("--kubeconfig")
+        .arg(&kubeconfig)
+        .arg("get")
+        .arg("deployments")
+        .arg("--all-namespaces")
+        .arg("-o")
+        .arg("json")
+        .output()
+        .await
+    {
+        Ok(output) => output,
+        Err(e) => {
+            info!("Failed to execute kubectl get deployments: {}", e);
+            return deployments;
+        }
+    };
+
+    if !output.status.success() {
+        info!(
+            "kubectl get deployments failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        return deployments;
+    }
+
+    let json_str = match String::from_utf8(output.stdout) {
+        Ok(s) => s,
+        Err(e) => {
+            info!("Failed to parse kubectl output as UTF-8: {}", e);
+            return deployments;
+        }
+    };
+
+    let json_value: serde_json::Value = match serde_json::from_str(&json_str) {
+        Ok(v) => v,
+        Err(e) => {
+            info!("Failed to parse JSON: {}", e);
+            return deployments;
+        }
+    };
+
+    if let Some(items) = json_value["items"].as_array() {
+        for item in items {
+            let namespace = item["metadata"]["namespace"]
+                .as_str()
+                .unwrap_or("default")
+                .to_string();
+            let name = item["metadata"]["name"]
+                .as_str()
+                .unwrap_or("unknown")
+                .to_string();
+
+            let spec = &item["spec"];
+            let status = &item["status"];
+
+            let desired_replicas = spec["replicas"].as_u64().unwrap_or(0) as u32;
+            let ready_replicas = status["readyReplicas"].as_u64().unwrap_or(0) as u32;
+            let available_replicas = status["availableReplicas"].as_u64().unwrap_or(0) as u32;
+            let unavailable_replicas = status["unavailableReplicas"].as_u64().unwrap_or(0) as u32;
+
+            // Determine deployment status based on conditions
+            let mut deployment_status = "Unknown".to_string();
+            if let Some(conditions) = status["conditions"].as_array() {
+                for condition in conditions {
+                    if condition["type"].as_str() == Some("Available")
+                        && condition["status"].as_str() == Some("True")
+                    {
+                        deployment_status = "Available".to_string();
+                        break;
+                    } else if condition["type"].as_str() == Some("Progressing")
+                        && condition["status"].as_str() == Some("True")
+                    {
+                        deployment_status = "Progressing".to_string();
+                    }
+                }
+            }
+
+            if unavailable_replicas > 0 || ready_replicas < desired_replicas {
+                deployment_status = "Unavailable".to_string();
+            }
+
+            // Get creation timestamp and calculate age
+            let created = item["metadata"]["creationTimestamp"].as_str().unwrap_or("");
+            let age = if !created.is_empty() {
+                calculate_age(created)
+            } else {
+                "Unknown".to_string()
+            };
+
+            // Get deployment strategy
+            let strategy = spec["strategy"]["type"]
+                .as_str()
+                .unwrap_or("RollingUpdate")
+                .to_string();
+
+            let deployment_info = super::templates::DeploymentInfo {
+                cluster_name: cluster_name.to_string(),
+                namespace,
+                name,
+                ready_replicas,
+                desired_replicas,
+                available_replicas,
+                unavailable_replicas,
+                status: deployment_status,
+                age,
+                strategy,
+            };
+
+            deployments.push(deployment_info);
+        }
+    }
+
+    deployments
+}
+
+/// Fetch detailed deployment information for all deployments
+async fn fetch_all_deployment_details(
+    config_path: &std::path::Path,
+    cluster_name: &str,
+) -> std::collections::HashMap<String, super::templates::DeploymentDetail> {
+    let mut deployment_details = std::collections::HashMap::new();
+
+    let output_dir = config_path
+        .parent()
+        .and_then(|p| p.parent())
+        .map(|p| p.join("output"))
+        .unwrap_or_else(|| std::path::PathBuf::from("output"));
+
+    let kubeconfig = output_dir.join("kubeconfig");
+
+    // Check if kubeconfig exists
+    if !kubeconfig.exists() {
+        info!("Kubeconfig not found, skipping deployment details fetch");
+        return deployment_details;
+    }
+
+    // Get all deployments from Kubernetes
+    let output = match tokio::process::Command::new("kubectl")
+        .arg("--kubeconfig")
+        .arg(&kubeconfig)
+        .arg("get")
+        .arg("deployments")
+        .arg("--all-namespaces")
+        .arg("-o")
+        .arg("json")
+        .output()
+        .await
+    {
+        Ok(output) => output,
+        Err(e) => {
+            info!("Failed to execute kubectl get deployments: {}", e);
+            return deployment_details;
+        }
+    };
+
+    if !output.status.success() {
+        info!(
+            "kubectl get deployments failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        return deployment_details;
+    }
+
+    let json_str = match String::from_utf8(output.stdout) {
+        Ok(s) => s,
+        Err(e) => {
+            info!("Failed to parse kubectl output as UTF-8: {}", e);
+            return deployment_details;
+        }
+    };
+
+    let json_value: serde_json::Value = match serde_json::from_str(&json_str) {
+        Ok(v) => v,
+        Err(e) => {
+            info!("Failed to parse JSON: {}", e);
+            return deployment_details;
+        }
+    };
+
+    if let Some(items) = json_value["items"].as_array() {
+        for item in items {
+            let namespace = item["metadata"]["namespace"]
+                .as_str()
+                .unwrap_or("default")
+                .to_string();
+            let name = item["metadata"]["name"]
+                .as_str()
+                .unwrap_or("unknown")
+                .to_string();
+
+            let spec = &item["spec"];
+            let status = &item["status"];
+            let metadata = &item["metadata"];
+
+            let desired_replicas = spec["replicas"].as_u64().unwrap_or(0) as u32;
+            let ready_replicas = status["readyReplicas"].as_u64().unwrap_or(0) as u32;
+            let available_replicas = status["availableReplicas"].as_u64().unwrap_or(0) as u32;
+            let unavailable_replicas = status["unavailableReplicas"].as_u64().unwrap_or(0) as u32;
+            let updated_replicas = status["updatedReplicas"].as_u64().unwrap_or(0) as u32;
+
+            // Determine deployment status
+            let mut deployment_status = "Unknown".to_string();
+            if let Some(conditions) = status["conditions"].as_array() {
+                for condition in conditions {
+                    if condition["type"].as_str() == Some("Available")
+                        && condition["status"].as_str() == Some("True")
+                    {
+                        deployment_status = "Available".to_string();
+                        break;
+                    } else if condition["type"].as_str() == Some("Progressing")
+                        && condition["status"].as_str() == Some("True")
+                    {
+                        deployment_status = "Progressing".to_string();
+                    }
+                }
+            }
+
+            if unavailable_replicas > 0 || ready_replicas < desired_replicas {
+                deployment_status = "Unavailable".to_string();
+            }
+
+            // Get creation timestamp and calculate age
+            let created = metadata["creationTimestamp"].as_str().unwrap_or("");
+            let age = if !created.is_empty() {
+                calculate_age(created)
+            } else {
+                "Unknown".to_string()
+            };
+
+            // Get deployment strategy
+            let strategy = spec["strategy"]["type"]
+                .as_str()
+                .unwrap_or("RollingUpdate")
+                .to_string();
+
+            let max_surge = spec["strategy"]["rollingUpdate"]["maxSurge"]
+                .as_str()
+                .or_else(|| {
+                    spec["strategy"]["rollingUpdate"]["maxSurge"]
+                        .as_u64()
+                        .map(|_| "1")
+                })
+                .unwrap_or("25%")
+                .to_string();
+
+            let max_unavailable = spec["strategy"]["rollingUpdate"]["maxUnavailable"]
+                .as_str()
+                .or_else(|| {
+                    spec["strategy"]["rollingUpdate"]["maxUnavailable"]
+                        .as_u64()
+                        .map(|_| "0")
+                })
+                .unwrap_or("25%")
+                .to_string();
+
+            // Get labels
+            let mut labels = Vec::new();
+            if let Some(labels_obj) = metadata["labels"].as_object() {
+                for (k, v) in labels_obj {
+                    if let Some(value) = v.as_str() {
+                        labels.push((k.clone(), value.to_string()));
+                    }
+                }
+            }
+
+            // Get selector
+            let mut selector = Vec::new();
+            if let Some(match_labels) = spec["selector"]["matchLabels"].as_object() {
+                for (k, v) in match_labels {
+                    if let Some(value) = v.as_str() {
+                        selector.push((k.clone(), value.to_string()));
+                    }
+                }
+            }
+
+            // Get conditions
+            let mut conditions = Vec::new();
+            if let Some(conditions_array) = status["conditions"].as_array() {
+                for condition in conditions_array {
+                    let condition_info = super::templates::DeploymentCondition {
+                        condition_type: condition["type"].as_str().unwrap_or("Unknown").to_string(),
+                        status: condition["status"]
+                            .as_str()
+                            .unwrap_or("Unknown")
+                            .to_string(),
+                        reason: condition["reason"].as_str().unwrap_or("-").to_string(),
+                        message: condition["message"].as_str().unwrap_or("-").to_string(),
+                        last_update: condition["lastUpdateTime"]
+                            .as_str()
+                            .map(calculate_age)
+                            .unwrap_or_else(|| "Unknown".to_string()),
+                    };
+                    conditions.push(condition_info);
+                }
+            }
+
+            // Get pods for this deployment (using selector)
+            let pods = if let Some(first_selector) = selector.first() {
+                let (label_key, label_value) = first_selector;
+                let label_selector = format!("{}={}", label_key, label_value);
+
+                let pods_output = tokio::process::Command::new("kubectl")
+                    .arg("--kubeconfig")
+                    .arg(&kubeconfig)
+                    .arg("get")
+                    .arg("pods")
+                    .arg("-n")
+                    .arg(&namespace)
+                    .arg("-l")
+                    .arg(&label_selector)
+                    .arg("-o")
+                    .arg("json")
+                    .output()
+                    .await;
+
+                if let Ok(output) = pods_output {
+                    if output.status.success() {
+                        if let Ok(json_str) = String::from_utf8(output.stdout) {
+                            if let Ok(json_value) =
+                                serde_json::from_str::<serde_json::Value>(&json_str)
+                            {
+                                if let Some(items) = json_value["items"].as_array() {
+                                    items
+                                        .iter()
+                                        .filter_map(|pod| {
+                                            let pod_name =
+                                                pod["metadata"]["name"].as_str()?.to_string();
+                                            let pod_namespace =
+                                                pod["metadata"]["namespace"].as_str()?.to_string();
+                                            let pod_status =
+                                                pod["status"]["phase"].as_str()?.to_string();
+
+                                            let mut restarts = 0u32;
+                                            if let Some(container_statuses) =
+                                                pod["status"]["containerStatuses"].as_array()
+                                            {
+                                                for container in container_statuses {
+                                                    if let Some(restart_count) =
+                                                        container["restartCount"].as_u64()
+                                                    {
+                                                        restarts += restart_count as u32;
+                                                    }
+                                                }
+                                            }
+
+                                            Some(crate::k8s::client::PodInfo {
+                                                name: pod_name,
+                                                namespace: pod_namespace,
+                                                status: pod_status,
+                                                restarts,
+                                                cpu: "N/A".to_string(),
+                                                memory: "N/A".to_string(),
+                                            })
+                                        })
+                                        .collect()
+                                } else {
+                                    Vec::new()
+                                }
+                            } else {
+                                Vec::new()
+                            }
+                        } else {
+                            Vec::new()
+                        }
+                    } else {
+                        Vec::new()
+                    }
+                } else {
+                    Vec::new()
+                }
+            } else {
+                Vec::new()
+            };
+
+            let deployment_detail = super::templates::DeploymentDetail {
+                cluster_name: cluster_name.to_string(),
+                namespace: namespace.clone(),
+                name: name.clone(),
+                ready_replicas,
+                desired_replicas,
+                available_replicas,
+                unavailable_replicas,
+                updated_replicas,
+                status: deployment_status,
+                age,
+                strategy,
+                max_surge,
+                max_unavailable,
+                labels,
+                selector,
+                pods,
+                conditions,
+            };
+
+            let key = format!("{}/{}", namespace, name);
+            deployment_details.insert(key, deployment_detail);
+        }
+    }
+
+    deployment_details
 }
 
 /// Fetch metrics history for all pods

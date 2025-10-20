@@ -1,0 +1,158 @@
+{% extends "layout.html" %} {% block content %}
+<div class="space-y-6">
+  <!-- Header -->
+  <div class="flex items-center gap-4">
+    <div class="rounded-lg p-3 bg-teal-500/15 flex-shrink-0">
+      <svg
+        class="w-8 h-8 stroke-teal-400"
+        fill="none"
+        viewBox="0 0 24 24"
+        stroke-width="2"
+      >
+        <path
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+        />
+      </svg>
+    </div>
+    <div>
+      <h2 class="text-3xl font-semibold text-text-primary">Deployments</h2>
+      <p class="text-base text-text-secondary">Kubernetes deployments across all clusters</p>
+    </div>
+  </div>
+
+  <!-- Stats Cards -->
+  <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+    <!-- Available Deployments -->
+    <div class="rounded-lg p-6 bg-[#242424] border border-dark-border">
+      <div class="flex items-center justify-between">
+        <div class="min-h-[3.5rem] flex flex-col justify-between">
+          <p class="text-sm font-medium text-text-secondary">Available</p>
+          <p class="text-4xl font-semibold text-text-primary">{{ available_count }}</p>
+        </div>
+        <div class="rounded-lg p-3 bg-accent-green/15 flex-shrink-0">
+          <svg class="w-8 h-8 stroke-accent-green" fill="none" viewBox="0 0 24 24" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+        </div>
+      </div>
+    </div>
+
+    <!-- Progressing Deployments -->
+    <div class="rounded-lg p-6 bg-[#242424] border border-dark-border">
+      <div class="flex items-center justify-between">
+        <div class="min-h-[3.5rem] flex flex-col justify-between">
+          <p class="text-sm font-medium text-text-secondary">Progressing</p>
+          <p class="text-4xl font-semibold text-text-primary">{{ progressing_count }}</p>
+        </div>
+        <div class="rounded-lg p-3 bg-accent-blue/15 flex-shrink-0">
+          <svg class="w-8 h-8 stroke-accent-blue" fill="none" viewBox="0 0 24 24" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
+          </svg>
+        </div>
+      </div>
+    </div>
+
+    <!-- Unavailable Deployments -->
+    <div class="rounded-lg p-6 bg-[#242424] border border-dark-border">
+      <div class="flex items-center justify-between">
+        <div class="min-h-[3.5rem] flex flex-col justify-between">
+          <p class="text-sm font-medium text-text-secondary">Unavailable</p>
+          <p class="text-4xl font-semibold text-text-primary">{{ unavailable_count }}</p>
+        </div>
+        <div class="rounded-lg p-3 bg-accent-red/15 flex-shrink-0">
+          <svg class="w-8 h-8 stroke-accent-red" fill="none" viewBox="0 0 24 24" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+          </svg>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Deployments Table -->
+  <div class="rounded-lg bg-[#242424] border border-dark-border overflow-hidden">
+    <div class="p-6 border-b border-dark-border">
+      <h3 class="text-xl font-semibold text-text-primary">All Deployments</h3>
+    </div>
+    <div class="overflow-x-auto max-h-[600px] overflow-y-auto">
+      <table class="w-full">
+        <thead>
+          <tr class="border-b border-dark-border sticky top-0 bg-[#242424] z-10">
+            <th class="px-6 py-3 text-left text-sm font-medium text-text-secondary">Name</th>
+            <th class="px-6 py-3 text-left text-sm font-medium text-text-secondary">Namespace</th>
+            <th class="px-6 py-3 text-left text-sm font-medium text-text-secondary">Cluster</th>
+            <th class="px-6 py-3 text-center text-sm font-medium text-text-secondary">Replicas</th>
+            <th class="px-6 py-3 text-center text-sm font-medium text-text-secondary">Strategy</th>
+            <th class="px-6 py-3 text-center text-sm font-medium text-text-secondary">Status</th>
+            <th class="px-6 py-3 text-center text-sm font-medium text-text-secondary">Age</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-dark-border">
+          {% if deployments.is_empty() %}
+          <tr>
+            <td colspan="7" class="px-6 py-12 text-center text-text-muted">
+              <div class="flex flex-col items-center">
+                <svg class="w-16 h-16 mb-4 stroke-text-muted" fill="none" viewBox="0 0 24 24" stroke-width="1.5">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+                <p class="text-lg font-medium text-text-secondary mb-2">No deployments found</p>
+                <p class="text-sm">Kubernetes deployments will appear here</p>
+              </div>
+            </td>
+          </tr>
+          {% else %}
+          {% for deployment in deployments %}
+          <tr class="hover:bg-dark-hover transition cursor-pointer" onclick="window.location='/deployments/{{ deployment.namespace }}/{{ deployment.name }}'">
+            <td class="px-6 py-4">
+              <span class="text-base font-medium font-mono text-text-primary block truncate max-w-xs">
+                {{ deployment.name }}
+              </span>
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-center">
+              <span class="inline-flex items-center px-2.5 py-1 rounded-md text-sm font-medium bg-purple-500/15 text-purple-400 border border-purple-500/30">
+                {{ deployment.namespace }}
+              </span>
+            </td>
+            <td class="px-6 py-4">
+              <span class="text-base text-text-secondary">{{ deployment.cluster_name }}</span>
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-center">
+              <span class="text-base {% if deployment.ready_replicas == deployment.desired_replicas %}text-accent-green{% elif deployment.ready_replicas > 0 %}text-accent-yellow{% else %}text-accent-red{% endif %} font-medium">
+                {{ deployment.ready_replicas }}/{{ deployment.desired_replicas }}
+              </span>
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-center">
+              <span class="text-base text-text-secondary">{{ deployment.strategy }}</span>
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-center">
+              {% if deployment.status == "Available" %}
+              <span class="inline-flex items-center px-2.5 py-1 rounded-md text-sm font-medium bg-accent-green/15 text-accent-green border border-accent-green/30">
+                Available
+              </span>
+              {% elif deployment.status == "Progressing" %}
+              <span class="inline-flex items-center px-2.5 py-1 rounded-md text-sm font-medium bg-accent-blue/15 text-accent-blue border border-accent-blue/30">
+                Progressing
+              </span>
+              {% elif deployment.status == "Unavailable" %}
+              <span class="inline-flex items-center px-2.5 py-1 rounded-md text-sm font-medium bg-accent-red/15 text-accent-red border border-accent-red/30">
+                Unavailable
+              </span>
+              {% else %}
+              <span class="inline-flex items-center px-2.5 py-1 rounded-md text-sm font-medium bg-text-muted/15 text-text-muted border border-text-muted/30">
+                {{ deployment.status }}
+              </span>
+              {% endif %}
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-center">
+              <span class="text-base text-text-secondary">{{ deployment.age }}</span>
+            </td>
+          </tr>
+          {% endfor %}
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}

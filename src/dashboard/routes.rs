@@ -15,18 +15,138 @@ use tracing::{error, info};
 use super::server::AppState;
 use super::templates::{
     AlertsTemplate, CiliumTemplate, ClusterDetailTemplate, ClustersTemplate, CreateClusterTemplate,
-    EnvoyTemplate, IndexTemplate, InsightsTemplate, MetricsTemplate, NodeDetailTemplate,
-    NodeInfoWithCluster, NodesTemplate, PodDetailTemplate, PodsTemplate,
+    DeploymentDetailTemplate, DeploymentsTemplate, EnvoyTemplate, EventsTemplate, IndexTemplate,
+    InsightsTemplate, LogLevel, LogLine, MetricsTemplate, NodeDetailTemplate, NodeInfoWithCluster,
+    NodesTemplate, PodDetailTemplate, PodsTemplate, ServicesTemplate,
 };
 use crate::config::ClusterConfig;
 
-/// Get both firing alerts count and insights count in one lock (optimized)
-async fn get_alerts_and_insights_counts(cache: &super::cache::ClusterCache) -> (usize, usize) {
+/// Parse log level from a log line
+/// Supports common log formats: level=, "level":, [LEVEL], LEVEL:, etc.
+/// Prioritizes structured log formats (level=) over keyword matching to avoid false positives
+fn parse_log_level(line: &str) -> LogLevel {
+    let line_lower = line.to_lowercase();
+
+    // First, check for structured log formats (most reliable)
+    // These are checked first to avoid false matches in file paths or messages
+    if line_lower.contains("level=error") || line_lower.contains("\"level\":\"error\"") {
+        return LogLevel::Error;
+    } else if line_lower.contains("level=warn") || line_lower.contains("\"level\":\"warn\"") {
+        return LogLevel::Warning;
+    } else if line_lower.contains("level=info") || line_lower.contains("\"level\":\"info\"") {
+        return LogLevel::Info;
+    } else if line_lower.contains("level=debug") || line_lower.contains("\"level\":\"debug\"") {
+        return LogLevel::Debug;
+    } else if line_lower.contains("level=trace") || line_lower.contains("\"level\":\"trace\"") {
+        return LogLevel::Trace;
+    }
+
+    // Then check for bracketed formats [LEVEL]
+    if line_lower.contains("[error]") {
+        return LogLevel::Error;
+    } else if line_lower.contains("[warn]") || line_lower.contains("[warning]") {
+        return LogLevel::Warning;
+    } else if line_lower.contains("[info]") {
+        return LogLevel::Info;
+    } else if line_lower.contains("[debug]") {
+        return LogLevel::Debug;
+    } else if line_lower.contains("[trace]") {
+        return LogLevel::Trace;
+    }
+
+    // Check for level at start of line with colon (e.g., "ERROR: message")
+    if line_lower.starts_with("error:") || line_lower.starts_with("fatal:") {
+        return LogLevel::Error;
+    } else if line_lower.starts_with("warn:") || line_lower.starts_with("warning:") {
+        return LogLevel::Warning;
+    } else if line_lower.starts_with("info:") {
+        return LogLevel::Info;
+    } else if line_lower.starts_with("debug:") {
+        return LogLevel::Debug;
+    } else if line_lower.starts_with("trace:") {
+        return LogLevel::Trace;
+    }
+
+    // Check for standalone level keywords at word boundaries (last resort)
+    // Use regex-like pattern to match only complete words
+    if line_lower.contains(" fatal ") || line_lower.contains(" panic ") {
+        return LogLevel::Error;
+    }
+
+    // Default to Unknown if no pattern matches
+    LogLevel::Unknown
+}
+
+/// Get both firing alerts count and insights count from cache (optimized - uses pre-calculated counts)
+async fn get_alerts_and_insights_counts(
+    cache: &super::cache::ClusterCache,
+) -> (usize, usize, usize) {
     let data = cache.inner.read().await;
     (
-        data.alerts.iter().filter(|a| a.state == "firing").count(),
-        data.insights.len(),
+        data.firing_alerts_count,
+        data.insights_count,
+        data.warning_events_count,
     )
+}
+
+/// Collect unique timestamps from metrics history
+fn collect_unique_timestamps(history: &crate::prometheus::NodeMetricsHistory) -> Vec<i64> {
+    let mut all_timestamps = std::collections::BTreeSet::new();
+    for (ts, _) in &history.cpu_history {
+        all_timestamps.insert(*ts);
+    }
+    all_timestamps.iter().copied().collect()
+}
+
+/// Align metric values to unique timestamps with tolerance
+fn align_metric_to_timestamps(
+    timestamps: &[i64],
+    metric_history: &[(i64, f64)],
+    tolerance_secs: i64,
+) -> Vec<f64> {
+    timestamps
+        .iter()
+        .map(|ts| {
+            // Try exact match first
+            if let Some((_, val)) = metric_history.iter().find(|(t, _)| t == ts) {
+                return *val;
+            }
+            // If no exact match, find nearest timestamp within tolerance
+            metric_history
+                .iter()
+                .filter(|(t, _)| (*t - *ts).abs() <= tolerance_secs)
+                .min_by_key(|(t, _)| (*t - *ts).abs())
+                .map(|(_, val)| *val)
+                .unwrap_or(0.0)
+        })
+        .collect()
+}
+
+/// Build pod metrics JSON from history
+fn build_pod_metrics_json(history: &crate::prometheus::NodeMetricsHistory) -> serde_json::Value {
+    let timestamps = collect_unique_timestamps(history);
+
+    // Align CPU data to unique timestamps
+    let cpu_history: Vec<f64> = timestamps
+        .iter()
+        .map(|ts| {
+            history
+                .cpu_history
+                .iter()
+                .find(|(t, _)| t == ts)
+                .map(|(_, val)| *val)
+                .unwrap_or(0.0)
+        })
+        .collect();
+
+    // Align memory data to unique timestamps (with 2-second tolerance)
+    let memory_history = align_metric_to_timestamps(&timestamps, &history.memory_history, 2);
+
+    serde_json::json!({
+        "timestamps": timestamps,
+        "cpu_history": cpu_history,
+        "memory_history": memory_history,
+    })
 }
 
 /// Generate ETag from content string (fast FNV-1a hash)
@@ -46,8 +166,8 @@ fn check_etag(headers: &HeaderMap, etag: &str) -> bool {
 }
 
 /// Returns the preloader HTML page with auto-refresh
-fn preloader_page() -> Html<String> {
-    Html(r#"
+fn preloader_page() -> impl IntoResponse {
+    let html = r#"
         <!DOCTYPE html>
         <html>
         <head>
@@ -132,7 +252,17 @@ fn preloader_page() -> Html<String> {
             </script>
         </body>
         </html>
-    "#.to_string())
+    "#;
+
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("no-cache, no-store, must-revalidate"),
+    );
+    headers.insert(header::PRAGMA, HeaderValue::from_static("no-cache"));
+    headers.insert(header::EXPIRES, HeaderValue::from_static("0"));
+
+    (headers, Html(html))
 }
 
 /// Render the home/index page with cluster overview
@@ -145,7 +275,8 @@ pub async fn index(State(state): State<AppState>) -> impl IntoResponse {
 
     let clusters = state.cache.get_clusters().await;
     let total_nodes: usize = clusters.iter().map(|c| c.nodes).sum();
-    let (firing_alerts_count, insights_count) = get_alerts_and_insights_counts(&state.cache).await;
+    let (firing_alerts_count, insights_count, warning_events_count) =
+        get_alerts_and_insights_counts(&state.cache).await;
     let template = IndexTemplate {
         cluster_count: clusters.len(),
         total_nodes,
@@ -153,6 +284,7 @@ pub async fn index(State(state): State<AppState>) -> impl IntoResponse {
         version: env!("CARGO_PKG_VERSION").to_string(),
         firing_alerts_count,
         insights_count,
+        warning_events_count,
     };
     Html(template.render().unwrap()).into_response()
 }
@@ -166,25 +298,29 @@ pub async fn clusters_list(State(state): State<AppState>) -> impl IntoResponse {
     }
 
     let clusters = state.cache.get_clusters().await;
-    let (firing_alerts_count, insights_count) = get_alerts_and_insights_counts(&state.cache).await;
+    let (firing_alerts_count, insights_count, warning_events_count) =
+        get_alerts_and_insights_counts(&state.cache).await;
     let template = ClustersTemplate {
         clusters: clusters.as_ref(),
         active_page: "clusters".to_string(),
         version: env!("CARGO_PKG_VERSION").to_string(),
         firing_alerts_count,
         insights_count,
+        warning_events_count,
     };
     Html(template.render().unwrap()).into_response()
 }
 
 /// Create cluster form page
 pub async fn clusters_create_form(State(state): State<AppState>) -> impl IntoResponse {
-    let (firing_alerts_count, insights_count) = get_alerts_and_insights_counts(&state.cache).await;
+    let (firing_alerts_count, insights_count, warning_events_count) =
+        get_alerts_and_insights_counts(&state.cache).await;
     let template = CreateClusterTemplate {
         active_page: "clusters".to_string(),
         version: env!("CARGO_PKG_VERSION").to_string(),
         firing_alerts_count,
         insights_count,
+        warning_events_count,
     };
     Html(template.render().unwrap())
 }
@@ -209,14 +345,9 @@ pub async fn cluster_detail(
                 cluster.nodes.iter().map(|n| n.name.clone()).collect();
             node_names.sort();
 
-            // Batch read alerts and insights (single lock acquisition)
-            let (firing_alerts_count, insights_count) = {
-                let data = state.cache.inner.read().await;
-                (
-                    data.alerts.iter().filter(|a| a.state == "firing").count(),
-                    data.insights.len(),
-                )
-            };
+            // Get alerts and insights counts using helper
+            let (firing_alerts_count, insights_count, warning_events_count) =
+                get_alerts_and_insights_counts(&state.cache).await;
 
             let template = ClusterDetailTemplate {
                 cluster,
@@ -224,6 +355,7 @@ pub async fn cluster_detail(
                 version: env!("CARGO_PKG_VERSION").to_string(),
                 firing_alerts_count,
                 insights_count,
+                warning_events_count,
                 metrics_json,
                 node_names,
             };
@@ -259,7 +391,7 @@ pub async fn node_detail(
                 "{}".to_string()
             };
 
-            let (firing_alerts_count, insights_count) =
+            let (firing_alerts_count, insights_count, warning_events_count) =
                 get_alerts_and_insights_counts(&state.cache).await;
             let template = NodeDetailTemplate {
                 node,
@@ -268,6 +400,7 @@ pub async fn node_detail(
                 version: env!("CARGO_PKG_VERSION").to_string(),
                 firing_alerts_count,
                 insights_count,
+                warning_events_count,
             };
             Html(template.render().unwrap()).into_response()
         }
@@ -298,53 +431,10 @@ pub async fn pod_detail(
                 .await
                 .unwrap_or_default();
 
-            // Build metrics JSON with properly aligned timestamps
-            let mut all_timestamps = std::collections::BTreeSet::new();
-            for (ts, _) in &metrics.cpu_history {
-                all_timestamps.insert(*ts);
-            }
+            // Build metrics JSON using helper function
+            let metrics_json = build_pod_metrics_json(&metrics);
 
-            let timestamps: Vec<i64> = all_timestamps.iter().copied().collect();
-
-            // Align CPU data to unique timestamps
-            let cpu_history: Vec<f64> = timestamps
-                .iter()
-                .map(|ts| {
-                    metrics
-                        .cpu_history
-                        .iter()
-                        .find(|(t, _)| t == ts)
-                        .map(|(_, val)| *val)
-                        .unwrap_or(0.0)
-                })
-                .collect();
-
-            // Align memory data to unique timestamps (with 2-second tolerance)
-            let memory_history: Vec<f64> = timestamps
-                .iter()
-                .map(|ts| {
-                    // Try exact match first
-                    if let Some((_, val)) = metrics.memory_history.iter().find(|(t, _)| t == ts) {
-                        return *val;
-                    }
-                    // If no exact match, find nearest timestamp within 2 seconds
-                    metrics
-                        .memory_history
-                        .iter()
-                        .filter(|(t, _)| (*t - *ts).abs() <= 2)
-                        .min_by_key(|(t, _)| (*t - *ts).abs())
-                        .map(|(_, val)| *val)
-                        .unwrap_or(0.0)
-                })
-                .collect();
-
-            let metrics_json = serde_json::json!({
-                "timestamps": timestamps,
-                "cpu_history": cpu_history,
-                "memory_history": memory_history,
-            });
-
-            let (firing_alerts_count, insights_count) =
+            let (firing_alerts_count, insights_count, warning_events_count) =
                 get_alerts_and_insights_counts(&state.cache).await;
             let template = PodDetailTemplate {
                 pod,
@@ -354,11 +444,92 @@ pub async fn pod_detail(
                 version: env!("CARGO_PKG_VERSION").to_string(),
                 firing_alerts_count,
                 insights_count,
+                warning_events_count,
             };
             Html(template.render().unwrap()).into_response()
         }
         None => preloader_page().into_response(),
     }
+}
+
+/// Pod logs viewing page
+pub async fn pod_logs(
+    State(state): State<AppState>,
+    axum::extract::Path((cluster_name, node_name, namespace, pod_name)): axum::extract::Path<(
+        String,
+        String,
+        String,
+        String,
+    )>,
+    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> impl IntoResponse {
+    // Extract query parameters
+    let container = params.get("container").map(|s| s.as_str());
+    let tail = params
+        .get("tail")
+        .and_then(|s| s.parse::<usize>().ok())
+        .unwrap_or(100); // Default to 100 lines
+    let follow = params.get("follow").map(|s| s == "true").unwrap_or(false);
+
+    // Get pod detail to display pod info
+    let pod = state
+        .cache
+        .get_pod_detail(&cluster_name, &node_name, &namespace, &pod_name)
+        .await;
+
+    if pod.is_none() {
+        return preloader_page().into_response();
+    }
+
+    let pod = pod.unwrap();
+
+    // Fetch logs from kubectl
+    let logs_result = state
+        .cache
+        .get_pod_logs(
+            &cluster_name,
+            &namespace,
+            &pod_name,
+            container,
+            Some(tail),
+            follow,
+        )
+        .await;
+
+    let (log_lines, error_message) = match logs_result {
+        Ok(logs) => {
+            // Split logs into lines, parse log level, reverse to show newest first
+            let lines: Vec<LogLine> = logs
+                .lines()
+                .rev()
+                .map(|line| LogLine {
+                    content: line.to_string(),
+                    level: parse_log_level(line),
+                })
+                .collect();
+            (lines, None)
+        }
+        Err(e) => (Vec::new(), Some(e)),
+    };
+
+    // Get alerts and insights counts
+    let (firing_alerts_count, insights_count, warning_events_count) =
+        get_alerts_and_insights_counts(&state.cache).await;
+
+    let template = super::templates::PodLogsTemplate {
+        pod,
+        log_lines,
+        error_message,
+        selected_container: container.map(|s| s.to_string()),
+        tail_lines: tail,
+        active_page: "pods".to_string(),
+        version: env!("CARGO_PKG_VERSION").to_string(),
+        firing_alerts_count,
+        insights_count,
+        warning_events_count,
+    };
+
+    Html(template.render().unwrap()).into_response()
 }
 
 /// Create cluster POST handler
@@ -533,51 +704,8 @@ pub async fn api_pod_metrics(
         .await
         .unwrap_or_default();
 
-    // Collect unique timestamps and align data
-    let mut all_timestamps = std::collections::BTreeSet::new();
-    for (ts, _) in &history.cpu_history {
-        all_timestamps.insert(*ts);
-    }
-
-    let timestamps: Vec<i64> = all_timestamps.iter().copied().collect();
-
-    // Align CPU data to unique timestamps
-    let cpu_history: Vec<f64> = timestamps
-        .iter()
-        .map(|ts| {
-            history
-                .cpu_history
-                .iter()
-                .find(|(t, _)| t == ts)
-                .map(|(_, val)| *val)
-                .unwrap_or(0.0)
-        })
-        .collect();
-
-    // Align memory data to unique timestamps (with 2-second tolerance)
-    let memory_history: Vec<f64> = timestamps
-        .iter()
-        .map(|ts| {
-            // Try exact match first
-            if let Some((_, val)) = history.memory_history.iter().find(|(t, _)| t == ts) {
-                return *val;
-            }
-            // If no exact match, find nearest timestamp within 2 seconds
-            history
-                .memory_history
-                .iter()
-                .filter(|(t, _)| (*t - *ts).abs() <= 2)
-                .min_by_key(|(t, _)| (*t - *ts).abs())
-                .map(|(_, val)| *val)
-                .unwrap_or(0.0)
-        })
-        .collect();
-
-    Json(serde_json::json!({
-        "timestamps": timestamps,
-        "cpu_history": cpu_history,
-        "memory_history": memory_history,
-    }))
+    // Build metrics JSON using helper function
+    Json(build_pod_metrics_json(&history))
 }
 
 /// Scale cluster POST handler
@@ -819,7 +947,8 @@ pub async fn metrics(State(state): State<AppState>) -> impl IntoResponse {
         "{}".to_string()
     };
 
-    let (firing_alerts_count, insights_count) = get_alerts_and_insights_counts(&state.cache).await;
+    let (firing_alerts_count, insights_count, warning_events_count) =
+        get_alerts_and_insights_counts(&state.cache).await;
     let template = MetricsTemplate {
         active_page: "metrics".to_string(),
         version: env!("CARGO_PKG_VERSION").to_string(),
@@ -829,6 +958,7 @@ pub async fn metrics(State(state): State<AppState>) -> impl IntoResponse {
         pod_names,
         firing_alerts_count,
         insights_count,
+        warning_events_count,
     };
     Html(template.render().unwrap()).into_response()
 }
@@ -1028,7 +1158,8 @@ pub async fn pods_list(State(state): State<AppState>) -> impl IntoResponse {
         }
     });
 
-    let (firing_alerts_count, insights_count) = get_alerts_and_insights_counts(&state.cache).await;
+    let (firing_alerts_count, insights_count, warning_events_count) =
+        get_alerts_and_insights_counts(&state.cache).await;
     let template = PodsTemplate {
         pods,
         running_count,
@@ -1038,6 +1169,7 @@ pub async fn pods_list(State(state): State<AppState>) -> impl IntoResponse {
         version: env!("CARGO_PKG_VERSION").to_string(),
         firing_alerts_count,
         insights_count,
+        warning_events_count,
     };
     Html(template.render().unwrap()).into_response()
 }
@@ -1097,14 +1229,9 @@ pub async fn nodes_list(State(state): State<AppState>) -> impl IntoResponse {
     let mut node_names: Vec<String> = node_metrics_history.keys().cloned().collect();
     node_names.sort();
 
-    // Batch read alerts and insights (single lock acquisition)
-    let (firing_alerts_count, insights_count) = {
-        let data = state.cache.inner.read().await;
-        (
-            data.alerts.iter().filter(|a| a.state == "firing").count(),
-            data.insights.len(),
-        )
-    };
+    // Get alerts and insights counts using helper
+    let (firing_alerts_count, insights_count, warning_events_count) =
+        get_alerts_and_insights_counts(&state.cache).await;
     let template = NodesTemplate {
         nodes,
         control_plane_count,
@@ -1116,8 +1243,95 @@ pub async fn nodes_list(State(state): State<AppState>) -> impl IntoResponse {
         version: env!("CARGO_PKG_VERSION").to_string(),
         firing_alerts_count,
         insights_count,
+        warning_events_count,
     };
     Html(template.render().unwrap()).into_response()
+}
+
+/// Services list page
+pub async fn services_list(State(state): State<AppState>) -> impl IntoResponse {
+    let cache_ready = state.cache.is_ready().await;
+
+    if !cache_ready {
+        return preloader_page().into_response();
+    }
+
+    let mut services = state.cache.get_all_services().await;
+
+    // Sort services: LoadBalancer first, then NodePort, then ClusterIP
+    // Within each type, sort alphabetically by name
+    services.sort_by(|a, b| {
+        // Define priority: LoadBalancer = 0, NodePort = 1, ClusterIP = 2, others = 3
+        let type_priority = |service_type: &str| match service_type {
+            "LoadBalancer" => 0,
+            "NodePort" => 1,
+            "ClusterIP" => 2,
+            _ => 3,
+        };
+
+        let a_priority = type_priority(&a.service_type);
+        let b_priority = type_priority(&b.service_type);
+
+        // First sort by type priority, then by name
+        a_priority
+            .cmp(&b_priority)
+            .then_with(|| a.name.cmp(&b.name))
+    });
+
+    // Calculate counts by service type
+    let cluster_ip_count = services
+        .iter()
+        .filter(|s| s.service_type == "ClusterIP")
+        .count();
+    let load_balancer_count = services
+        .iter()
+        .filter(|s| s.service_type == "LoadBalancer")
+        .count();
+    let node_port_count = services
+        .iter()
+        .filter(|s| s.service_type == "NodePort")
+        .count();
+
+    let (firing_alerts_count, insights_count, warning_events_count) =
+        get_alerts_and_insights_counts(&state.cache).await;
+
+    let template = ServicesTemplate {
+        services,
+        cluster_ip_count,
+        load_balancer_count,
+        node_port_count,
+        active_page: "services".to_string(),
+        version: env!("CARGO_PKG_VERSION").to_string(),
+        firing_alerts_count,
+        insights_count,
+        warning_events_count,
+    };
+    Html(template.render().unwrap()).into_response()
+}
+
+/// Service detail page
+pub async fn service_detail(
+    State(state): State<AppState>,
+    axum::extract::Path((namespace, name)): axum::extract::Path<(String, String)>,
+) -> impl IntoResponse {
+    match state.cache.get_service_detail(&namespace, &name).await {
+        Some(service) => {
+            let (firing_alerts_count, insights_count, warning_events_count) =
+                get_alerts_and_insights_counts(&state.cache).await;
+
+            let template = super::templates::ServiceDetailTemplate {
+                service,
+                active_page: "services".to_string(),
+                version: env!("CARGO_PKG_VERSION").to_string(),
+                firing_alerts_count,
+                insights_count,
+                warning_events_count,
+            };
+
+            Html(template.render().unwrap()).into_response()
+        }
+        None => Html(format!("Service {}/{} not found", namespace, name)).into_response(),
+    }
 }
 
 /// Cilium page
@@ -1128,7 +1342,8 @@ pub async fn cilium(State(state): State<AppState>) -> impl IntoResponse {
         return preloader_page().into_response();
     }
 
-    let (firing_alerts_count, insights_count) = get_alerts_and_insights_counts(&state.cache).await;
+    let (firing_alerts_count, insights_count, warning_events_count) =
+        get_alerts_and_insights_counts(&state.cache).await;
 
     // Get pre-serialized metrics JSON from cache (same as API endpoint)
     let metrics_json = state
@@ -1156,6 +1371,7 @@ pub async fn cilium(State(state): State<AppState>) -> impl IntoResponse {
         pod_names,
         firing_alerts_count,
         insights_count,
+        warning_events_count,
     };
 
     Html(template.render().unwrap()).into_response()
@@ -1169,7 +1385,8 @@ pub async fn envoy(State(state): State<AppState>) -> impl IntoResponse {
         return preloader_page().into_response();
     }
 
-    let (firing_alerts_count, insights_count) = get_alerts_and_insights_counts(&state.cache).await;
+    let (firing_alerts_count, insights_count, warning_events_count) =
+        get_alerts_and_insights_counts(&state.cache).await;
 
     // Get pre-serialized metrics JSON from cache
     let metrics_json = state.cache.get_envoy_metrics_json_cache().await.to_string();
@@ -1185,6 +1402,7 @@ pub async fn envoy(State(state): State<AppState>) -> impl IntoResponse {
         metrics_json,
         firing_alerts_count,
         insights_count,
+        warning_events_count,
     };
 
     Html(template.render().unwrap()).into_response()
@@ -1235,41 +1453,15 @@ pub async fn alerts(State(state): State<AppState>) -> impl IntoResponse {
         return preloader_page().into_response();
     }
 
-    // Get alerts from cache
-    let mut alerts = state.cache.get_alerts().await.to_vec();
-
-    // Sort alerts by severity (critical, warning, info, none), then by state (firing first)
-    alerts.sort_by(|a, b| {
-        // Define severity priority
-        let severity_priority = |s: &str| match s {
-            "critical" => 0,
-            "warning" => 1,
-            "info" => 2,
-            _ => 3,
-        };
-
-        // Define state priority
-        let state_priority = |s: &str| match s {
-            "firing" => 0,
-            "pending" => 1,
-            _ => 2,
-        };
-
-        // First compare by severity
-        match severity_priority(&a.severity).cmp(&severity_priority(&b.severity)) {
-            std::cmp::Ordering::Equal => {
-                // If same severity, compare by state
-                state_priority(&a.state).cmp(&state_priority(&b.state))
-            }
-            other => other,
-        }
-    });
+    // Get pre-sorted alerts from cache
+    let alerts = state.cache.get_alerts().await;
 
     // Count alert states
     let firing_count = alerts.iter().filter(|a| a.state == "firing").count();
     let pending_count = alerts.iter().filter(|a| a.state == "pending").count();
 
     let insights_count = state.cache.get_insights().await.len();
+    let (_, warning_events_count, _) = state.cache.get_events().await;
     let template = AlertsTemplate {
         active_page: "alerts".to_string(),
         version: env!("CARGO_PKG_VERSION").to_string(),
@@ -1278,6 +1470,7 @@ pub async fn alerts(State(state): State<AppState>) -> impl IntoResponse {
         pending_count,
         firing_alerts_count: firing_count,
         insights_count,
+        warning_events_count,
     };
 
     Html(template.render().unwrap()).into_response()
@@ -1291,28 +1484,8 @@ pub async fn insights(State(state): State<AppState>) -> impl IntoResponse {
         return preloader_page().into_response();
     }
 
-    // Get insights from cache
-    let mut insights = state.cache.get_insights().await.to_vec();
-
-    // Sort insights by severity (high, medium, low), then by title
-    insights.sort_by(|a, b| {
-        // Define severity priority
-        let severity_priority = |s: &str| match s {
-            "high" => 0,
-            "medium" => 1,
-            "low" => 2,
-            _ => 3,
-        };
-
-        // First compare by severity
-        match severity_priority(&a.severity).cmp(&severity_priority(&b.severity)) {
-            std::cmp::Ordering::Equal => {
-                // If same severity, compare by title
-                a.title.cmp(&b.title)
-            }
-            other => other,
-        }
-    });
+    // Get pre-sorted insights from cache
+    let insights = state.cache.get_insights().await;
 
     // Count severity levels
     let high_count = insights.iter().filter(|i| i.severity == "high").count();
@@ -1327,6 +1500,7 @@ pub async fn insights(State(state): State<AppState>) -> impl IntoResponse {
         .filter(|a| a.state == "firing")
         .count();
     let insights_count = insights.len();
+    let (_, warning_events_count, _) = state.cache.get_events().await;
     let template = InsightsTemplate {
         active_page: "insights".to_string(),
         version: env!("CARGO_PKG_VERSION").to_string(),
@@ -1336,9 +1510,93 @@ pub async fn insights(State(state): State<AppState>) -> impl IntoResponse {
         low_count,
         firing_alerts_count,
         insights_count,
+        warning_events_count,
     };
 
     Html(template.render().unwrap()).into_response()
+}
+
+/// Events page
+pub async fn events(State(state): State<AppState>) -> impl IntoResponse {
+    let cache_ready = state.cache.is_ready().await;
+
+    if !cache_ready {
+        return preloader_page().into_response();
+    }
+
+    // Get events and counts from cache
+    let (events, warning_count, normal_count) = state.cache.get_events().await;
+
+    let (firing_alerts_count, insights_count, warning_events_count) =
+        get_alerts_and_insights_counts(&state.cache).await;
+
+    let template = EventsTemplate {
+        active_page: "events".to_string(),
+        version: env!("CARGO_PKG_VERSION").to_string(),
+        events: events.to_vec(),
+        warning_count,
+        normal_count,
+        firing_alerts_count,
+        insights_count,
+        warning_events_count,
+    };
+
+    Html(template.render().unwrap()).into_response()
+}
+
+/// Render the deployments list page
+pub async fn deployments(State(state): State<AppState>) -> impl IntoResponse {
+    let cache_ready = state.cache.is_ready().await;
+
+    if !cache_ready {
+        return preloader_page().into_response();
+    }
+
+    // Get deployments and counts from cache
+    let (deployments, available_count, progressing_count, unavailable_count) =
+        state.cache.get_deployments().await;
+
+    let (firing_alerts_count, insights_count, warning_events_count) =
+        get_alerts_and_insights_counts(&state.cache).await;
+
+    let template = DeploymentsTemplate {
+        active_page: "deployments".to_string(),
+        version: env!("CARGO_PKG_VERSION").to_string(),
+        deployments: deployments.to_vec(),
+        available_count,
+        progressing_count,
+        unavailable_count,
+        firing_alerts_count,
+        insights_count,
+        warning_events_count,
+    };
+
+    Html(template.render().unwrap()).into_response()
+}
+
+/// Render the deployment detail page
+pub async fn deployment_detail(
+    State(state): State<AppState>,
+    axum::extract::Path((namespace, name)): axum::extract::Path<(String, String)>,
+) -> impl IntoResponse {
+    match state.cache.get_deployment_detail(&namespace, &name).await {
+        Some(deployment) => {
+            let (firing_alerts_count, insights_count, warning_events_count) =
+                get_alerts_and_insights_counts(&state.cache).await;
+
+            let template = DeploymentDetailTemplate {
+                deployment,
+                active_page: "deployments".to_string(),
+                version: env!("CARGO_PKG_VERSION").to_string(),
+                firing_alerts_count,
+                insights_count,
+                warning_events_count,
+            };
+
+            Html(template.render().unwrap()).into_response()
+        }
+        None => Html(format!("Deployment {}/{} not found", namespace, name)).into_response(),
+    }
 }
 
 /// API endpoint for insights data
@@ -1352,28 +1610,8 @@ pub async fn api_insights(State(state): State<AppState>) -> impl IntoResponse {
         .into_response();
     }
 
-    // Get insights from cache
-    let mut insights = state.cache.get_insights().await.to_vec();
-
-    // Sort insights by severity (high, medium, low), then by title
-    insights.sort_by(|a, b| {
-        // Define severity priority
-        let severity_priority = |s: &str| match s {
-            "high" => 0,
-            "medium" => 1,
-            "low" => 2,
-            _ => 3,
-        };
-
-        // First compare by severity
-        match severity_priority(&a.severity).cmp(&severity_priority(&b.severity)) {
-            std::cmp::Ordering::Equal => {
-                // If same severity, compare by title
-                a.title.cmp(&b.title)
-            }
-            other => other,
-        }
-    });
+    // Get pre-sorted insights from cache
+    let insights = state.cache.get_insights().await;
 
     // Count severity levels
     let high_count = insights.iter().filter(|i| i.severity == "high").count();
@@ -1381,7 +1619,7 @@ pub async fn api_insights(State(state): State<AppState>) -> impl IntoResponse {
     let low_count = insights.iter().filter(|i| i.severity == "low").count();
 
     Json(serde_json::json!({
-        "insights": insights,
+        "insights": insights.as_ref(),
         "high_count": high_count,
         "medium_count": medium_count,
         "low_count": low_count,
@@ -1401,42 +1639,15 @@ pub async fn api_alerts(State(state): State<AppState>) -> impl IntoResponse {
         .into_response();
     }
 
-    // Get alerts from cache
-    let mut alerts = state.cache.get_alerts().await.to_vec();
-
-    // Sort alerts by severity (critical, warning, info, none), then by state (firing first)
-    alerts.sort_by(|a, b| {
-        // Define severity priority
-        let severity_priority = |s: &str| match s {
-            "critical" => 0,
-            "warning" => 1,
-            "info" => 2,
-            _ => 3,
-        };
-
-        // Define state priority
-        let state_priority = |s: &str| match s {
-            "firing" => 0,
-            "pending" => 1,
-            _ => 2,
-        };
-
-        // First compare by severity
-        match severity_priority(&a.severity).cmp(&severity_priority(&b.severity)) {
-            std::cmp::Ordering::Equal => {
-                // If same severity, compare by state
-                state_priority(&a.state).cmp(&state_priority(&b.state))
-            }
-            other => other,
-        }
-    });
+    // Get pre-sorted alerts from cache
+    let alerts = state.cache.get_alerts().await;
 
     // Count alert states
     let firing_count = alerts.iter().filter(|a| a.state == "firing").count();
     let pending_count = alerts.iter().filter(|a| a.state == "pending").count();
 
     Json(serde_json::json!({
-        "alerts": alerts,
+        "alerts": alerts.as_ref(),
         "firing_count": firing_count,
         "pending_count": pending_count,
         "total_count": alerts.len()

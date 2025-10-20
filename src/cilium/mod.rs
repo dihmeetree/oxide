@@ -365,7 +365,7 @@ data:
                 "coredns",
                 "-n",
                 "kube-system",
-                "--timeout=60s",
+                "--timeout=180s",
             ])
             .kubeconfig(&self.kubeconfig_path)
             .context("CoreDNS rollout timeout")

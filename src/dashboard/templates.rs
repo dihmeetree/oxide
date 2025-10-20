@@ -12,6 +12,7 @@ pub struct IndexTemplate {
     pub version: String,
     pub firing_alerts_count: usize,
     pub insights_count: usize,
+    pub warning_events_count: usize,
 }
 
 /// Clusters list page
@@ -23,6 +24,7 @@ pub struct ClustersTemplate<'a> {
     pub version: String,
     pub firing_alerts_count: usize,
     pub insights_count: usize,
+    pub warning_events_count: usize,
 }
 
 /// Create cluster form page
@@ -33,6 +35,7 @@ pub struct CreateClusterTemplate {
     pub version: String,
     pub firing_alerts_count: usize,
     pub insights_count: usize,
+    pub warning_events_count: usize,
 }
 
 /// Cluster detail page
@@ -44,6 +47,7 @@ pub struct ClusterDetailTemplate {
     pub version: String,
     pub firing_alerts_count: usize,
     pub insights_count: usize,
+    pub warning_events_count: usize,
     pub metrics_json: String,
     pub node_names: Vec<String>,
 }
@@ -95,6 +99,7 @@ pub struct NodeDetailTemplate {
     pub version: String,
     pub firing_alerts_count: usize,
     pub insights_count: usize,
+    pub warning_events_count: usize,
 }
 
 /// Detailed node information with pods
@@ -131,6 +136,7 @@ pub struct MetricsTemplate {
     pub pod_names: Vec<String>,
     pub firing_alerts_count: usize,
     pub insights_count: usize,
+    pub warning_events_count: usize,
 }
 
 /// Cilium page
@@ -147,6 +153,7 @@ pub struct CiliumTemplate<'a> {
     pub pod_names: Vec<String>,
     pub firing_alerts_count: usize,
     pub insights_count: usize,
+    pub warning_events_count: usize,
 }
 
 /// Alerts page
@@ -160,6 +167,7 @@ pub struct AlertsTemplate<'a> {
     pub pending_count: usize,
     pub firing_alerts_count: usize,
     pub insights_count: usize,
+    pub warning_events_count: usize,
 }
 
 /// Insights page
@@ -174,6 +182,7 @@ pub struct InsightsTemplate<'a> {
     pub low_count: usize,
     pub firing_alerts_count: usize,
     pub insights_count: usize,
+    pub warning_events_count: usize,
 }
 
 /// Cilium pod information
@@ -222,6 +231,7 @@ pub struct EnvoyTemplate<'a> {
     pub metrics_json: String,
     pub firing_alerts_count: usize,
     pub insights_count: usize,
+    pub warning_events_count: usize,
 }
 
 /// Pods list page
@@ -236,6 +246,7 @@ pub struct PodsTemplate {
     pub version: String,
     pub firing_alerts_count: usize,
     pub insights_count: usize,
+    pub warning_events_count: usize,
 }
 
 /// Pod detail page
@@ -248,6 +259,41 @@ pub struct PodDetailTemplate {
     pub version: String,
     pub firing_alerts_count: usize,
     pub insights_count: usize,
+    pub warning_events_count: usize,
+}
+
+/// Pod logs viewing page
+#[derive(Template)]
+#[template(path = "pod_logs.html")]
+pub struct PodLogsTemplate {
+    pub pod: PodDetail,
+    pub log_lines: Vec<LogLine>,
+    pub error_message: Option<String>,
+    pub selected_container: Option<String>,
+    pub tail_lines: usize,
+    pub active_page: String,
+    pub version: String,
+    pub firing_alerts_count: usize,
+    pub insights_count: usize,
+    pub warning_events_count: usize,
+}
+
+/// Individual log line with level detection
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LogLine {
+    pub content: String,
+    pub level: LogLevel,
+}
+
+/// Log level enum for color-coding
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum LogLevel {
+    Error,
+    Warning,
+    Info,
+    Debug,
+    Trace,
+    Unknown,
 }
 
 /// Detailed pod information with metrics
@@ -300,6 +346,7 @@ pub struct NodesTemplate {
     pub version: String,
     pub firing_alerts_count: usize,
     pub insights_count: usize,
+    pub warning_events_count: usize,
 }
 
 /// Node information with cluster name
@@ -315,4 +362,175 @@ pub struct NodeInfoWithCluster {
     pub created: String,
     pub cpu_usage_percent: String,
     pub memory_usage_percent: String,
+}
+
+/// Services list page
+#[derive(Template)]
+#[template(path = "services.html")]
+pub struct ServicesTemplate {
+    pub services: Vec<ServiceInfo>,
+    pub cluster_ip_count: usize,
+    pub load_balancer_count: usize,
+    pub node_port_count: usize,
+    pub active_page: String,
+    pub version: String,
+    pub firing_alerts_count: usize,
+    pub insights_count: usize,
+    pub warning_events_count: usize,
+}
+
+/// Service information
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ServiceInfo {
+    pub cluster_name: String,
+    pub name: String,
+    pub namespace: String,
+    pub service_type: String,
+    pub cluster_ip: String,
+    pub external_ip: String,
+    pub ports: String,
+    pub age: String,
+    pub selector: String,
+}
+
+/// Service detail page
+#[derive(Template)]
+#[template(path = "service_detail.html")]
+pub struct ServiceDetailTemplate {
+    pub service: ServiceDetail,
+    pub active_page: String,
+    pub version: String,
+    pub firing_alerts_count: usize,
+    pub insights_count: usize,
+    pub warning_events_count: usize,
+}
+
+/// Detailed service information
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ServiceDetail {
+    pub cluster_name: String,
+    pub name: String,
+    pub namespace: String,
+    pub service_type: String,
+    pub cluster_ip: String,
+    pub external_ip: String,
+    pub ports: Vec<ServicePort>,
+    pub age: String,
+    pub selector: Vec<(String, String)>,
+    pub endpoints: Vec<String>,
+    pub session_affinity: String,
+    pub labels: Vec<(String, String)>,
+}
+
+/// Service port information
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ServicePort {
+    pub name: String,
+    pub protocol: String,
+    pub port: u32,
+    pub target_port: String,
+    pub node_port: Option<u32>,
+}
+
+#[derive(Template)]
+#[template(path = "events.html")]
+pub struct EventsTemplate {
+    pub events: Vec<EventInfo>,
+    pub warning_count: usize,
+    pub normal_count: usize,
+    pub active_page: String,
+    pub version: String,
+    pub firing_alerts_count: usize,
+    pub insights_count: usize,
+    pub warning_events_count: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EventInfo {
+    pub cluster_name: String,
+    pub namespace: String,
+    pub name: String,
+    pub event_type: String,
+    pub reason: String,
+    pub message: String,
+    pub object_kind: String,
+    pub object_name: String,
+    pub source: String,
+    pub count: u32,
+    pub first_seen: String,
+    pub last_seen: String,
+}
+
+/// Deployments list page
+#[derive(Template)]
+#[template(path = "deployments.html")]
+pub struct DeploymentsTemplate {
+    pub deployments: Vec<DeploymentInfo>,
+    pub available_count: usize,
+    pub progressing_count: usize,
+    pub unavailable_count: usize,
+    pub active_page: String,
+    pub version: String,
+    pub firing_alerts_count: usize,
+    pub insights_count: usize,
+    pub warning_events_count: usize,
+}
+
+/// Deployment information for list view
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeploymentInfo {
+    pub cluster_name: String,
+    pub namespace: String,
+    pub name: String,
+    pub ready_replicas: u32,
+    pub desired_replicas: u32,
+    pub available_replicas: u32,
+    pub unavailable_replicas: u32,
+    pub status: String,
+    pub age: String,
+    pub strategy: String,
+}
+
+/// Deployment detail page
+#[derive(Template)]
+#[template(path = "deployment_detail.html")]
+pub struct DeploymentDetailTemplate {
+    pub deployment: DeploymentDetail,
+    pub active_page: String,
+    pub version: String,
+    pub firing_alerts_count: usize,
+    pub insights_count: usize,
+    pub warning_events_count: usize,
+}
+
+/// Detailed deployment information
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeploymentDetail {
+    pub cluster_name: String,
+    pub namespace: String,
+    pub name: String,
+    pub ready_replicas: u32,
+    pub desired_replicas: u32,
+    pub available_replicas: u32,
+    pub unavailable_replicas: u32,
+    pub updated_replicas: u32,
+    pub status: String,
+    pub age: String,
+    pub strategy: String,
+    pub max_surge: String,
+    pub max_unavailable: String,
+    pub labels: Vec<(String, String)>,
+    pub selector: Vec<(String, String)>,
+    pub pods: Vec<crate::k8s::client::PodInfo>,
+    pub conditions: Vec<DeploymentCondition>,
+}
+
+/// Deployment condition information
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeploymentCondition {
+    pub condition_type: String,
+    pub status: String,
+    pub reason: String,
+    pub message: String,
+    pub last_update: String,
 }

@@ -1,0 +1,130 @@
+{% extends "layout.html" %} {% block content %}
+<div class="space-y-6">
+  <!-- Header -->
+  <div class="flex items-center gap-4">
+    <div class="rounded-lg p-3 bg-pink-500/15 flex-shrink-0">
+      <svg
+        class="w-8 h-8 stroke-pink-400"
+        fill="none"
+        viewBox="0 0 24 24"
+        stroke-width="2"
+      >
+        <path
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z"
+        />
+      </svg>
+    </div>
+    <div>
+      <h2 class="text-3xl font-semibold text-text-primary">Events</h2>
+      <p class="text-base text-text-secondary">Recent cluster events and notifications</p>
+    </div>
+  </div>
+
+  <!-- Stats Cards -->
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+    <!-- Warning Events -->
+    <div class="rounded-lg p-6 bg-[#242424] border border-dark-border">
+      <div class="flex items-center justify-between">
+        <div class="min-h-[3.5rem] flex flex-col justify-between">
+          <p class="text-sm font-medium text-text-secondary">Warning Events</p>
+          <p class="text-4xl font-semibold text-text-primary">{{ warning_count }}</p>
+        </div>
+        <div class="rounded-lg p-3 bg-accent-yellow/15 flex-shrink-0">
+          <svg class="w-8 h-8 stroke-accent-yellow" fill="none" viewBox="0 0 24 24" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+          </svg>
+        </div>
+      </div>
+    </div>
+
+    <!-- Normal Events -->
+    <div class="rounded-lg p-6 bg-[#242424] border border-dark-border">
+      <div class="flex items-center justify-between">
+        <div class="min-h-[3.5rem] flex flex-col justify-between">
+          <p class="text-sm font-medium text-text-secondary">Normal Events</p>
+          <p class="text-4xl font-semibold text-text-primary">{{ normal_count }}</p>
+        </div>
+        <div class="rounded-lg p-3 bg-accent-blue/15 flex-shrink-0">
+          <svg class="w-8 h-8 stroke-accent-blue" fill="none" viewBox="0 0 24 24" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" />
+          </svg>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Events Table -->
+  <div class="rounded-lg bg-[#242424] border border-dark-border overflow-hidden">
+    <div class="p-6 border-b border-dark-border">
+      <h3 class="text-xl font-semibold text-text-primary">Recent Events</h3>
+    </div>
+    <div class="overflow-x-auto max-h-[600px] overflow-y-auto">
+      <table class="w-full">
+        <thead>
+          <tr class="border-b border-dark-border sticky top-0 bg-[#242424] z-10">
+            <th class="px-6 py-3 text-left text-sm font-medium text-text-secondary">Type</th>
+            <th class="px-6 py-3 text-left text-sm font-medium text-text-secondary">Reason</th>
+            <th class="px-6 py-3 text-left text-sm font-medium text-text-secondary">Object</th>
+            <th class="px-6 py-3 text-left text-sm font-medium text-text-secondary">Message</th>
+            <th class="px-6 py-3 text-center text-sm font-medium text-text-secondary">Count</th>
+            <th class="px-6 py-3 text-center text-sm font-medium text-text-secondary">Last Seen</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-dark-border">
+          {% if events.is_empty() %}
+          <tr>
+            <td colspan="6" class="px-6 py-12 text-center text-text-muted">
+              <div class="flex flex-col items-center">
+                <svg class="w-16 h-16 mb-4 stroke-text-muted" fill="none" viewBox="0 0 24 24" stroke-width="1.5">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <p class="text-lg font-medium text-text-secondary mb-2">No events found</p>
+                <p class="text-sm">Kubernetes events will appear here</p>
+              </div>
+            </td>
+          </tr>
+          {% else %}
+          {% for event in events %}
+          <tr class="hover:bg-dark-hover transition">
+            <td class="px-6 py-4 whitespace-nowrap">
+              {% if event.event_type == "Warning" %}
+              <span class="inline-flex items-center px-2.5 py-1 rounded-md text-sm font-medium bg-accent-yellow/15 text-accent-yellow border border-accent-yellow/30">
+                Warning
+              </span>
+              {% else %}
+              <span class="inline-flex items-center px-2.5 py-1 rounded-md text-sm font-medium bg-accent-blue/15 text-accent-blue border border-accent-blue/30">
+                Normal
+              </span>
+              {% endif %}
+            </td>
+            <td class="px-6 py-4">
+              <span class="text-base font-medium text-text-primary">{{ event.reason }}</span>
+            </td>
+            <td class="px-6 py-4">
+              <div class="flex flex-col">
+                <span class="text-base font-medium text-text-primary">{{ event.object_name }}</span>
+                <span class="text-sm text-text-secondary">{{ event.object_kind }} / {{ event.namespace }}</span>
+              </div>
+            </td>
+            <td class="px-6 py-4">
+              <p class="text-sm text-text-secondary max-w-md truncate" title="{{ event.message }}">
+                {{ event.message }}
+              </p>
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-center">
+              <span class="text-base text-text-secondary">{{ event.count }}</span>
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-center">
+              <span class="text-base text-text-secondary">{{ event.last_seen }}</span>
+            </td>
+          </tr>
+          {% endfor %}
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}

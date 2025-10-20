@@ -67,6 +67,10 @@ impl DashboardServer {
                 get(routes::pod_detail),
             )
             .route(
+                "/clusters/{cluster}/nodes/{node}/pods/{namespace}/{pod}/logs",
+                get(routes::pod_logs),
+            )
+            .route(
                 "/clusters/{name}/scale",
                 axum::routing::post(routes::cluster_scale),
             )
@@ -81,10 +85,18 @@ impl DashboardServer {
             .route("/metrics", get(routes::metrics))
             .route("/pods", get(routes::pods_list))
             .route("/nodes", get(routes::nodes_list))
+            .route("/services", get(routes::services_list))
+            .route("/services/{namespace}/{name}", get(routes::service_detail))
             .route("/cilium", get(routes::cilium))
             .route("/envoy", get(routes::envoy))
             .route("/alerts", get(routes::alerts))
             .route("/insights", get(routes::insights))
+            .route("/events", get(routes::events))
+            .route("/deployments", get(routes::deployments))
+            .route(
+                "/deployments/{namespace}/{name}",
+                get(routes::deployment_detail),
+            )
             .route("/api/alerts", get(routes::api_alerts))
             .route("/api/insights", get(routes::api_insights))
             .route("/api/clusters", get(routes::api_clusters_list))
