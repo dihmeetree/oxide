@@ -1476,30 +1476,40 @@ async fn check_over_provisioned_pods(kubeconfig_path: &std::path::Path) -> Resul
 
         let pod_key = format!("{}/{}", pod.metadata.namespace, pod.metadata.name);
         if let Some((actual_cpu, actual_memory)) = pod_metrics.get(&pod_key) {
-            for container in &pod.spec.containers {
-                // Check CPU over-provisioning
-                if let Some(cpu_request) = container.resources.requests.get("cpu") {
-                    let requested_cpu = parse_cpu_to_millicores(cpu_request);
-                    if requested_cpu > 0.0 && *actual_cpu < requested_cpu * 0.2 {
-                        over_provisioned_pods.push(format!(
-                            "{} (using {}m of {}m CPU requested)",
-                            pod_key, *actual_cpu as u64, requested_cpu as u64
-                        ));
-                        break;
-                    }
-                }
+            // Aggregate all container requests for this pod
+            let mut total_cpu_request = 0.0;
+            let mut total_memory_request = 0.0;
 
-                // Check Memory over-provisioning
-                if let Some(memory_request) = container.resources.requests.get("memory") {
-                    let requested_memory = parse_memory_to_mi(memory_request);
-                    if requested_memory > 0.0 && *actual_memory < requested_memory * 0.2 {
-                        over_provisioned_pods.push(format!(
-                            "{} (using {}Mi of {}Mi memory requested)",
-                            pod_key, *actual_memory as u64, requested_memory as u64
-                        ));
-                        break;
-                    }
+            for container in &pod.spec.containers {
+                if let Some(cpu_request) = container.resources.requests.get("cpu") {
+                    total_cpu_request += parse_cpu_to_millicores(cpu_request);
                 }
+                if let Some(memory_request) = container.resources.requests.get("memory") {
+                    total_memory_request += parse_memory_to_mi(memory_request);
+                }
+            }
+
+            // Check if pod is over-provisioned (using <20% of requests)
+            let mut reasons = Vec::new();
+
+            if total_cpu_request > 0.0 && *actual_cpu < total_cpu_request * 0.2 {
+                let usage_percent = (*actual_cpu / total_cpu_request * 100.0) as u64;
+                reasons.push(format!(
+                    "CPU: {}m/{}m ({}%)",
+                    *actual_cpu as u64, total_cpu_request as u64, usage_percent
+                ));
+            }
+
+            if total_memory_request > 0.0 && *actual_memory < total_memory_request * 0.2 {
+                let usage_percent = (*actual_memory / total_memory_request * 100.0) as u64;
+                reasons.push(format!(
+                    "Memory: {}Mi/{}Mi ({}%)",
+                    *actual_memory as u64, total_memory_request as u64, usage_percent
+                ));
+            }
+
+            if !reasons.is_empty() {
+                over_provisioned_pods.push(format!("{} ({})", pod_key, reasons.join(", ")));
             }
         }
     }
@@ -1595,30 +1605,40 @@ async fn check_under_provisioned_pods(kubeconfig_path: &std::path::Path) -> Resu
 
         let pod_key = format!("{}/{}", pod.metadata.namespace, pod.metadata.name);
         if let Some((actual_cpu, actual_memory)) = pod_metrics.get(&pod_key) {
-            for container in &pod.spec.containers {
-                // Check CPU under-provisioning
-                if let Some(cpu_limit) = container.resources.limits.get("cpu") {
-                    let limit_cpu = parse_cpu_to_millicores(cpu_limit);
-                    if limit_cpu > 0.0 && *actual_cpu > limit_cpu * 0.9 {
-                        under_provisioned_pods.push(format!(
-                            "{} (using {}m of {}m CPU limit)",
-                            pod_key, *actual_cpu as u64, limit_cpu as u64
-                        ));
-                        break;
-                    }
-                }
+            // Aggregate all container limits for this pod
+            let mut total_cpu_limit = 0.0;
+            let mut total_memory_limit = 0.0;
 
-                // Check Memory under-provisioning
-                if let Some(memory_limit) = container.resources.limits.get("memory") {
-                    let limit_memory = parse_memory_to_mi(memory_limit);
-                    if limit_memory > 0.0 && *actual_memory > limit_memory * 0.9 {
-                        under_provisioned_pods.push(format!(
-                            "{} (using {}Mi of {}Mi memory limit)",
-                            pod_key, *actual_memory as u64, limit_memory as u64
-                        ));
-                        break;
-                    }
+            for container in &pod.spec.containers {
+                if let Some(cpu_limit) = container.resources.limits.get("cpu") {
+                    total_cpu_limit += parse_cpu_to_millicores(cpu_limit);
                 }
+                if let Some(memory_limit) = container.resources.limits.get("memory") {
+                    total_memory_limit += parse_memory_to_mi(memory_limit);
+                }
+            }
+
+            // Check if pod is under-provisioned (using >90% of limits)
+            let mut reasons = Vec::new();
+
+            if total_cpu_limit > 0.0 && *actual_cpu > total_cpu_limit * 0.9 {
+                let usage_percent = (*actual_cpu / total_cpu_limit * 100.0) as u64;
+                reasons.push(format!(
+                    "CPU: {}m/{}m ({}%)",
+                    *actual_cpu as u64, total_cpu_limit as u64, usage_percent
+                ));
+            }
+
+            if total_memory_limit > 0.0 && *actual_memory > total_memory_limit * 0.9 {
+                let usage_percent = (*actual_memory / total_memory_limit * 100.0) as u64;
+                reasons.push(format!(
+                    "Memory: {}Mi/{}Mi ({}%)",
+                    *actual_memory as u64, total_memory_limit as u64, usage_percent
+                ));
+            }
+
+            if !reasons.is_empty() {
+                under_provisioned_pods.push(format!("{} ({})", pod_key, reasons.join(", ")));
             }
         }
     }
