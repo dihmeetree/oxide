@@ -1130,13 +1130,37 @@ pub async fn pods_list(State(state): State<AppState>) -> impl IntoResponse {
         .filter(|p| p.status == "Failed" || p.status == "Error" || p.status == "CrashLoopBackOff")
         .count();
 
-    // Sort by CPU usage (highest to lowest)
+    // Sort by status priority (Pending first, then Running sorted by CPU, then others)
     pods.sort_by(|a, b| {
-        let cpu_a = a.cpu.trim_end_matches('m').parse::<f64>().unwrap_or(-1.0);
-        let cpu_b = b.cpu.trim_end_matches('m').parse::<f64>().unwrap_or(-1.0);
-        cpu_b
-            .partial_cmp(&cpu_a)
-            .unwrap_or(std::cmp::Ordering::Equal)
+        // Status priority: Pending (0), Running (1), others (2)
+        let priority_a = match a.status.as_str() {
+            "Pending" => 0,
+            "Running" => 1,
+            _ => 2,
+        };
+        let priority_b = match b.status.as_str() {
+            "Pending" => 0,
+            "Running" => 1,
+            _ => 2,
+        };
+
+        // First compare by priority
+        match priority_a.cmp(&priority_b) {
+            std::cmp::Ordering::Equal => {
+                // Within Running status, sort by CPU usage (highest to lowest)
+                if a.status == "Running" && b.status == "Running" {
+                    let cpu_a = a.cpu.trim_end_matches('m').parse::<f64>().unwrap_or(-1.0);
+                    let cpu_b = b.cpu.trim_end_matches('m').parse::<f64>().unwrap_or(-1.0);
+                    cpu_b
+                        .partial_cmp(&cpu_a)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                } else {
+                    // For Pending and other statuses, maintain original order
+                    std::cmp::Ordering::Equal
+                }
+            }
+            other => other,
+        }
     });
 
     let (firing_alerts_count, insights_count, warning_events_count) =
