@@ -180,6 +180,110 @@
     </div>
   </div>
 
+  <!-- CPU Usage Chart -->
+  <div class="rounded-lg p-6 bg-[#242424] border border-dark-border">
+    <div class="flex items-center justify-between mb-4">
+      <h3 class="text-xl font-semibold text-text-primary">
+        Envoy CPU Usage History
+      </h3>
+      <button
+        onclick="refreshEnvoyMetrics()"
+        class="p-2 rounded-lg text-text-muted hover:text-text-primary bg-dark-hover hover:bg-dark-hoverAlt transition"
+        title="Refresh"
+      >
+        <svg
+          class="w-5 h-5"
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+          stroke-width="2"
+        >
+          <path
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+          ></path>
+        </svg>
+      </button>
+    </div>
+    <div class="relative h-80">
+      <canvas id="cpuChart"></canvas>
+    </div>
+    <div
+      id="cpuLegend"
+      class="mt-4 max-h-32 overflow-y-auto scrollbar-thin scrollbar-thumb-dark-border scrollbar-track-dark-bg"
+    >
+      <div class="flex flex-wrap gap-3">
+        {% for pod_name in pod_names %}
+        <button
+          onclick="toggleDataset('envoyCpu', {{ loop.index0 }})"
+          class="flex items-center gap-2 px-3 py-1.5 rounded-md transition bg-dark-hover hover:bg-dark-hoverAlt"
+          data-chart="envoyCpu"
+          data-index="{{ loop.index0 }}"
+        >
+          <span
+            class="w-2 h-2 rounded-full"
+            data-color-for="{{ pod_name }}"
+          ></span>
+          <span class="text-sm text-text-primary">{{ pod_name }}</span>
+        </button>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+
+  <!-- Memory Usage Chart -->
+  <div class="rounded-lg p-6 bg-[#242424] border border-dark-border">
+    <div class="flex items-center justify-between mb-4">
+      <h3 class="text-xl font-semibold text-text-primary">
+        Envoy Memory Usage History
+      </h3>
+      <button
+        onclick="refreshEnvoyMetrics()"
+        class="p-2 rounded-lg text-text-muted hover:text-text-primary bg-dark-hover hover:bg-dark-hoverAlt transition"
+        title="Refresh"
+      >
+        <svg
+          class="w-5 h-5"
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+          stroke-width="2"
+        >
+          <path
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+          ></path>
+        </svg>
+      </button>
+    </div>
+    <div class="relative h-80">
+      <canvas id="memoryChart"></canvas>
+    </div>
+    <div
+      id="memoryLegend"
+      class="mt-4 max-h-32 overflow-y-auto scrollbar-thin scrollbar-thumb-dark-border scrollbar-track-dark-bg"
+    >
+      <div class="flex flex-wrap gap-3">
+        {% for pod_name in pod_names %}
+        <button
+          onclick="toggleDataset('envoyMemory', {{ loop.index0 }})"
+          class="flex items-center gap-2 px-3 py-1.5 rounded-md transition bg-dark-hover hover:bg-dark-hoverAlt"
+          data-chart="envoyMemory"
+          data-index="{{ loop.index0 }}"
+        >
+          <span
+            class="w-2 h-2 rounded-full"
+            data-color-for="{{ pod_name }}"
+          ></span>
+          <span class="text-sm text-text-primary">{{ pod_name }}</span>
+        </button>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+
   <!-- Metrics Charts -->
   <div class="grid grid-cols-1 gap-6">
     <!-- Requests Per Second Chart -->
@@ -285,13 +389,222 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script src="/static/charts.js"></script>
 <script>
-  let rpsChart;
-  let statusCodesChart;
+  // Override scroll restoration hiding immediately
+  document.documentElement.style.visibility = "visible";
 
-  // Initialize charts
-  function initCharts(data) {
-    if (!data || !data.timestamps || data.timestamps.length === 0) {
-      return;
+  let cpuChart = null;
+  let memoryChart = null;
+  let rpsChart = null;
+  let statusCodesChart = null;
+  let podColorMap = {}; // Store consistent colors for each pod
+
+  // Toggle dataset visibility with isolate/show all behavior
+  function toggleDataset(chartType, index) {
+    let chart, containerId;
+    switch(chartType) {
+      case 'envoyCpu':
+        chart = cpuChart;
+        containerId = 'cpuLegend';
+        break;
+      case 'envoyMemory':
+        chart = memoryChart;
+        containerId = 'memoryLegend';
+        break;
+    }
+
+    if (!chart) return;
+    toggleChartDataset(chart, containerId, index);
+  }
+
+  async function fetchEnvoyMetrics() {
+    try {
+      const response = await fetch('/api/envoy/metrics');
+      const data = await response.json();
+      return data;
+    } catch (error) {
+      console.error('Failed to fetch Envoy metrics:', error);
+      return null;
+    }
+  }
+
+  async function initCharts(initialData) {
+    let data;
+    if (initialData && initialData.timestamps && initialData.timestamps.length > 0) {
+      // Use server-provided data
+      data = initialData;
+    } else {
+      // Fetch from API
+      data = await fetchEnvoyMetrics();
+      if (!data || !data.timestamps || data.timestamps.length === 0) {
+        return;
+      }
+    }
+
+    // Format timestamps to local time
+    const labels = formatTimestamps(data.timestamps);
+
+    // Assign consistent colors to pods
+    if (data.pods && data.pods.length > 0) {
+      sortByName(data.pods);
+      assignColors(data.pods, podColorMap);
+
+      // CPU Chart
+      const cpuCtx = document.getElementById('cpuChart').getContext('2d');
+      const cpuDatasets = data.pods.map((pod) =>
+        createDataset(pod.name, pod.cpu_history, podColorMap[pod.name], { fill: true })
+      );
+
+      // Calculate total CPU request and limit across all pods
+      let totalCpuRequest = 0;
+      let totalCpuLimit = 0;
+      data.pods.forEach(pod => {
+        if (pod.cpu_request > 0) totalCpuRequest += pod.cpu_request;
+        if (pod.cpu_limit > 0) totalCpuLimit += pod.cpu_limit;
+      });
+
+      // Add CPU request line if exists
+      if (totalCpuRequest > 0) {
+        cpuDatasets.push({
+          label: 'Total CPU Request',
+          data: Array(data.timestamps.length).fill(totalCpuRequest),
+          borderColor: '#FBBF24',
+          backgroundColor: 'transparent',
+          borderWidth: 2,
+          borderDash: [5, 5],
+          fill: false,
+          pointRadius: 0,
+          pointHoverRadius: 0,
+        });
+      }
+
+      // Add CPU limit line if exists
+      if (totalCpuLimit > 0) {
+        cpuDatasets.push({
+          label: 'Total CPU Limit',
+          data: Array(data.timestamps.length).fill(totalCpuLimit),
+          borderColor: '#FF4D4D',
+          backgroundColor: 'transparent',
+          borderWidth: 2,
+          borderDash: [5, 5],
+          fill: false,
+          pointRadius: 0,
+          pointHoverRadius: 0,
+        });
+      }
+
+      cpuChart = createLineChart('cpuChart', {
+        labels: labels,
+        datasets: cpuDatasets,
+      }, {
+        plugins: {
+          tooltip: {
+            mode: 'point',
+            intersect: true,
+            callbacks: {
+              title: function (context) {
+                return 'Time: ' + context[0].label;
+              },
+              label: function (context) {
+                const value = context.parsed.y.toFixed(0);
+                return ' ' + context.dataset.label + ': ' + value + 'm';
+              },
+              labelTextColor: function (context) {
+                return context.dataset.borderColor;
+              },
+            },
+          },
+        },
+        scales: {
+          y: {
+            ticks: {
+              callback: function (value) {
+                return value.toFixed(0) + 'm';
+              },
+            },
+          },
+        },
+      });
+
+      applyLegendColors(cpuChart, 'cpuLegend');
+
+      // Memory Chart
+      const memCtx = document.getElementById('memoryChart').getContext('2d');
+      const memDatasets = data.pods.map((pod) =>
+        createDataset(pod.name, pod.memory_history, podColorMap[pod.name], { fill: true })
+      );
+
+      // Calculate total memory request and limit across all pods
+      let totalMemoryRequest = 0;
+      let totalMemoryLimit = 0;
+      data.pods.forEach(pod => {
+        if (pod.memory_request > 0) totalMemoryRequest += pod.memory_request;
+        if (pod.memory_limit > 0) totalMemoryLimit += pod.memory_limit;
+      });
+
+      // Add memory request line if exists
+      if (totalMemoryRequest > 0) {
+        memDatasets.push({
+          label: 'Total Memory Request',
+          data: Array(data.timestamps.length).fill(totalMemoryRequest),
+          borderColor: '#FBBF24',
+          backgroundColor: 'transparent',
+          borderWidth: 2,
+          borderDash: [5, 5],
+          fill: false,
+          pointRadius: 0,
+          pointHoverRadius: 0,
+        });
+      }
+
+      // Add memory limit line if exists
+      if (totalMemoryLimit > 0) {
+        memDatasets.push({
+          label: 'Total Memory Limit',
+          data: Array(data.timestamps.length).fill(totalMemoryLimit),
+          borderColor: '#FF4D4D',
+          backgroundColor: 'transparent',
+          borderWidth: 2,
+          borderDash: [5, 5],
+          fill: false,
+          pointRadius: 0,
+          pointHoverRadius: 0,
+        });
+      }
+
+      memoryChart = createLineChart('memoryChart', {
+        labels: labels,
+        datasets: memDatasets,
+      }, {
+        plugins: {
+          tooltip: {
+            mode: 'point',
+            intersect: true,
+            callbacks: {
+              title: function (context) {
+                return 'Time: ' + context[0].label;
+              },
+              label: function (context) {
+                const value = context.parsed.y.toFixed(1);
+                return ' ' + context.dataset.label + ': ' + value + ' MiB';
+              },
+              labelTextColor: function (context) {
+                return context.dataset.borderColor;
+              },
+            },
+          },
+        },
+        scales: {
+          y: {
+            ticks: {
+              callback: function (value) {
+                return value.toFixed(0) + ' MiB';
+              },
+            },
+          },
+        },
+      });
+
+      applyLegendColors(memoryChart, 'memoryLegend');
     }
 
     // Format timestamps
@@ -365,52 +678,160 @@
     });
   }
 
-  // Fetch Envoy metrics from API
-  async function fetchEnvoyMetrics() {
-    try {
-      const response = await fetch('/api/envoy/metrics');
-      const data = await response.json();
-      return data;
-    } catch (error) {
-      console.error('Failed to fetch Envoy metrics:', error);
-      return null;
-    }
-  }
-
-  // Refresh Envoy metrics
+  // Refresh metrics function
   async function refreshEnvoyMetrics() {
     const data = await fetchEnvoyMetrics();
-    if (!data || !data.timestamps || data.timestamps.length === 0) return;
-    if (!rpsChart || !statusCodesChart) return;
+    if (!data) return;
 
-    // Format timestamps
-    const formattedTimestamps = formatTimestamps(data.timestamps);
+    const labels = formatTimestamps(data.timestamps);
 
-    // Update RPS chart
-    rpsChart.data.labels = formattedTimestamps;
-    rpsChart.data.datasets[0].data = data.rpsHistory;
-    rpsChart.update();
+    // Update CPU and Memory charts if pods data exists
+    if (data.pods && data.pods.length > 0 && cpuChart && memoryChart) {
+      // Assign colors to any new pods
+      sortByName(data.pods);
+      assignColors(data.pods, podColorMap);
 
-    // Update Status Codes chart - preserve visibility state
-    const visibilityMap = {};
-    statusCodesChart.data.datasets.forEach((ds, i) => {
-      visibilityMap[i] = statusCodesChart.isDatasetVisible(i);
-    });
+      // Capture current visibility state by dataset label (pod name)
+      const cpuVisibilityMap = {};
+      cpuChart.data.datasets.forEach((ds, i) => {
+        cpuVisibilityMap[ds.label] = cpuChart.isDatasetVisible(i);
+      });
+      const memVisibilityMap = {};
+      memoryChart.data.datasets.forEach((ds, i) => {
+        memVisibilityMap[ds.label] = memoryChart.isDatasetVisible(i);
+      });
 
-    statusCodesChart.data.labels = formattedTimestamps;
-    statusCodesChart.data.datasets[0].data = data.status2xxHistory;
-    statusCodesChart.data.datasets[1].data = data.status3xxHistory;
-    statusCodesChart.data.datasets[2].data = data.status4xxHistory;
-    statusCodesChart.data.datasets[3].data = data.status5xxHistory;
+      // Calculate total CPU request and limit
+      let totalCpuRequest = 0;
+      let totalCpuLimit = 0;
+      data.pods.forEach(pod => {
+        if (pod.cpu_request > 0) totalCpuRequest += pod.cpu_request;
+        if (pod.cpu_limit > 0) totalCpuLimit += pod.cpu_limit;
+      });
 
-    // Restore visibility state
-    statusCodesChart.data.datasets.forEach((ds, i) => {
-      if (visibilityMap.hasOwnProperty(i)) {
-        statusCodesChart.setDatasetVisibility(i, visibilityMap[i]);
+      cpuChart.data.labels = labels;
+      const cpuDatasets = data.pods.map((pod) => ({
+        ...createDataset(pod.name, pod.cpu_history, podColorMap[pod.name], { fill: true }),
+        hidden: cpuVisibilityMap.hasOwnProperty(pod.name) ? !cpuVisibilityMap[pod.name] : false,
+      }));
+
+      // Add CPU request line
+      if (totalCpuRequest > 0) {
+        cpuDatasets.push({
+          label: 'Total CPU Request',
+          data: Array(data.timestamps.length).fill(totalCpuRequest),
+          borderColor: '#FBBF24',
+          backgroundColor: 'transparent',
+          borderWidth: 2,
+          borderDash: [5, 5],
+          fill: false,
+          pointRadius: 0,
+          pointHoverRadius: 0,
+          hidden: cpuVisibilityMap.hasOwnProperty('Total CPU Request') ? !cpuVisibilityMap['Total CPU Request'] : false,
+        });
       }
-    });
 
-    statusCodesChart.update();
+      // Add CPU limit line
+      if (totalCpuLimit > 0) {
+        cpuDatasets.push({
+          label: 'Total CPU Limit',
+          data: Array(data.timestamps.length).fill(totalCpuLimit),
+          borderColor: '#FF4D4D',
+          backgroundColor: 'transparent',
+          borderWidth: 2,
+          borderDash: [5, 5],
+          fill: false,
+          pointRadius: 0,
+          pointHoverRadius: 0,
+          hidden: cpuVisibilityMap.hasOwnProperty('Total CPU Limit') ? !cpuVisibilityMap['Total CPU Limit'] : false,
+        });
+      }
+
+      cpuChart.data.datasets = cpuDatasets;
+      cpuChart.update();
+      applyLegendColors(cpuChart, 'cpuLegend');
+
+      // Calculate total memory request and limit
+      let totalMemoryRequest = 0;
+      let totalMemoryLimit = 0;
+      data.pods.forEach(pod => {
+        if (pod.memory_request > 0) totalMemoryRequest += pod.memory_request;
+        if (pod.memory_limit > 0) totalMemoryLimit += pod.memory_limit;
+      });
+
+      memoryChart.data.labels = labels;
+      const memDatasets = data.pods.map((pod) => ({
+        ...createDataset(pod.name, pod.memory_history, podColorMap[pod.name], { fill: true }),
+        hidden: memVisibilityMap.hasOwnProperty(pod.name) ? !memVisibilityMap[pod.name] : false,
+      }));
+
+      // Add memory request line
+      if (totalMemoryRequest > 0) {
+        memDatasets.push({
+          label: 'Total Memory Request',
+          data: Array(data.timestamps.length).fill(totalMemoryRequest),
+          borderColor: '#FBBF24',
+          backgroundColor: 'transparent',
+          borderWidth: 2,
+          borderDash: [5, 5],
+          fill: false,
+          pointRadius: 0,
+          pointHoverRadius: 0,
+          hidden: memVisibilityMap.hasOwnProperty('Total Memory Request') ? !memVisibilityMap['Total Memory Request'] : false,
+        });
+      }
+
+      // Add memory limit line
+      if (totalMemoryLimit > 0) {
+        memDatasets.push({
+          label: 'Total Memory Limit',
+          data: Array(data.timestamps.length).fill(totalMemoryLimit),
+          borderColor: '#FF4D4D',
+          backgroundColor: 'transparent',
+          borderWidth: 2,
+          borderDash: [5, 5],
+          fill: false,
+          pointRadius: 0,
+          pointHoverRadius: 0,
+          hidden: memVisibilityMap.hasOwnProperty('Total Memory Limit') ? !memVisibilityMap['Total Memory Limit'] : false,
+        });
+      }
+
+      memoryChart.data.datasets = memDatasets;
+      memoryChart.update();
+      applyLegendColors(memoryChart, 'memoryLegend');
+    }
+
+    // Update RPS and status codes charts
+    if (rpsChart && statusCodesChart && data.timestamps && data.timestamps.length > 0) {
+      const formattedTimestamps = formatTimestamps(data.timestamps);
+
+      // Update RPS chart
+      rpsChart.data.labels = formattedTimestamps;
+      rpsChart.data.datasets[0].data = data.rpsHistory;
+      rpsChart.update();
+
+      // Update Status Codes chart - preserve visibility state
+      const visibilityMap = {};
+      statusCodesChart.data.datasets.forEach((ds, i) => {
+        visibilityMap[i] = statusCodesChart.isDatasetVisible(i);
+      });
+
+      statusCodesChart.data.labels = formattedTimestamps;
+      statusCodesChart.data.datasets[0].data = data.status2xxHistory;
+      statusCodesChart.data.datasets[1].data = data.status3xxHistory;
+      statusCodesChart.data.datasets[2].data = data.status4xxHistory;
+      statusCodesChart.data.datasets[3].data = data.status5xxHistory;
+
+      // Restore visibility state
+      statusCodesChart.data.datasets.forEach((ds, i) => {
+        if (visibilityMap.hasOwnProperty(i)) {
+          statusCodesChart.setDatasetVisibility(i, visibilityMap[i]);
+        }
+      });
+
+      statusCodesChart.update();
+    }
   }
 
   // Toggle dataset visibility
@@ -420,12 +841,13 @@
   }
 
   // Initialize on page load
-  document.addEventListener("DOMContentLoaded", function () {
+  document.addEventListener('DOMContentLoaded', function() {
     const serverData = {{ metrics_json|safe }};
-    if (serverData && serverData.timestamps && serverData.timestamps.length > 0) {
-      initCharts(serverData);
-    }
+    initCharts(serverData);
   });
+
+  // Auto-refresh every 10 seconds
+  setInterval(refreshEnvoyMetrics, 10000);
 </script>
 
 {% endblock %}

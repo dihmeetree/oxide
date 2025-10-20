@@ -1394,12 +1394,17 @@ pub async fn envoy(State(state): State<AppState>) -> impl IntoResponse {
     // Get Envoy pod data for table display
     let (envoy_pods, envoy_version) = state.cache.get_envoy_data().await;
 
+    // Extract pod names for server-side legend rendering
+    let mut pod_names: Vec<String> = envoy_pods.iter().map(|p| p.name.clone()).collect();
+    pod_names.sort();
+
     let template = EnvoyTemplate {
         active_page: "envoy".to_string(),
         version: env!("CARGO_PKG_VERSION").to_string(),
         pods: envoy_pods.as_ref(),
         envoy_version: envoy_version.to_string(),
         metrics_json,
+        pod_names,
         firing_alerts_count,
         insights_count,
         warning_events_count,

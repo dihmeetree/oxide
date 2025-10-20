@@ -229,6 +229,7 @@ pub struct EnvoyTemplate<'a> {
     pub active_page: String,
     pub version: String,
     pub metrics_json: String,
+    pub pod_names: Vec<String>,
     pub firing_alerts_count: usize,
     pub insights_count: usize,
     pub warning_events_count: usize,
