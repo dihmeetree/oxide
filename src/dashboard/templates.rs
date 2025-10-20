@@ -437,6 +437,8 @@ pub struct ServicePort {
 #[template(path = "events.html")]
 pub struct EventsTemplate {
     pub events: Vec<EventInfo>,
+    pub namespaces: Vec<String>,
+    pub object_types: Vec<String>,
     pub warning_count: usize,
     pub normal_count: usize,
     pub active_page: String,

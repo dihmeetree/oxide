@@ -1537,13 +1537,36 @@ pub async fn events(State(state): State<AppState>) -> impl IntoResponse {
     // Get events and counts from cache
     let (events, warning_count, normal_count) = state.cache.get_events().await;
 
+    // Limit events to last 200
+    let limited_events: Vec<_> = events.iter().rev().take(200).cloned().collect();
+    let limited_events: Vec<_> = limited_events.into_iter().rev().collect();
+
+    // Extract unique namespaces and object types for filter dropdowns
+    let mut namespaces: Vec<String> = limited_events
+        .iter()
+        .map(|e| e.namespace.clone())
+        .collect::<std::collections::HashSet<_>>()
+        .into_iter()
+        .collect();
+    namespaces.sort();
+
+    let mut object_types: Vec<String> = limited_events
+        .iter()
+        .map(|e| e.object_kind.clone())
+        .collect::<std::collections::HashSet<_>>()
+        .into_iter()
+        .collect();
+    object_types.sort();
+
     let (firing_alerts_count, insights_count, warning_events_count) =
         get_alerts_and_insights_counts(&state.cache).await;
 
     let template = EventsTemplate {
         active_page: "events".to_string(),
         version: env!("CARGO_PKG_VERSION").to_string(),
-        events: events.to_vec(),
+        events: limited_events,
+        namespaces,
+        object_types,
         warning_count,
         normal_count,
         firing_alerts_count,

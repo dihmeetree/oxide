@@ -1,24 +1,61 @@
 {% extends "layout.html" %} {% block content %}
 <div class="space-y-6">
   <!-- Header -->
-  <div class="flex items-center gap-4">
-    <div class="rounded-lg p-3 bg-pink-500/15 flex-shrink-0">
-      <svg
-        class="w-8 h-8 stroke-pink-400"
-        fill="none"
-        viewBox="0 0 24 24"
-        stroke-width="2"
-      >
-        <path
-          stroke-linecap="round"
-          stroke-linejoin="round"
-          d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z"
-        />
-      </svg>
+  <div class="flex items-center justify-between">
+    <div class="flex items-center gap-4">
+      <div class="rounded-lg p-3 bg-pink-500/15 flex-shrink-0">
+        <svg
+          class="w-8 h-8 stroke-pink-400"
+          fill="none"
+          viewBox="0 0 24 24"
+          stroke-width="2"
+        >
+          <path
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z"
+          />
+        </svg>
+      </div>
+      <div>
+        <h2 class="text-3xl font-semibold text-text-primary">Events</h2>
+        <p class="text-base text-text-secondary">Recent cluster events and notifications</p>
+      </div>
     </div>
-    <div>
-      <h2 class="text-3xl font-semibold text-text-primary">Events</h2>
-      <p class="text-base text-text-secondary">Recent cluster events and notifications</p>
+
+    <!-- Filters -->
+    <div class="flex items-center gap-3">
+      <select
+        id="namespaceFilter"
+        onchange="filterEvents()"
+        class="pl-4 pr-10 py-2 rounded-lg bg-[#242424] border border-dark-border text-text-primary focus:outline-none focus:border-accent-blue"
+      >
+        <option value="">All Namespaces</option>
+        {% for ns in namespaces %}
+        <option value="{{ ns }}">{{ ns }}</option>
+        {% endfor %}
+      </select>
+
+      <select
+        id="objectTypeFilter"
+        onchange="filterEvents()"
+        class="pl-4 pr-10 py-2 rounded-lg bg-[#242424] border border-dark-border text-text-primary focus:outline-none focus:border-accent-blue"
+      >
+        <option value="">All Object Types</option>
+        {% for obj_type in object_types %}
+        <option value="{{ obj_type }}">{{ obj_type }}</option>
+        {% endfor %}
+      </select>
+
+      <select
+        id="eventTypeFilter"
+        onchange="filterEvents()"
+        class="pl-4 pr-10 py-2 rounded-lg bg-[#242424] border border-dark-border text-text-primary focus:outline-none focus:border-accent-blue"
+      >
+        <option value="">All Events</option>
+        <option value="Warning">Warning Only</option>
+        <option value="Normal">Normal Only</option>
+      </select>
     </div>
   </div>
 
@@ -87,7 +124,7 @@
           </tr>
           {% else %}
           {% for event in events %}
-          <tr class="hover:bg-dark-hover transition">
+          <tr class="hover:bg-dark-hover transition event-row" data-namespace="{{ event.namespace }}" data-object-type="{{ event.object_kind }}" data-event-type="{{ event.event_type }}">
             <td class="px-6 py-4 whitespace-nowrap">
               {% if event.event_type == "Warning" %}
               <span class="inline-flex items-center px-2.5 py-1 rounded-md text-sm font-medium bg-accent-yellow/15 text-accent-yellow border border-accent-yellow/30">
@@ -104,7 +141,15 @@
             </td>
             <td class="px-6 py-4">
               <div class="flex flex-col">
+                {% if event.object_kind == "Pod" %}
+                <a href="/pods/{{ event.namespace }}/{{ event.object_name }}" class="text-base font-medium text-accent-blue hover:text-accent-blueHover transition">{{ event.object_name }}</a>
+                {% elif event.object_kind == "Deployment" %}
+                <a href="/deployments/{{ event.namespace }}/{{ event.object_name }}" class="text-base font-medium text-accent-blue hover:text-accent-blueHover transition">{{ event.object_name }}</a>
+                {% elif event.object_kind == "Service" %}
+                <a href="/services/{{ event.namespace }}/{{ event.object_name }}" class="text-base font-medium text-accent-blue hover:text-accent-blueHover transition">{{ event.object_name }}</a>
+                {% else %}
                 <span class="text-base font-medium text-text-primary">{{ event.object_name }}</span>
+                {% endif %}
                 <span class="text-sm text-text-secondary">{{ event.object_kind }} / {{ event.namespace }}</span>
               </div>
             </td>
@@ -117,7 +162,7 @@
               <span class="text-base text-text-secondary">{{ event.count }}</span>
             </td>
             <td class="px-6 py-4 whitespace-nowrap text-center">
-              <span class="text-base text-text-secondary">{{ event.last_seen }}</span>
+              <span class="text-base text-text-secondary" title="{{ event.first_seen }}">{{ event.last_seen }}</span>
             </td>
           </tr>
           {% endfor %}
@@ -127,4 +172,30 @@
     </div>
   </div>
 </div>
+
+<script>
+function filterEvents() {
+  const namespaceFilter = document.getElementById('namespaceFilter').value;
+  const objectTypeFilter = document.getElementById('objectTypeFilter').value;
+  const eventTypeFilter = document.getElementById('eventTypeFilter').value;
+
+  const rows = document.querySelectorAll('.event-row');
+
+  rows.forEach(row => {
+    const namespace = row.getAttribute('data-namespace');
+    const objectType = row.getAttribute('data-object-type');
+    const eventType = row.getAttribute('data-event-type');
+
+    const namespaceMatch = !namespaceFilter || namespace === namespaceFilter;
+    const objectTypeMatch = !objectTypeFilter || objectType === objectTypeFilter;
+    const eventTypeMatch = !eventTypeFilter || eventType === eventTypeFilter;
+
+    if (namespaceMatch && objectTypeMatch && eventTypeMatch) {
+      row.style.display = '';
+    } else {
+      row.style.display = 'none';
+    }
+  });
+}
+</script>
 {% endblock %}
