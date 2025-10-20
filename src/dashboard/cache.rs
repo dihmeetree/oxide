@@ -838,7 +838,11 @@ impl ClusterCache {
             build_cilium_metrics_json_cache(&pod_metrics_history, &cilium_pods);
 
         // Pre-serialize Envoy metrics JSON
-        let envoy_metrics_json_cache = build_envoy_metrics_json_cache(&envoy_metrics_history);
+        let envoy_metrics_json_cache = build_envoy_metrics_json_cache(
+            &envoy_metrics_history,
+            &pod_metrics_history,
+            &envoy_pods,
+        );
 
         // Pre-serialize per-cluster metrics JSON
         let cluster_metrics_json_cache =
@@ -997,7 +1001,11 @@ impl ClusterCache {
             build_metrics_json_cache(&node_metrics_history, &pod_metrics_history);
         let cilium_metrics_json_cache =
             build_cilium_metrics_json_cache(&pod_metrics_history, &cilium_pods);
-        let envoy_metrics_json_cache = build_envoy_metrics_json_cache(&envoy_metrics_history);
+        let envoy_metrics_json_cache = build_envoy_metrics_json_cache(
+            &envoy_metrics_history,
+            &pod_metrics_history,
+            &envoy_pods,
+        );
 
         // Get servers for cluster metrics cache (need to read from current data)
         let (cluster_metrics_json_cache, node_metrics_json_cache) = {
@@ -1387,6 +1395,8 @@ fn build_cilium_metrics_json_cache(
 #[inline]
 fn build_envoy_metrics_json_cache(
     envoy_metrics_history: &crate::prometheus::EnvoyMetricsHistory,
+    pod_metrics_history: &HashMap<String, crate::prometheus::NodeMetricsHistory>,
+    envoy_pods: &[super::templates::EnvoyPod],
 ) -> Arc<str> {
     use serde::Serialize;
 
@@ -1399,6 +1409,22 @@ fn build_envoy_metrics_json_cache(
         status_3xx_history: Vec<f64>,
         status_4xx_history: Vec<f64>,
         status_5xx_history: Vec<f64>,
+        pods: Vec<EnvoyPodMetrics>,
+    }
+
+    #[derive(Serialize)]
+    struct EnvoyPodMetrics {
+        name: String,
+        cpu_history: Vec<f64>,
+        memory_history: Vec<f64>,
+        #[serde(rename = "cpuRequest")]
+        cpu_request: f64,
+        #[serde(rename = "cpuLimit")]
+        cpu_limit: f64,
+        #[serde(rename = "memoryRequest")]
+        memory_request: f64,
+        #[serde(rename = "memoryLimit")]
+        memory_limit: f64,
     }
 
     if !envoy_metrics_history.rps_history.is_empty() {
@@ -1424,6 +1450,19 @@ fn build_envoy_metrics_json_cache(
             let rounded = (*ts / TIMESTAMP_ROUNDING_SECS) * TIMESTAMP_ROUNDING_SECS;
             all_timestamps.insert(rounded);
         }
+
+        // Also include timestamps from pod metrics
+        for history in pod_metrics_history.values() {
+            for (ts, _) in &history.cpu_history {
+                let rounded = (*ts / TIMESTAMP_ROUNDING_SECS) * TIMESTAMP_ROUNDING_SECS;
+                all_timestamps.insert(rounded);
+            }
+            for (ts, _) in &history.memory_history {
+                let rounded = (*ts / TIMESTAMP_ROUNDING_SECS) * TIMESTAMP_ROUNDING_SECS;
+                all_timestamps.insert(rounded);
+            }
+        }
+
         let timestamps: Vec<i64> = all_timestamps.into_iter().collect();
 
         // Align RPS data to rounded timestamps
@@ -1496,6 +1535,55 @@ fn build_envoy_metrics_json_cache(
             })
             .collect();
 
+        // Build pods metrics (similar to Cilium)
+        let pods_metrics: Vec<EnvoyPodMetrics> = envoy_pods
+            .iter()
+            .map(|envoy_pod| {
+                let key = format!("{}/{}", envoy_pod.namespace, envoy_pod.name);
+                let history = pod_metrics_history.get(&key);
+
+                let (cpu_history, memory_history) = if let Some(hist) = history {
+                    // Align CPU data to timestamps
+                    let cpu_aligned: Vec<f64> = timestamps
+                        .iter()
+                        .filter_map(|ts| {
+                            hist.cpu_history
+                                .iter()
+                                .filter(|(t, _)| (*t - *ts).abs() <= TIMESTAMP_TOLERANCE_SECS)
+                                .min_by_key(|(t, _)| (*t - *ts).abs())
+                                .map(|(_, val)| val * CPU_TO_MILLICORES_MULTIPLIER)
+                        })
+                        .collect();
+
+                    // Align memory data to timestamps
+                    let memory_aligned: Vec<f64> = timestamps
+                        .iter()
+                        .filter_map(|ts| {
+                            hist.memory_history
+                                .iter()
+                                .filter(|(t, _)| (*t - *ts).abs() <= TIMESTAMP_TOLERANCE_SECS)
+                                .min_by_key(|(t, _)| (*t - *ts).abs())
+                                .map(|(_, val)| *val)
+                        })
+                        .collect();
+
+                    (cpu_aligned, memory_aligned)
+                } else {
+                    (vec![], vec![])
+                };
+
+                EnvoyPodMetrics {
+                    name: envoy_pod.name.clone(),
+                    cpu_history,
+                    memory_history,
+                    cpu_request: envoy_pod.cpu_request,
+                    cpu_limit: envoy_pod.cpu_limit,
+                    memory_request: envoy_pod.memory_request,
+                    memory_limit: envoy_pod.memory_limit,
+                }
+            })
+            .collect();
+
         let response = EnvoyMetrics {
             timestamps,
             rps_history: rps_aligned,
@@ -1503,6 +1591,7 @@ fn build_envoy_metrics_json_cache(
             status_3xx_history: status_3xx_aligned,
             status_4xx_history: status_4xx_aligned,
             status_5xx_history: status_5xx_aligned,
+            pods: pods_metrics,
         };
         Arc::from(
             serde_json::to_string(&response)
