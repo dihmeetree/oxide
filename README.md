@@ -212,7 +212,7 @@ kubectl get nodes
 
 ## Web Dashboard
 
-Oxide includes a built-in web dashboard for managing your clusters through a modern UI:
+Oxide includes a comprehensive web dashboard for managing and monitoring your Kubernetes clusters through a modern, responsive UI:
 
 <p align="center">
   <img src="https://i.imgur.com/ncmbkgp.png" alt="Oxide Dashboard" width="850">
@@ -233,27 +233,146 @@ oxide dashboard --port 8080
 oxide --config my-cluster.yaml dashboard
 ```
 
-The dashboard provides:
-
-- **Cluster Overview**: View all your clusters and their status at a glance
-- **Node Management**: Monitor nodes, view resource usage, and see running pods
-- **Cluster Operations**: Scale, upgrade, and delete clusters from the UI
-- **Real-time Updates**: Automatic cache refresh every 30 seconds
-- **Pod Metrics**: View CPU and memory usage for pods on each node
-
 Once started, open your browser to `http://localhost:3000` to access the dashboard.
 
-**Dashboard Features**:
+### Dashboard Features
 
-- **Home Page**: Summary of total clusters, nodes, and system status
-- **Cluster List**: View all clusters with their current status and node count
-- **Cluster Details**: Detailed view of nodes, Talos version, and API endpoint
-- **Node Details**: View all pods running on a specific node with resource metrics
-- **Cluster Actions**:
+#### **Cluster Management**
+
+- **Home Page**: Overview with total clusters, nodes, system status, and alert counts
+- **Cluster List**: View all clusters with their status, node count, and Talos version
+- **Cluster Details**: Detailed view with nodes, control plane/worker counts, and metrics charts
+- **Create Cluster**: Web form to deploy new clusters without CLI
+- **Cluster Operations**:
   - Scale worker or control plane nodes
   - Upgrade Talos version
   - Delete clusters with confirmation
-- **Create Cluster**: Web form to deploy new clusters without CLI
+
+#### **Node Management**
+
+- **Nodes List**: View all nodes across clusters with CPU/Memory usage and status
+- **Node Details**:
+  - Resource metrics (CPU/Memory usage with historical charts)
+  - All pods running on the node
+  - Node specifications and role
+  - Real-time status monitoring
+
+#### **Pod Management**
+
+- **Pods List**: View all pods across the cluster with filtering and sorting
+  - Sort by CPU usage (highest to lowest)
+  - Status indicators (Running, Pending, Failed)
+  - Resource usage metrics
+- **Pod Details**:
+  - CPU and Memory usage with percentage and limits
+  - Container information (image, resources, restart counts)
+  - Pod labels and configuration
+  - Status and restart history
+- **Pod Logs**:
+  - Real-time log viewing with syntax highlighting
+  - Log level detection (Error, Warning, Info, Debug)
+  - Container selection for multi-container pods
+  - Configurable tail lines
+
+#### **Service Management**
+
+- **Services List**: View all Kubernetes services
+  - Service types (ClusterIP, NodePort, LoadBalancer)
+  - Port configurations
+  - Endpoint counts
+- **Service Details**:
+  - Cluster and External IPs
+  - Port mappings with protocols
+  - Selector labels and session affinity
+  - Active endpoints
+
+#### **Deployment Management**
+
+- **Deployments List**: View all deployments with replica status
+  - Available, progressing, and unavailable counts
+  - Update strategy information
+- **Deployment Details**:
+  - Replica status and scaling information
+  - Update strategy (RollingUpdate, Recreate)
+  - Deployment conditions
+  - Pod list with status
+  - Labels and selectors
+
+#### **Event Monitoring**
+
+- **Events Page**: Real-time Kubernetes events
+  - Warning and Normal event counts
+  - Event timeline with filtering
+  - Object details (Pod, Node, Service, etc.)
+  - Event messages and reasons
+  - Occurrence counts and timestamps
+
+#### **Insights & Best Practices**
+
+Production-ready cluster insights with actionable recommendations:
+
+**Resource Management**:
+- Pods without resource limits or requests
+- Over-provisioned pods (using <20% of requests)
+- Under-provisioned pods (using >90% of limits)
+- Pods with high restart counts
+
+**Reliability**:
+- Deployments with single replicas (no HA)
+- Pods missing liveness or readiness probes
+- Frequent pod restarts indicating instability
+
+**Security**:
+- Pods running as root user
+- Privileged containers
+- Containers using hostPath volumes
+- Pods using 'latest' image tags
+
+**Configuration**:
+- Services without endpoints (no backing pods)
+- Namespaces without resource quotas
+
+Each insight includes:
+- Severity level (High, Medium, Low)
+- Clear description of the issue
+- Actionable recommendations
+- List of affected resources
+- Category classification
+
+#### **CNI Monitoring**
+
+**Cilium Page**:
+- Cilium version and configuration status
+- Hubble and IPv6 enablement status
+- Per-pod CPU and Memory usage charts
+- Cilium pod details with resource metrics
+- Historical performance data
+
+**Envoy Page** (if using Envoy with Cilium):
+- Envoy version and pod status
+- CPU and Memory usage per pod
+- RPS (Requests Per Second) metrics
+- HTTP status code distribution (2xx, 3xx, 4xx, 5xx)
+- Historical metrics and trends
+
+#### **Metrics & Monitoring**
+
+- **Prometheus Integration**: Real-time metrics collection and visualization
+- **Historical Charts**: CPU and Memory usage over time
+- **Multi-Pod Views**: Compare metrics across pods
+- **Interactive Legends**: Click to show/hide specific pods
+- **Automatic Refresh**: Data updates every 30 seconds
+- **Alert Integration**: Shows firing alerts count in navigation
+
+#### **User Interface**
+
+- **Modern Design**: Clean, responsive interface with dark mode
+- **Fast Navigation**: Quick access to all resources
+- **Search & Filter**: Find resources quickly
+- **Status Indicators**: Color-coded status badges
+- **Real-time Updates**: Automatic data refresh
+- **Responsive Layout**: Works on desktop, tablet, and mobile
+- **Breadcrumb Navigation**: Easy navigation through resource hierarchy
 
 ## Commands
 
