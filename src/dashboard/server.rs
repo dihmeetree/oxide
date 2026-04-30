@@ -25,15 +25,23 @@ pub struct DashboardServer {
 }
 
 impl DashboardServer {
-    /// Create a new dashboard server
-    pub fn new(config_path: PathBuf, output_dir: PathBuf, port: u16) -> Self {
-        let addr = SocketAddr::from(([127, 0, 0, 1], port));
-        Self {
+    /// Create a new dashboard server.
+    ///
+    /// `host` accepts any value parseable as an [`IpAddr`] — typically
+    /// `127.0.0.1` (default, loopback only) or `0.0.0.0` (all interfaces,
+    /// e.g. when running inside a container or when accessing the dashboard
+    /// from another machine on the network).
+    pub fn new(config_path: PathBuf, output_dir: PathBuf, host: &str, port: u16) -> Result<Self> {
+        let ip: std::net::IpAddr = host.parse().map_err(|e| {
+            anyhow::anyhow!("Invalid --host '{host}': must be a valid IPv4/IPv6 address ({e})")
+        })?;
+        let addr = SocketAddr::new(ip, port);
+        Ok(Self {
             config_path,
             output_dir,
             addr,
             cache_refresh_interval: 120,
-        }
+        })
     }
 
     /// Start the dashboard server

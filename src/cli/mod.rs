@@ -117,6 +117,9 @@ pub enum Commands {
 
     /// Start web dashboard for cluster management
     Dashboard {
+        /// Host/IP address to bind to (use 0.0.0.0 to expose externally)
+        #[arg(long, default_value = "127.0.0.1")]
+        host: String,
         /// Port to listen on
         #[arg(short, long, default_value = "3000")]
         port: u16,

@@ -262,6 +262,9 @@ oxide dashboard
 # Use a custom port
 oxide dashboard --port 8080
 
+# Bind to all interfaces (e.g. when running on a remote host or in a VM)
+oxide dashboard --host 0.0.0.0 --port 3000
+
 # Use a custom configuration file
 oxide --config my-cluster.yaml dashboard
 ```

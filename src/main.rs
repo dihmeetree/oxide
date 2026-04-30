@@ -102,9 +102,11 @@ async fn main() {
         Commands::UninstallAutoscaler => Autoscaler::uninstall(&cli.output).await,
         Commands::InstallMetricsServer => MetricsServer::install(&cli.output).await,
         Commands::UninstallMetricsServer => MetricsServer::uninstall(&cli.output).await,
-        Commands::Dashboard { port } => {
-            let server = DashboardServer::new(cli.config.clone(), cli.output.clone(), port);
-            server.serve().await
+        Commands::Dashboard { host, port } => {
+            match DashboardServer::new(cli.config.clone(), cli.output.clone(), &host, port) {
+                Ok(server) => server.serve().await,
+                Err(e) => Err(e),
+            }
         }
     };
 
