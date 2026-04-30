@@ -504,7 +504,7 @@ ssh root@<server-ip>
 
 # 4. Download and write Talos image
 cd /tmp
-wget -O /tmp/talos.raw.xz https://factory.talos.dev/image/376567988ad370138ad8b2698212367b8edcb69b5fd68c80be1f2ec7d603b4ba/v1.11.0/hcloud-amd64.raw.xz
+wget -O /tmp/talos.raw.xz https://factory.talos.dev/image/376567988ad370138ad8b2698212367b8edcb69b5fd68c80be1f2ec7d603b4ba/v1.13.0/hcloud-amd64.raw.xz
 xz -d -c /tmp/talos.raw.xz | dd of=/dev/sda && sync
 
 # 5. Shutdown the server
@@ -513,7 +513,7 @@ shutdown -h now
 # 6. Wait a moment, then create snapshot
 hcloud server create-image \
   --type snapshot \
-  --description "Talos v1.11.0" \
+  --description "Talos v1.13.0" \
   talos-snapshot
 
 # 7. Get snapshot ID

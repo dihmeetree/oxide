@@ -95,7 +95,7 @@ impl SSHKeyManager {
 /// Uses the ed25519-dalek crate for secure key generation.
 fn generate_ed25519_keypair() -> Result<(String, String)> {
     use ed25519_dalek::{SigningKey, VerifyingKey};
-    use rand::rngs::OsRng;
+    use rand_core::OsRng;
 
     // Generate signing key (private key)
     let signing_key = SigningKey::generate(&mut OsRng);

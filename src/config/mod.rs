@@ -66,10 +66,10 @@ pub struct NetworkConfig {
 /// Talos-specific configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TalosConfig {
-    /// Talos version to use (e.g., "v1.7.0")
+    /// Talos version to use (e.g., "v1.13.0")
     pub version: String,
 
-    /// Kubernetes version (e.g., "1.30.0")
+    /// Kubernetes version (e.g., "1.35.0")
     pub kubernetes_version: String,
 
     /// Cluster endpoint (will be set to first control plane IP if not specified)
@@ -89,7 +89,7 @@ pub struct TalosConfig {
 /// Cilium CNI configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CiliumConfig {
-    /// Cilium version (e.g., "1.15.0")
+    /// Cilium version (e.g., "1.19.3")
     pub version: String,
 
     /// Enable Hubble observability
@@ -108,7 +108,7 @@ pub struct CiliumConfig {
 /// Prometheus monitoring configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PrometheusConfig {
-    /// kube-prometheus-stack Helm chart version (e.g., "65.8.1")
+    /// kube-prometheus-stack Helm chart version (e.g., "84.4.0")
     #[serde(default = "default_prometheus_version")]
     pub version: String,
 
@@ -216,7 +216,7 @@ fn default_one() -> u32 {
 }
 
 fn default_prometheus_version() -> String {
-    "65.8.1".to_string()
+    "84.4.0".to_string()
 }
 
 fn default_prometheus_namespace() -> String {
@@ -232,7 +232,7 @@ fn default_prometheus_storage() -> String {
 }
 
 fn default_autoscaler_version() -> String {
-    "v1.34.0".to_string()
+    "v1.35.0".to_string()
 }
 
 impl PrometheusConfig {
@@ -345,14 +345,14 @@ impl ClusterConfig {
                 },
             },
             talos: TalosConfig {
-                version: "v1.11.3".to_string(),
-                kubernetes_version: "1.34.1".to_string(),
+                version: "v1.13.0".to_string(),
+                kubernetes_version: "1.35.0".to_string(),
                 cluster_endpoint: None,
                 hcloud_snapshot_id: None,
                 config_patches: vec![],
             },
             cilium: CiliumConfig {
-                version: "1.17.8".to_string(),
+                version: "1.19.3".to_string(),
                 enable_hubble: true,
                 enable_ipv6: false,
                 helm_values: serde_yaml::Value::Null,

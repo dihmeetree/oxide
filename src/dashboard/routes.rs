@@ -832,13 +832,13 @@ fn create_cluster_config_from_form(form: &CreateClusterForm) -> ClusterConfig {
         },
         talos: TalosConfig {
             version: form.talos_version.clone(),
-            kubernetes_version: "1.30.0".to_string(),
+            kubernetes_version: "1.35.0".to_string(),
             cluster_endpoint: None,
             hcloud_snapshot_id: Some(form.hcloud_snapshot_id.clone()),
             config_patches: vec![],
         },
         cilium: CiliumConfig {
-            version: "1.16.5".to_string(),
+            version: "1.19.3".to_string(),
             enable_hubble: true,
             enable_ipv6: false,
             helm_values: serde_yaml::Value::Null,

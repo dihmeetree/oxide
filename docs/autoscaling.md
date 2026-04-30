@@ -48,7 +48,7 @@ autoscaler:
 
   # Cluster autoscaler version
   # See: https://github.com/kubernetes/autoscaler/releases
-  version: v1.34.0
+  version: v1.35.0
 
   # Worker pools to autoscale
   worker_pools:
@@ -64,7 +64,7 @@ autoscaler:
 | Field          | Description                        | Required | Default |
 | -------------- | ---------------------------------- | -------- | ------- |
 | `enabled`      | Enable cluster autoscaler          | Yes      | false   |
-| `version`      | Autoscaler version (e.g., v1.34.0) | No       | v1.34.0 |
+| `version`      | Autoscaler version (e.g., v1.35.0) | No       | v1.35.0 |
 | `worker_pools` | List of worker pools to autoscale  | Yes      | []      |
 
 ### Worker Pool Configuration

@@ -81,14 +81,14 @@ ssh root@<server-ip>
 
 # 4. Download and write the Talos image
 cd /tmp
-wget -O /tmp/talos.raw.xz https://factory.talos.dev/image/376567988ad370138ad8b2698212367b8edcb69b5fd68c80be1f2ec7d603b4ba/v1.11.0/hcloud-amd64.raw.xz
+wget -O /tmp/talos.raw.xz https://factory.talos.dev/image/376567988ad370138ad8b2698212367b8edcb69b5fd68c80be1f2ec7d603b4ba/v1.13.0/hcloud-amd64.raw.xz
 xz -d -c /tmp/talos.raw.xz | dd of=/dev/sda && sync
 
 # 5. Shutdown the server
 shutdown -h now
 
 # 6. Wait a moment, then create snapshot from Hetzner Console or CLI
-hcloud server create-image --type snapshot --description "Talos v1.11.0" talos-snapshot
+hcloud server create-image --type snapshot --description "Talos v1.13.0" talos-snapshot
 
 # 7. Note the snapshot ID (you'll need this for configuration)
 hcloud image list
@@ -103,7 +103,7 @@ For automated image creation, use HashiCorp Packer:
 
 ```bash
 # See the official Talos documentation for Packer configuration:
-# https://www.talos.dev/v1.11/talos-guides/install/cloud-platforms/hetzner/
+# https://www.talos.dev/v1.13/talos-guides/install/cloud-platforms/hetzner/
 
 # Example: Use the terraform-hcloud-talos/_packer directory in this repo
 cd terraform-hcloud-talos/_packer
@@ -139,17 +139,17 @@ hcloud:
     zone: eu-central
 
 talos:
-  version: v1.11.3
-  kubernetes_version: 1.34.1
+  version: v1.13.0
+  kubernetes_version: 1.35.0
   hcloud_snapshot_id: "123456789" # Your snapshot ID from step 1
 
 cilium:
-  version: 1.17.8
+  version: 1.19.3
   enable_hubble: true
   enable_ipv6: false
 
 prometheus:
-  version: 77.13.0
+  version: 84.4.0
   enabled: true
   namespace: monitoring
   enable_grafana: true
@@ -457,28 +457,28 @@ Upgrade your cluster nodes to a new Talos version:
 
 ```bash
 # Upgrade control plane nodes only
-oxide upgrade --version v1.11.3 --control-plane
+oxide upgrade --version v1.13.0 --control-plane
 
 # Upgrade worker nodes only
-oxide upgrade --version v1.11.3 --workers
+oxide upgrade --version v1.13.0 --workers
 
 # Upgrade both control plane and worker nodes
-oxide upgrade --version v1.11.3 --control-plane --workers
+oxide upgrade --version v1.13.0 --control-plane --workers
 
 # Upgrade without preserving node data (default is to preserve)
-oxide upgrade --version v1.11.3 --control-plane --workers --preserve false
+oxide upgrade --version v1.13.0 --control-plane --workers --preserve false
 
 # Wait and observe each node upgrade (shows live progress)
-oxide upgrade --version v1.11.3 --control-plane --wait
+oxide upgrade --version v1.13.0 --control-plane --wait
 
 # Stage the upgrade (applies on next reboot, useful if upgrade fails due to open files)
-oxide upgrade --version v1.11.3 --workers --stage
+oxide upgrade --version v1.13.0 --workers --stage
 ```
 
 **Upgrade Behavior**:
 
 - **Sequential Upgrade**: Nodes are upgraded one at a time to maintain cluster availability
-- **Automatic Image Selection**: Installer image is automatically constructed from version (e.g., `ghcr.io/siderolabs/installer:v1.11.3`)
+- **Automatic Image Selection**: Installer image is automatically constructed from version (e.g., `ghcr.io/siderolabs/installer:v1.13.0`)
 - **Data Preservation**: By default, node data is preserved during upgrade (`--preserve true`)
 - **Granular Control**: Can upgrade control plane and workers independently
 - **Progress Logging**: Shows detailed progress for each node upgrade
@@ -497,13 +497,13 @@ oxide upgrade --version v1.11.3 --workers --stage
 
 ```bash
 # 1. Upgrade control plane nodes first
-oxide upgrade --version v1.11.3 --control-plane
+oxide upgrade --version v1.13.0 --control-plane
 
 # 2. Wait for control plane to stabilize
 kubectl get nodes
 
 # 3. Upgrade worker nodes
-oxide upgrade --version v1.11.3 --workers
+oxide upgrade --version v1.13.0 --workers
 ```
 
 **Important Notes**:
@@ -682,7 +682,7 @@ oxide uninstall-metrics-server
 
 | Field                       | Description                              | Default    |
 | --------------------------- | ---------------------------------------- | ---------- |
-| `version`                   | kube-prometheus-stack chart version      | 77.13.0    |
+| `version`                   | kube-prometheus-stack chart version      | 84.4.0     |
 | `enabled`                   | Enable Prometheus installation           | true       |
 | `namespace`                 | Kubernetes namespace for Prometheus      | monitoring |
 | `enable_grafana`            | Enable Grafana dashboards                | true       |
