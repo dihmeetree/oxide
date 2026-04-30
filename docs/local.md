@@ -151,7 +151,8 @@ config-validation time when `provider: docker`.
 | `oxide status`    | Lists Talos containers (`docker ps`) and `kubectl get nodes`    |
 | `oxide destroy`   | Calls `talosctl cluster destroy` and removes `output/`          |
 | `oxide install-prometheus` / `install-metrics-server` / etc. | Work the same as on Hetzner — they only need the kubeconfig |
-| `oxide scale`     | **Rejected** with a helpful error — destroy and re-create       |
+| `oxide scale --node-type worker` | **Supported.** Spawns/removes worker containers (drains via `kubectl` first on scale-down) |
+| `oxide scale --node-type control-plane` | **Rejected** — Docker provisioner is single-CP        |
 | `oxide upgrade`   | **Rejected** with a helpful error — destroy and re-create       |
 
 ## Files written under `output/`
@@ -167,8 +168,10 @@ config-validation time when `provider: docker`.
 
 - **Single control plane only.** The Docker provisioner does not support
   multi-CP topologies. Use the Hetzner provider for HA.
-- **No `oxide scale` / `oxide upgrade`.** Re-create the cluster with the
-  desired counts/version.
+- **Worker scaling is supported, in-place upgrades are not.** Use
+  `oxide scale --node-type worker --count N` to add/remove workers
+  (control-plane scaling stays blocked). For Talos version bumps,
+  re-create the cluster.
 - **No autoscaler.** Hetzner-specific.
 - **`server_type` is ignored** under `control_planes` / `workers` — Docker
   containers have no instance type. Per-pool `count` is honored.

@@ -28,6 +28,8 @@ use crate::prometheus::Prometheus;
 use crate::talos::TalosClient;
 use crate::utils::command::CommandBuilder;
 
+mod scaling;
+
 /// Local cluster manager.
 pub struct LocalCluster {
     config: ClusterConfig,

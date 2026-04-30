@@ -1155,14 +1155,17 @@ impl Cluster {
         force: bool,
         timeout: u64,
     ) -> Result<()> {
-        use crate::config::ClusterConfig;
+        use crate::config::{ClusterConfig, Provider};
         let config =
             ClusterConfig::from_file(config_path).context("Failed to load configuration")?;
-        if config.provider.is_local() {
-            anyhow::bail!(
-                "scaling is not supported for local (docker) clusters; \
-                 destroy and re-create with the desired node counts instead"
-            );
+        if config.provider == Provider::Docker {
+            if pool_name.is_some() {
+                tracing::warn!(
+                    "--pool is ignored for local clusters (workers are not pool-partitioned)"
+                );
+            }
+            let local = crate::local::LocalCluster::new(config, output_dir.to_path_buf());
+            return local.scale(node_type, target_count, force, timeout).await;
         }
         let cluster = Self::new(config, output_dir.to_path_buf());
         cluster

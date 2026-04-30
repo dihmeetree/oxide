@@ -61,7 +61,9 @@ provider: docker
 | `docker:` section          | Ignored            | Optional                            |
 | `node_pools.server_type`   | Required, non-empty| Ignored (containers have no type)   |
 | Multi-control-plane        | Supported          | **Rejected** (Docker provisioner only supports 1 CP) |
-| `oxide scale` / `upgrade`  | Supported          | **Rejected** — destroy & re-create  |
+| `oxide scale` (workers)    | Supported          | Supported (clones existing worker container) |
+| `oxide scale` (control-plane) | Supported       | **Rejected** — single-CP only       |
+| `oxide upgrade`            | Supported          | **Rejected** — destroy & re-create  |
 | Cluster autoscaler         | Supported          | **Rejected** at config validation   |
 
 ## Local (Docker) Configuration
