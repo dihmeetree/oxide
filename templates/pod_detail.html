@@ -365,7 +365,7 @@
   const podName = "{{ pod.name }}";
 
   // Parse resource limits from containers
-  const containers = {{ pod.containers|json|safe }};
+  const containers = {{ containers_json|safe }};
 
   // Calculate total CPU and memory limits
   function parseResource(value, type) {

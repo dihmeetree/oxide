@@ -256,6 +256,8 @@ pub struct PodsTemplate {
 pub struct PodDetailTemplate {
     pub pod: PodDetail,
     pub metrics_json: String,
+    /// Pre-serialized, script-safe JSON for `pod.containers` (used in <script>).
+    pub containers_json: String,
     pub active_page: String,
     pub version: String,
     pub firing_alerts_count: usize,

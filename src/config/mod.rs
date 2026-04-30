@@ -271,9 +271,70 @@ impl ClusterConfig {
             anyhow::bail!("at least one control plane node is required");
         }
 
+        // Validate node pool counts and names so misconfiguration fails early
+        // instead of at provisioning time. A pool with `count = 0` would create
+        // no nodes and silently succeed; an empty name would produce malformed
+        // server names like "<cluster>--1".
+        for pool in self.control_planes.iter().chain(self.workers.iter()) {
+            if pool.name.is_empty() {
+                anyhow::bail!("node pool 'name' cannot be empty");
+            }
+            if pool.count == 0 {
+                anyhow::bail!(
+                    "node pool '{}' has count = 0; must be at least 1",
+                    pool.name
+                );
+            }
+        }
+
         // Validate network CIDRs
         self.validate_cidr(&self.hcloud.network.cidr)?;
         self.validate_cidr(&self.hcloud.network.subnet_cidr)?;
+
+        // Validate autoscaler pool configuration if autoscaling is enabled
+        if let Some(autoscaler) = &self.autoscaler {
+            if autoscaler.enabled {
+                if autoscaler.worker_pools.is_empty() {
+                    anyhow::bail!("autoscaler is enabled but has no worker_pools configured");
+                }
+
+                let mut seen_names = std::collections::HashSet::new();
+                for pool in &autoscaler.worker_pools {
+                    if pool.name.is_empty() {
+                        anyhow::bail!("autoscaler worker_pool 'name' cannot be empty");
+                    }
+                    if !seen_names.insert(pool.name.clone()) {
+                        anyhow::bail!(
+                            "autoscaler worker_pool '{}' is defined more than once",
+                            pool.name
+                        );
+                    }
+                    if pool.server_type.is_empty() {
+                        anyhow::bail!(
+                            "autoscaler worker_pool '{}' has empty server_type",
+                            pool.name
+                        );
+                    }
+                    if pool.location.is_empty() {
+                        anyhow::bail!("autoscaler worker_pool '{}' has empty location", pool.name);
+                    }
+                    if pool.max_nodes == 0 {
+                        anyhow::bail!(
+                            "autoscaler worker_pool '{}' has max_nodes = 0; must be > 0",
+                            pool.name
+                        );
+                    }
+                    if pool.min_nodes > pool.max_nodes {
+                        anyhow::bail!(
+                            "autoscaler worker_pool '{}' has min_nodes ({}) > max_nodes ({})",
+                            pool.name,
+                            pool.min_nodes,
+                            pool.max_nodes
+                        );
+                    }
+                }
+            }
+        }
 
         Ok(())
     }

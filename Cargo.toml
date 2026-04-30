@@ -25,8 +25,12 @@ clap = { version = "4.0", features = ["derive"] }
 chrono = { version = "0.4", features = ["serde"] }
 # Base64 encoding for cloud-init
 base64 = "0.22"
-# Random generation for ED25519 SSH key seeding (uses the same rand_core
-# version expected by ed25519-dalek so OsRng implements its CryptoRngCore bound)
+# Secure unique temp files for staging YAML manifests passed to kubectl/helm
+tempfile = "3.10"
+# Cryptographically secure random generation for ED25519 SSH key seeding
+# (also reused for randomly-generated component passwords). Uses the same
+# rand_core version expected by ed25519-dalek so OsRng implements its
+# CryptoRngCore bound.
 rand_core = { version = "0.6", features = ["getrandom"] }
 # ED25519 SSH key generation
 ed25519-dalek = { version = "2.1", features = ["rand_core"] }
@@ -48,7 +52,6 @@ async-trait = "0.1"
 [dev-dependencies]
 tokio-test = "0.4"
 wiremock = "0.6"
-tempfile = "3.10"
 
 # Performance-optimized build profiles
 [profile.release]

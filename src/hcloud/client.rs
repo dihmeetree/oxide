@@ -180,6 +180,7 @@ impl HetznerCloudClient {
 
         let start = std::time::Instant::now();
         let timeout = Duration::from_secs(timeout_secs);
+        let poll_interval = Duration::from_secs(2);
 
         loop {
             let action = self.get_action(action_id).await?;
@@ -194,7 +195,8 @@ impl HetznerCloudClient {
                     anyhow::bail!("Action {} failed: {}", action_id, error_msg);
                 }
                 "running" => {
-                    if start.elapsed() > timeout {
+                    let elapsed = start.elapsed();
+                    if elapsed >= timeout {
                         anyhow::bail!(
                             "Action {} timed out after {} seconds",
                             action_id,
@@ -202,11 +204,24 @@ impl HetznerCloudClient {
                         );
                     }
                     debug!("Action {} progress: {}%", action_id, action.progress);
-                    sleep(Duration::from_secs(2)).await;
+                    // Don't sleep past the deadline so we honour `timeout_secs` closely
+                    // even when the polling interval would otherwise overshoot.
+                    let remaining = timeout - elapsed;
+                    sleep(poll_interval.min(remaining)).await;
                 }
                 status => {
+                    let elapsed = start.elapsed();
+                    if elapsed >= timeout {
+                        anyhow::bail!(
+                            "Action {} timed out after {} seconds (last status: {})",
+                            action_id,
+                            timeout_secs,
+                            status
+                        );
+                    }
                     warn!("Unknown action status: {}", status);
-                    sleep(Duration::from_secs(2)).await;
+                    let remaining = timeout - elapsed;
+                    sleep(poll_interval.min(remaining)).await;
                 }
             }
         }

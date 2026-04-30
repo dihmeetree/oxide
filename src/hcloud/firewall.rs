@@ -5,6 +5,51 @@ use tracing::info;
 use super::client::HetznerCloudClient;
 use super::models::{Firewall, FirewallRule};
 
+/// Parse and validate an allowed IP/CIDR before passing it to the Hetzner API.
+///
+/// Accepts either a bare IPv4/IPv6 address (which is normalised to `/32` or
+/// `/128` respectively) or an explicit CIDR. Anything else is rejected so
+/// malformed input cannot produce an unusable or overbroad firewall rule.
+fn parse_allowed_ip_cidr(allowed_ip: &str) -> Result<String> {
+    use std::net::IpAddr;
+
+    let trimmed = allowed_ip.trim();
+    if trimmed.is_empty() {
+        anyhow::bail!("allowed IP must not be empty");
+    }
+
+    if let Some((addr_str, prefix_str)) = trimmed.split_once('/') {
+        let addr: IpAddr = addr_str
+            .parse()
+            .with_context(|| format!("Invalid IP address in CIDR: {}", trimmed))?;
+        let prefix: u8 = prefix_str
+            .parse()
+            .with_context(|| format!("Invalid prefix length in CIDR: {}", trimmed))?;
+        let max_prefix = match addr {
+            IpAddr::V4(_) => 32,
+            IpAddr::V6(_) => 128,
+        };
+        if prefix > max_prefix {
+            anyhow::bail!(
+                "CIDR prefix /{} exceeds maximum /{} for {}",
+                prefix,
+                max_prefix,
+                addr
+            );
+        }
+        Ok(format!("{}/{}", addr, prefix))
+    } else {
+        let addr: IpAddr = trimmed
+            .parse()
+            .with_context(|| format!("Invalid IP address: {:?}", allowed_ip))?;
+        let prefix = match addr {
+            IpAddr::V4(_) => 32,
+            IpAddr::V6(_) => 128,
+        };
+        Ok(format!("{}/{}", addr, prefix))
+    }
+}
+
 /// Firewall manager
 pub struct FirewallManager {
     client: HetznerCloudClient,
@@ -18,6 +63,8 @@ impl FirewallManager {
 
     /// Get current public IP address
     pub async fn get_current_ip() -> Result<String> {
+        use std::net::IpAddr;
+
         let client = reqwest::Client::new();
         let response = client
             .get("https://ipv4.icanhazip.com")
@@ -25,12 +72,25 @@ impl FirewallManager {
             .await
             .context("Failed to get current IP address")?;
 
-        let ip = response
+        let body = response
             .text()
             .await
             .context("Failed to read IP address response")?;
 
-        Ok(ip.trim().to_string())
+        let trimmed = body.trim();
+
+        // Validate the response is actually an IP address before returning. The
+        // upstream service has, on occasion, returned HTML/error bodies; if we
+        // forwarded that string into firewall rules we would either fail or, worse,
+        // produce a malformed/overbroad rule.
+        let ip: IpAddr = trimmed.parse().with_context(|| {
+            format!(
+                "External IP service returned an invalid IP address: {:?}",
+                trimmed
+            )
+        })?;
+
+        Ok(ip.to_string())
     }
 
     /// Create firewall with Talos/Cilium ports
@@ -56,11 +116,7 @@ impl FirewallManager {
             return Ok(firewall);
         }
 
-        let allowed_ip_cidr = if allowed_ip.contains('/') {
-            allowed_ip.to_string()
-        } else {
-            format!("{}/32", allowed_ip)
-        };
+        let allowed_ip_cidr = parse_allowed_ip_cidr(allowed_ip)?;
 
         // Define firewall rules for external access only
         // Note: Internal cluster communication (10.0.0.0/16) is not affected by Hetzner Cloud firewalls

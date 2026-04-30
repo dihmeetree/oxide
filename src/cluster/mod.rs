@@ -46,13 +46,97 @@ struct ScaleDownParams<'a> {
     timeout: u64,
 }
 
+/// Best-effort cleanup of servers that were freshly created during a scale-up
+/// before a subsequent step failed. Logs (but swallows) deletion errors so the
+/// caller can surface the original failure to the user.
+async fn rollback_new_servers(server_manager: &ServerManager, server_ids: Vec<u64>) {
+    if server_ids.is_empty() {
+        return;
+    }
+    tracing::error!(
+        "Scale-up failed; rolling back {} newly-created server(s)...",
+        server_ids.len()
+    );
+    if let Err(e) = server_manager.delete_servers(server_ids).await {
+        tracing::error!("Failed to roll back new servers (manual cleanup may be required): {e:#}");
+    }
+}
+
 impl Cluster {
     pub fn new(config: ClusterConfig, output_dir: PathBuf) -> Self {
         Self { config, output_dir }
     }
 
     /// Create a new cluster
+    ///
+    /// Wraps `create_cluster_inner` with a best-effort rollback that tears
+    /// down any infrastructure that was provisioned before the failure so
+    /// orphaned servers, networks, firewalls or SSH keys are not left
+    /// behind on the Hetzner Cloud account.
     pub async fn create_cluster(&self) -> Result<()> {
+        match self.create_cluster_inner().await {
+            Ok(()) => Ok(()),
+            Err(err) => {
+                tracing::error!(
+                    "Cluster creation failed: {err:#}. Rolling back partially created resources..."
+                );
+                if let Err(rollback_err) = self.rollback_partial_creation().await {
+                    tracing::error!(
+                        "Rollback encountered errors (manual cleanup may be required): {rollback_err:#}"
+                    );
+                }
+                Err(err)
+            }
+        }
+    }
+
+    /// Best-effort cleanup of any cluster resources that may have been created
+    /// before a failure in [`create_cluster_inner`]. Each step is attempted
+    /// independently so a failure in one does not prevent the others from
+    /// running. Resources that do not exist are treated as success by the
+    /// underlying managers.
+    async fn rollback_partial_creation(&self) -> Result<()> {
+        let hcloud_token = self.config.get_hcloud_token()?;
+        let hcloud_client = HetznerCloudClient::new(hcloud_token)?;
+        let cluster_name = &self.config.cluster_name;
+
+        let mut errors: Vec<String> = Vec::new();
+
+        let server_manager = ServerManager::new(hcloud_client.clone());
+        if let Err(e) = server_manager.delete_cluster_servers(cluster_name).await {
+            errors.push(format!("delete servers: {e:#}"));
+        }
+
+        let firewall_manager = FirewallManager::new(hcloud_client.clone());
+        if let Err(e) = firewall_manager.delete_cluster_firewall(cluster_name).await {
+            errors.push(format!("delete firewall: {e:#}"));
+        }
+
+        let ssh_key_manager = SSHKeyManager::new(hcloud_client.clone());
+        if let Err(e) = ssh_key_manager.delete_cluster_ssh_key(cluster_name).await {
+            errors.push(format!("delete ssh key: {e:#}"));
+        }
+
+        let network_manager = NetworkManager::new(hcloud_client);
+        if let Err(e) = network_manager.delete_network(cluster_name).await {
+            errors.push(format!("delete network: {e:#}"));
+        }
+
+        if errors.is_empty() {
+            info!("Rollback completed successfully");
+            Ok(())
+        } else {
+            Err(anyhow::anyhow!(
+                "rollback finished with {} error(s): {}",
+                errors.len(),
+                errors.join("; ")
+            ))
+        }
+    }
+
+    /// Internal cluster creation routine. Any error returned here triggers a
+    /// rollback in [`create_cluster`].
+    async fn create_cluster_inner(&self) -> Result<()> {
         info!("Starting cluster creation...");
 
         // Ensure output directory exists
@@ -629,13 +713,16 @@ impl Cluster {
 
         let server_manager = ServerManager::new(hcloud_client.clone());
 
-        // Create new nodes
+        // Create new nodes. Track ids so we can roll them back if any
+        // subsequent step (node-readiness wait, firewall application) fails;
+        // otherwise we would leak servers in Hetzner Cloud while the cluster's
+        // desired-state in code shows the scale-up as failed.
         let mut new_server_ids = Vec::new();
         for i in 0..nodes_to_add {
             let node_index = current_count + i + 1;
             let node_name = format!("{}-{}-{}", self.config.cluster_name, pool_name, node_index);
 
-            let server_info = server_manager
+            match server_manager
                 .create_single_node(crate::hcloud::server::CreateSingleNodeParams {
                     cluster_name: &self.config.cluster_name,
                     node_name: &node_name,
@@ -649,10 +736,18 @@ impl Cluster {
                     user_data: Some(user_data.clone()),
                     labels: pool_config.labels.clone(),
                 })
-                .await?;
-
-            new_server_ids.push(server_info.server.id);
-            info!("[OK] Node {} created successfully", node_name);
+                .await
+            {
+                Ok(server_info) => {
+                    new_server_ids.push(server_info.server.id);
+                    info!("[OK] Node {} created successfully", node_name);
+                }
+                Err(e) => {
+                    rollback_new_servers(&server_manager, std::mem::take(&mut new_server_ids))
+                        .await;
+                    return Err(e).context(format!("Failed to create node {node_name}"));
+                }
+            }
         }
 
         // Wait for new nodes to become Ready
@@ -662,14 +757,23 @@ impl Cluster {
         for i in 0..nodes_to_add {
             let node_index = current_count + i + 1;
             let node_name = format!("{}-{}-{}", self.config.cluster_name, pool_name, node_index);
-            NodeManager::wait_for_node_ready(&kubeconfig_path, &node_name, 300).await?;
+            if let Err(e) =
+                NodeManager::wait_for_node_ready(&kubeconfig_path, &node_name, 300).await
+            {
+                rollback_new_servers(&server_manager, std::mem::take(&mut new_server_ids)).await;
+                return Err(e).context(format!("Node {node_name} failed to become Ready"));
+            }
         }
 
         // Apply firewall to new servers
         if let Some(fw) = firewall {
-            firewall_manager
-                .apply_to_servers(fw.id, new_server_ids)
-                .await?;
+            if let Err(e) = firewall_manager
+                .apply_to_servers(fw.id, new_server_ids.clone())
+                .await
+            {
+                rollback_new_servers(&server_manager, std::mem::take(&mut new_server_ids)).await;
+                return Err(e).context("Failed to apply firewall to new servers");
+            }
         }
 
         info!("All new nodes created and configured");

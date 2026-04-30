@@ -215,8 +215,13 @@ impl NodeManager {
         Ok(pods)
     }
 
-    /// Monitor pod draining progress on a node
-    /// Returns when all pods are drained or timeout is reached
+    /// Monitor pod draining progress on a node.
+    ///
+    /// Returns `Ok(())` once every pod has been evicted from `node_name`. If the
+    /// timeout elapses while pods remain, an error is returned so callers can
+    /// react explicitly (e.g. log a warning, fall back to forced reset, or abort
+    /// destructive follow-up work). Previously the timeout path returned
+    /// `Ok(())`, which silently masked incomplete drains.
     pub async fn monitor_drain_progress(
         kubeconfig_path: &Path,
         node_name: &str,
@@ -244,11 +249,12 @@ impl NodeManager {
             }
 
             if start.elapsed() > timeout {
-                info!(
-                    "Warning: Timeout reached with {} pods still running on {}",
-                    pod_count, node_name
+                anyhow::bail!(
+                    "Drain timeout: {} pods still running on node {} after {}s",
+                    pod_count,
+                    node_name,
+                    timeout_secs
                 );
-                return Ok(()); // Don't fail, just warn
             }
 
             tokio::time::sleep(std::time::Duration::from_secs(5)).await;
@@ -284,10 +290,13 @@ impl NodeManager {
         let control_planes: Vec<&str> = output.stdout.split_whitespace().collect();
         let current_count = control_planes.len();
 
-        // Check if any nodes to remove are control planes
-        let control_planes_to_remove: Vec<_> = nodes_to_remove
+        // Deduplicate caller-provided node names so a duplicated entry can't be
+        // counted twice when computing the remaining quorum.
+        let mut seen = std::collections::HashSet::new();
+        let control_planes_to_remove: Vec<&String> = nodes_to_remove
             .iter()
             .filter(|node| control_planes.contains(&node.as_str()))
+            .filter(|node| seen.insert(node.as_str()))
             .collect();
 
         if control_planes_to_remove.is_empty() {
@@ -295,7 +304,9 @@ impl NodeManager {
             return Ok(());
         }
 
-        let remaining_count = current_count - control_planes_to_remove.len();
+        // Use saturating subtraction to defend against bookkeeping bugs that could
+        // otherwise underflow (panicking in debug, wrapping in release).
+        let remaining_count = current_count.saturating_sub(control_planes_to_remove.len());
 
         info!(
             "Control plane nodes: {} current, {} to remove, {} remaining",

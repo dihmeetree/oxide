@@ -19,6 +19,7 @@ use super::templates::{
     InsightsTemplate, LogLevel, LogLine, MetricsTemplate, NodeDetailTemplate, NodeInfoWithCluster,
     NodesTemplate, PodDetailTemplate, PodsTemplate, ServicesTemplate,
 };
+use super::util::script_safe_json;
 use crate::config::ClusterConfig;
 
 /// Parse log level from a log line
@@ -381,12 +382,13 @@ pub async fn node_detail(
                 let memory_history: Vec<f64> =
                     history.memory_history.iter().map(|(_, val)| *val).collect();
 
-                serde_json::json!({
+                let raw = serde_json::json!({
                     "timestamps": timestamps,
                     "cpu_history": cpu_history,
                     "memory_history": memory_history,
                 })
-                .to_string()
+                .to_string();
+                script_safe_json(&raw)
             } else {
                 "{}".to_string()
             };
@@ -433,13 +435,22 @@ pub async fn pod_detail(
 
             // Build metrics JSON using helper function
             let metrics_json = build_pod_metrics_json(&metrics);
+            let metrics_json_str = script_safe_json(
+                &serde_json::to_string(&metrics_json).unwrap_or_else(|_| "{}".to_string()),
+            );
+            // Pre-serialize the container list (which contains user-controlled
+            // strings like image names) into a script-safe JSON literal so the
+            // template can embed it directly without HTML escaping issues.
+            let containers_json = script_safe_json(
+                &serde_json::to_string(&pod.containers).unwrap_or_else(|_| "[]".to_string()),
+            );
 
             let (firing_alerts_count, insights_count, warning_events_count) =
                 get_alerts_and_insights_counts(&state.cache).await;
             let template = PodDetailTemplate {
                 pod,
-                metrics_json: serde_json::to_string(&metrics_json)
-                    .unwrap_or_else(|_| "{}".to_string()),
+                metrics_json: metrics_json_str,
+                containers_json,
                 active_page: "pods".to_string(),
                 version: env!("CARGO_PKG_VERSION").to_string(),
                 firing_alerts_count,

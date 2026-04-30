@@ -320,6 +320,7 @@ impl ServerManager {
             cluster_name
         );
 
+        let mut failures: Vec<String> = Vec::new();
         for server_info in servers {
             info!(
                 "Deleting server: {} (ID: {})",
@@ -330,7 +331,20 @@ impl ServerManager {
                     "Failed to delete server {} (ID: {}): {}",
                     server_info.server.name, server_info.server.id, e
                 );
+                failures.push(format!(
+                    "{} (ID: {}): {}",
+                    server_info.server.name, server_info.server.id, e
+                ));
             }
+        }
+
+        if !failures.is_empty() {
+            anyhow::bail!(
+                "Failed to delete {} server(s) for cluster {}:\n  - {}",
+                failures.len(),
+                cluster_name,
+                failures.join("\n  - ")
+            );
         }
 
         info!("All servers deleted");
@@ -356,11 +370,21 @@ impl ServerManager {
 
         info!("Deleting {} servers", server_ids.len());
 
+        let mut failures: Vec<String> = Vec::new();
         for server_id in server_ids {
             info!("Deleting server ID: {}", server_id);
             if let Err(e) = self.client.delete_server(server_id).await {
                 warn!("Failed to delete server {}: {}", server_id, e);
+                failures.push(format!("ID {}: {}", server_id, e));
             }
+        }
+
+        if !failures.is_empty() {
+            anyhow::bail!(
+                "Failed to delete {} server(s):\n  - {}",
+                failures.len(),
+                failures.join("\n  - ")
+            );
         }
 
         info!("Servers deleted");

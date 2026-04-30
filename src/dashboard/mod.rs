@@ -4,5 +4,6 @@ pub mod insights;
 mod routes;
 mod server;
 mod templates;
+mod util;
 
 pub use server::DashboardServer;

@@ -1,5 +1,5 @@
 /// Cilium CNI deployment and management
-use anyhow::Result;
+use anyhow::{Context, Result};
 use tracing::info;
 
 use crate::config::CiliumConfig;
@@ -312,12 +312,20 @@ data:
     }
 ";
 
-        // Write patch to temp file
-        let temp_file = std::env::temp_dir().join("coredns-patch.yaml");
-        tokio::fs::write(&temp_file, coredns_config).await?;
+        // Stage the patch in a unique temp file so concurrent runs cannot
+        // clobber each other and a local attacker cannot pre-create a symlink
+        // at a predictable path. The `NamedTempFile` is removed automatically
+        // when it goes out of scope, even on failure.
+        let temp_file = tempfile::Builder::new()
+            .prefix("oxide-coredns-patch-")
+            .suffix(".yaml")
+            .tempfile()
+            .context("Failed to create temp file for CoreDNS patch")?;
+        tokio::fs::write(temp_file.path(), coredns_config).await?;
 
         // Convert path to string with error handling
         let temp_file_str = temp_file
+            .path()
             .to_str()
             .ok_or_else(|| anyhow::anyhow!("Temp file path contains invalid UTF-8"))?;
 
@@ -337,8 +345,8 @@ data:
             .run_silent()
             .await?;
 
-        // Clean up temp file
-        tokio::fs::remove_file(&temp_file).await?;
+        // Tempfile is closed/removed when `temp_file` goes out of scope.
+        drop(temp_file);
 
         // Restart CoreDNS to apply changes
         info!("Restarting CoreDNS to apply configuration...");

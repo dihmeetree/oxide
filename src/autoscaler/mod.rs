@@ -1,5 +1,5 @@
 /// Kubernetes Cluster Autoscaler with Hetzner support
-use anyhow::Result;
+use anyhow::{Context, Result};
 use base64::{engine::general_purpose, Engine as _};
 use std::path::{Path, PathBuf};
 use tracing::info;
@@ -232,11 +232,18 @@ impl Autoscaler {
             .run()
             .await?;
 
-        // Write to temp file and apply
-        let temp_file = std::env::temp_dir().join("hcloud-secret.yaml");
-        tokio::fs::write(&temp_file, secret_yaml).await?;
-        Resources::apply_manifest(&self.kubeconfig_path, &temp_file).await?;
-        tokio::fs::remove_file(&temp_file).await?;
+        // Write to a unique temp file and apply. The hcloud token is sensitive,
+        // so a fixed name in /tmp would otherwise leak credentials to anyone who
+        // could win a race or pre-create a symlink at the predictable path. The
+        // tempfile is created with mode 0600 and removed on drop.
+        let temp_file = tempfile::Builder::new()
+            .prefix("oxide-hcloud-secret-")
+            .suffix(".yaml")
+            .tempfile()
+            .context("Failed to create temp file for hcloud secret")?;
+        tokio::fs::write(temp_file.path(), secret_yaml).await?;
+        Resources::apply_manifest(&self.kubeconfig_path, temp_file.path()).await?;
+        drop(temp_file);
 
         Ok(())
     }
@@ -263,10 +270,14 @@ data:
   worker-config: {worker_config_b64}"
         );
 
-        let temp_file = std::env::temp_dir().join("talos-config.yaml");
-        tokio::fs::write(&temp_file, configmap_yaml).await?;
-        Resources::apply_manifest(&self.kubeconfig_path, &temp_file).await?;
-        tokio::fs::remove_file(&temp_file).await?;
+        let temp_file = tempfile::Builder::new()
+            .prefix("oxide-talos-config-")
+            .suffix(".yaml")
+            .tempfile()
+            .context("Failed to create temp file for Talos config")?;
+        tokio::fs::write(temp_file.path(), configmap_yaml).await?;
+        Resources::apply_manifest(&self.kubeconfig_path, temp_file.path()).await?;
+        drop(temp_file);
 
         Ok(())
     }

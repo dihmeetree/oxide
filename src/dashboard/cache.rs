@@ -8,6 +8,7 @@ use tokio::sync::RwLock;
 use tracing::{error, info};
 
 use crate::dashboard::templates::CiliumPod;
+use crate::dashboard::util::script_safe_json;
 
 // Constants for metrics and caching
 const METRICS_HISTORY_MAX_AGE_SECS: i64 = 7200; // 2 hours max history
@@ -16,6 +17,14 @@ const TIMESTAMP_TOLERANCE_SECS: i64 = 60; // Tolerance for timestamp matching
 const CPU_TO_MILLICORES_MULTIPLIER: f64 = 10.0; // Prometheus CPU to millicores conversion
 const KUBERNETES_REFRESH_INTERVAL_SECS: u64 = 30; // Fast refresh for K8s data
 const KUBERNETES_REFRESH_INITIAL_DELAY_SECS: u64 = 5; // Wait before starting K8s refresh
+
+/// Serialize a value as JSON and escape the result so it is safe to embed both
+/// in `<script>` tags (XSS-resistant) and in JSON API responses (still parses
+/// as valid JSON). On serialization failure, returns the string `"{}"`.
+fn serialize_safe<T: serde::Serialize>(value: &T) -> Arc<str> {
+    let raw = serde_json::to_string(value).unwrap_or_else(|_| "{}".to_string());
+    Arc::from(script_safe_json(&raw).as_str())
+}
 
 /// Calculate human-readable age from ISO 8601 timestamp
 pub(super) fn calculate_age(timestamp: &str) -> String {
@@ -418,13 +427,22 @@ impl ClusterCache {
     pub async fn get_cluster_detail(&self, cluster_name: &str) -> Option<ClusterDetail> {
         let data = self.inner.read().await;
 
-        // Filter servers by cluster name
+        // Filter servers by their `cluster` label so cluster names containing
+        // hyphens (e.g. "my-cluster") are matched correctly. Fall back to the
+        // legacy "first hyphen segment" heuristic for servers that may have been
+        // created without the label.
         let cluster_servers: Vec<&Server> = data
             .servers
             .iter()
             .filter(|s| {
-                let parts: Vec<&str> = s.name.split('-').collect();
-                parts.first() == Some(&cluster_name)
+                if let Some(label) = s.labels.get("cluster") {
+                    label == cluster_name
+                } else {
+                    s.name
+                        .split_once('-')
+                        .map(|(prefix, _)| prefix == cluster_name)
+                        .unwrap_or(false)
+                }
             })
             .collect();
 
@@ -1251,11 +1269,7 @@ fn build_metrics_json_cache(
             nodes,
             pods,
         };
-        Arc::from(
-            serde_json::to_string(&response)
-                .unwrap_or_else(|_| "{}".to_string())
-                .as_str(),
-        )
+        serialize_safe(&response)
     } else {
         Arc::from("{}")
     }
@@ -1381,11 +1395,7 @@ fn build_cilium_metrics_json_cache(
             timestamps: valid_timestamps,
             pods: pods_metrics,
         };
-        Arc::from(
-            serde_json::to_string(&response)
-                .unwrap_or_else(|_| "{}".to_string())
-                .as_str(),
-        )
+        serialize_safe(&response)
     } else {
         Arc::from("{}")
     }
@@ -1593,11 +1603,7 @@ fn build_envoy_metrics_json_cache(
             status_5xx_history: status_5xx_aligned,
             pods: pods_metrics,
         };
-        Arc::from(
-            serde_json::to_string(&response)
-                .unwrap_or_else(|_| "{}".to_string())
-                .as_str(),
-        )
+        serialize_safe(&response)
     } else {
         Arc::from("{}")
     }
@@ -1648,11 +1654,7 @@ fn build_node_metrics_json_cache(
             .collect();
 
         let response = NodeMetricsResponse { timestamps, nodes };
-        Arc::from(
-            serde_json::to_string(&response)
-                .unwrap_or_else(|_| "{}".to_string())
-                .as_str(),
-        )
+        serialize_safe(&response)
     } else {
         Arc::from("{}")
     }
@@ -1679,15 +1681,17 @@ fn build_cluster_metrics_json_caches(
         memory_history: Vec<f64>,
     }
 
-    // Group servers by cluster name
+    // Group servers by cluster label (falling back to the first hyphen segment
+    // of the name for servers without the label, to remain backwards compatible).
     let mut cluster_servers: HashMap<String, Vec<&Server>> = HashMap::new();
     for server in servers {
-        let parts: Vec<&str> = server.name.split('-').collect();
-        if let Some(&cluster_name) = parts.first() {
-            cluster_servers
-                .entry(cluster_name.to_string())
-                .or_default()
-                .push(server);
+        let cluster_name = server
+            .labels
+            .get("cluster")
+            .cloned()
+            .or_else(|| server.name.split('-').next().map(str::to_string));
+        if let Some(name) = cluster_name {
+            cluster_servers.entry(name).or_default().push(server);
         }
     }
 
@@ -1732,11 +1736,7 @@ fn build_cluster_metrics_json_caches(
                     .collect();
 
                 let response = NodeMetricsResponse { timestamps, nodes };
-                Arc::from(
-                    serde_json::to_string(&response)
-                        .unwrap_or_else(|_| "{}".to_string())
-                        .as_str(),
-                )
+                serialize_safe(&response)
             } else {
                 Arc::from("{}")
             };
@@ -1752,10 +1752,21 @@ fn group_servers_into_clusters(servers: &[Server]) -> Vec<ClusterInfo> {
 
     let mut clusters: HashMap<String, Vec<&Server>> = HashMap::new();
     for server in servers {
-        let parts: Vec<&str> = server.name.split('-').collect();
-        if parts.len() >= 2 {
-            let cluster_name = parts[0].to_string();
-            clusters.entry(cluster_name).or_default().push(server);
+        // Prefer the explicit `cluster` label so hyphenated cluster names work.
+        // Servers without the label retain the previous heuristic (first
+        // hyphen-delimited segment of the name) so legacy infra still groups.
+        let cluster_name = if let Some(label) = server.labels.get("cluster") {
+            Some(label.clone())
+        } else {
+            let parts: Vec<&str> = server.name.split('-').collect();
+            if parts.len() >= 2 {
+                Some(parts[0].to_string())
+            } else {
+                None
+            }
+        };
+        if let Some(name) = cluster_name {
+            clusters.entry(name).or_default().push(server);
         }
     }
 
@@ -1844,13 +1855,19 @@ async fn fetch_all_node_details(
                 .first()
                 .map(|net| net.ip.clone())
                 .unwrap_or_else(|| "N/A".to_string());
+            // Prefer the explicit `cluster` label set at provisioning time so
+            // hyphenated cluster names (e.g. "my-cluster") are handled correctly.
+            // Fall back to the server-name prefix only if the label is missing.
+            let cluster_label = server.labels.get("cluster").cloned();
 
             async move {
-                let cluster_name = server_name
-                    .split('-')
-                    .next()
-                    .unwrap_or("unknown")
-                    .to_string();
+                let cluster_name = cluster_label.unwrap_or_else(|| {
+                    server_name
+                        .split('-')
+                        .next()
+                        .unwrap_or("unknown")
+                        .to_string()
+                });
 
                 let role = if server_name.contains("control-plane") {
                     "Control Plane".to_string()

@@ -137,6 +137,17 @@ impl Prometheus {
             self.config.storage_size
         );
 
+        // Generate a strong random Grafana admin password (or reuse the one we
+        // stored on a previous install) so we never deploy with the well-known
+        // default. The password is persisted alongside the kubeconfig with 0600
+        // permissions so operators can retrieve it without scraping logs.
+        let grafana_password_arg = if self.config.enable_grafana {
+            let password = self.ensure_grafana_password().await?;
+            Some(format!("grafana.adminPassword={}", password))
+        } else {
+            None
+        };
+
         let mut args = vec![
             "install",
             "prometheus",
@@ -163,12 +174,10 @@ impl Prometheus {
 
         // Grafana configuration
         if self.config.enable_grafana {
-            args.extend_from_slice(&[
-                "--set",
-                "grafana.enabled=true",
-                "--set",
-                "grafana.adminPassword=admin",
-            ]);
+            let pwd_arg = grafana_password_arg
+                .as_deref()
+                .expect("password generated when grafana enabled");
+            args.extend_from_slice(&["--set", "grafana.enabled=true", "--set", pwd_arg]);
 
             if self.config.enable_persistent_storage {
                 args.extend_from_slice(&[
@@ -232,16 +241,76 @@ impl Prometheus {
         Ok(())
     }
 
-    /// Calculate retention size (90% of storage size)
+    /// Calculate retention size (90% of storage size).
+    ///
+    /// Helm rejects a `retentionSize=0GB` setting, so we always clamp to a
+    /// minimum of 1GB even for tiny storage volumes.
     fn calculate_retention_size(&self) -> String {
         // Parse storage size (e.g., "50Gi" -> 50)
         let size_str = self.config.storage_size.trim_end_matches("Gi");
         if let Ok(size) = size_str.parse::<u32>() {
-            let retention_size = (size as f32 * 0.9) as u32;
+            let retention_size = ((size as f32) * 0.9) as u32;
+            let retention_size = retention_size.max(1);
             format!("{}GB", retention_size)
         } else {
             "45GB".to_string() // Default fallback
         }
+    }
+
+    /// Path where the generated Grafana admin password is persisted.
+    fn grafana_password_path(&self) -> std::path::PathBuf {
+        let parent = self
+            .kubeconfig_path
+            .parent()
+            .map(std::path::Path::to_path_buf)
+            .unwrap_or_else(|| std::path::PathBuf::from("."));
+        parent.join("grafana-admin-password")
+    }
+
+    /// Read an existing Grafana admin password or generate and persist a new one.
+    ///
+    /// The password is 24 random URL-safe base64 characters and is written with
+    /// mode 0600 so it cannot be read by other users on the host.
+    async fn ensure_grafana_password(&self) -> Result<String> {
+        let path = self.grafana_password_path();
+
+        if path.exists() {
+            let existing = tokio::fs::read_to_string(&path)
+                .await
+                .with_context(|| format!("Failed to read {}", path.display()))?;
+            let trimmed = existing.trim().to_string();
+            if !trimmed.is_empty() {
+                return Ok(trimmed);
+            }
+        }
+
+        // 18 random bytes -> 24-char URL-safe base64 string. We use the OS RNG
+        // (already a project dependency via rand_core/getrandom) to avoid pulling
+        // in a new crate.
+        use base64::Engine;
+        use rand_core::RngCore;
+        let mut bytes = [0u8; 18];
+        rand_core::OsRng.fill_bytes(&mut bytes);
+        let password = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes);
+
+        tokio::fs::write(&path, &password)
+            .await
+            .with_context(|| format!("Failed to write Grafana password to {}", path.display()))?;
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perms = tokio::fs::metadata(&path).await?.permissions();
+            perms.set_mode(0o600);
+            tokio::fs::set_permissions(&path, perms).await?;
+        }
+
+        info!(
+            "Generated random Grafana admin password and stored it at {}",
+            path.display()
+        );
+
+        Ok(password)
     }
 
     /// Wait for Prometheus stack to be ready
@@ -351,10 +420,20 @@ impl Prometheus {
             return Ok("Grafana is disabled".to_string());
         }
 
+        let password_path = self.grafana_password_path();
+        let password_hint = if password_path.exists() {
+            format!(
+                "  Password: stored at {} (mode 0600)\n",
+                password_path.display()
+            )
+        } else {
+            "  Password: not yet generated (run install first)\n".to_string()
+        };
+
         let mut info = String::new();
         info.push_str("Grafana Access Information:\n");
         info.push_str("  Username: admin\n");
-        info.push_str("  Password: admin (change this after first login!)\n");
+        info.push_str(&password_hint);
         info.push_str("\nTo access Grafana:\n");
         info.push_str(&format!(
             "  kubectl port-forward -n {} svc/prometheus-grafana 3000:80\n",
