@@ -6,7 +6,9 @@ Complete reference for `cluster.yaml` configuration file.
 
 ```yaml
 cluster_name: string # Required: Unique cluster identifier
-hcloud: { ... } # Required: Hetzner Cloud settings
+provider: hcloud|docker # Optional: Infrastructure provider (default: hcloud)
+hcloud: { ... } # Required when provider == hcloud
+docker: { ... } # Optional, only honored when provider == docker
 talos: { ... } # Required: Talos Linux configuration
 cilium: { ... } # Required: Cilium CNI settings
 control_planes: [...] # Required: Control plane node pools
@@ -33,9 +35,77 @@ cluster_name: my-production-cluster
 - No spaces or special characters
 - Used in resource names: `{cluster_name}-worker-1`
 
+### `provider`
+
+**Type:** `enum` — one of `hcloud` (default) or `docker`
+**Required:** No (defaults to `hcloud` for back-compat with pre-existing configs)
+**Description:** Infrastructure provider. `hcloud` provisions real Hetzner
+Cloud servers; `docker` spins up a local Talos cluster via Talos's Docker
+provisioner — see [`local.md`](local.md) for the full local-cluster guide.
+
+**Example:**
+
+```yaml
+# Production / cloud
+provider: hcloud
+
+# Local development cluster
+provider: docker
+```
+
+**Provider-specific behavior:**
+
+| Feature                    | `hcloud`           | `docker`                            |
+| -------------------------- | ------------------ | ----------------------------------- |
+| `hcloud:` section          | Required           | Ignored                             |
+| `docker:` section          | Ignored            | Optional                            |
+| `node_pools.server_type`   | Required, non-empty| Ignored (containers have no type)   |
+| Multi-control-plane        | Supported          | **Rejected** (Docker provisioner only supports 1 CP) |
+| `oxide scale` / `upgrade`  | Supported          | **Rejected** — destroy & re-create  |
+| Cluster autoscaler         | Supported          | **Rejected** at config validation   |
+
+## Local (Docker) Configuration
+
+### `docker`
+
+Only honored when `provider: docker`. Every field is optional — a bare
+`docker: {}` is fine.
+
+```yaml
+docker:
+  image: string # Optional: Override Talos image
+  api_port: integer # Optional: Forward this host port to Kubernetes API
+  network_cidr: string # Optional: Override Docker network CIDR
+```
+
+#### `docker.image`
+
+**Type:** `string`
+**Default:** `ghcr.io/siderolabs/talos:<talos.version>`
+**Description:** Talos image tag to run. Override only if you need a custom
+Talos build or a non-public registry.
+
+#### `docker.api_port`
+
+**Type:** `u16`
+**Default:** Talos picks an ephemeral host port (visible in
+`docker ps` after `oxide create`).
+**Description:** Pin the host port forwarded to the Kubernetes API
+(container port `6443`). Useful when you want a stable kubeconfig endpoint
+across `destroy` / `create` cycles.
+
+#### `docker.network_cidr`
+
+**Type:** `string` (CIDR)
+**Default:** `10.5.0.0/24` (Talos default)
+**Description:** Subnet for the Docker bridge network the cluster runs on.
+Change only if it collides with another network on your host.
+
 ## Hetzner Cloud Configuration
 
 ### `hcloud`
+
+Required when `provider: hcloud`. Ignored otherwise.
 
 ```yaml
 hcloud:

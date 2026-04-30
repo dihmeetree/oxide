@@ -12,6 +12,7 @@ mod examples;
 mod hcloud;
 mod helm;
 mod k8s;
+mod local;
 mod metrics_server;
 mod prometheus;
 mod talos;
@@ -50,7 +51,7 @@ async fn main() {
         Commands::Create => Cluster::create(&cli.config, &cli.output).await,
         Commands::Destroy => Cluster::destroy(&cli.config, &cli.output).await,
         Commands::Status => Cluster::status(&cli.config, &cli.output).await,
-        Commands::Init => ClusterConfig::init(&cli.config).await,
+        Commands::Init { provider } => ClusterConfig::init(&cli.config, provider.into()).await,
         Commands::Scale {
             ref node_type,
             count,

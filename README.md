@@ -210,6 +210,39 @@ export KUBECONFIG=./output/kubeconfig
 kubectl get nodes
 ```
 
+## Local Clusters (Docker Provisioner)
+
+In addition to provisioning real Hetzner Cloud VMs, Oxide can spin up a
+fully-functional Talos cluster locally using Talos's **Docker provisioner**.
+This is ideal for fast development loops, CI, and offline experimentation —
+no cloud account or snapshot required.
+
+### Quick start
+
+```bash
+# Scaffold a local-flavoured config (writes cluster.yaml with provider: docker)
+oxide init --provider docker
+
+# Create the cluster (shells out to `talosctl cluster create docker`)
+oxide create
+
+# Use it
+export KUBECONFIG=./output/kubeconfig
+kubectl get nodes
+
+# Tear it down
+oxide destroy
+```
+
+Prerequisites: a running Docker daemon, `talosctl`, `kubectl`, `helm`.
+
+The same optional components as on Hetzner — Cilium (CNI + kube-proxy
+replacement), and, if enabled in your config, metrics-server and the
+kube-prometheus-stack — are installed on top of the local cluster.
+
+> Full guide, configuration reference and limitations:
+> **[docs/local.md](docs/local.md)**.
+
 ## Web Dashboard
 
 Oxide includes a comprehensive web dashboard for managing and monitoring your Kubernetes clusters through a modern, responsive UI:
@@ -656,17 +689,23 @@ oxide uninstall-metrics-server
 
 ### Cluster Configuration
 
-| Field            | Description                    | Required |
-| ---------------- | ------------------------------ | -------- |
-| `cluster_name`   | Unique name for your cluster   | Yes      |
-| `hcloud`         | Hetzner Cloud settings         | Yes      |
-| `talos`          | Talos Linux configuration      | Yes      |
-| `cilium`         | Cilium CNI settings            | Yes      |
-| `prometheus`     | Prometheus monitoring settings | No       |
-| `metrics_server` | Metrics Server settings        | No       |
-| `autoscaler`     | Cluster autoscaler settings    | No       |
-| `control_planes` | Control plane node specs       | Yes      |
-| `workers`        | Worker node specs              | No       |
+| Field            | Description                                                                          | Required                |
+| ---------------- | ------------------------------------------------------------------------------------ | ----------------------- |
+| `cluster_name`   | Unique name for your cluster                                                         | Yes                     |
+| `provider`       | Infrastructure provider: `hcloud` (default) or `docker` (local)                      | No                      |
+| `hcloud`         | Hetzner Cloud settings                                                               | Required for `hcloud`   |
+| `docker`         | Local Docker provisioner settings (image, port, CIDR overrides — all optional)       | Optional, `docker` only |
+| `talos`          | Talos Linux configuration                                                            | Yes                     |
+| `cilium`         | Cilium CNI settings                                                                  | Yes                     |
+| `prometheus`     | Prometheus monitoring settings                                                       | No                      |
+| `metrics_server` | Metrics Server settings                                                              | No                      |
+| `autoscaler`     | Cluster autoscaler settings (rejected when `provider: docker`)                       | No                      |
+| `control_planes` | Control plane node specs (count must be `1` when `provider: docker`)                 | Yes                     |
+| `workers`        | Worker node specs                                                                    | No                      |
+
+> See [`docs/local.md`](docs/local.md) for everything specific to local
+> (Docker) clusters and [`docs/configuration.md`](docs/configuration.md)
+> for the full per-field reference.
 
 ### Hetzner Cloud Settings
 

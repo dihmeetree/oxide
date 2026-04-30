@@ -74,7 +74,8 @@ oxide/
 
 #### `hcloud` Module
 
-**Purpose:** Hetzner Cloud infrastructure provisioning
+**Purpose:** Hetzner Cloud infrastructure provisioning (used when
+`provider: hcloud`)
 
 **Key Components:**
 
@@ -89,6 +90,28 @@ oxide/
 
 - Hetzner Cloud API (HTTPS REST API)
 - Environment variable: `HCLOUD_TOKEN`
+
+#### `local` Module
+
+**Purpose:** Local Talos cluster provisioning via Docker (used when
+`provider: docker`). See [`local.md`](local.md) for the full guide.
+
+**Key Components:**
+
+- `mod.rs` - Drives `talosctl cluster create docker` and the same optional
+  component installs (Cilium, metrics-server, Prometheus) used by the
+  Hetzner flow.
+
+**External Dependencies:**
+
+- A running Docker daemon
+- `talosctl` CLI (must be in PATH)
+- `kubectl` and `helm` for optional component installs
+
+**Provider dispatch:** `Cluster::create / destroy / status / scale /
+upgrade` inspect `config.provider` and forward to `LocalCluster` instead of
+the Hetzner flow when set to `docker`. `scale` and `upgrade` are
+intentionally rejected for local clusters — destroy and re-create instead.
 
 #### `talos` Module
 
@@ -170,7 +193,9 @@ oxide/
 
 ```yaml
 cluster_name: my-cluster
-hcloud: { ... }
+provider: hcloud # or docker for local clusters
+hcloud: { ... } # required when provider == hcloud
+docker: { ... } # optional, only honored when provider == docker
 talos: { ... }
 cilium: { ... }
 control_planes: [...]

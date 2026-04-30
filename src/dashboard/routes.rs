@@ -832,7 +832,8 @@ fn create_cluster_config_from_form(form: &CreateClusterForm) -> ClusterConfig {
 
     ClusterConfig {
         cluster_name: form.cluster_name.clone(),
-        hcloud: HetznerCloudConfig {
+        provider: Provider::Hcloud,
+        hcloud: Some(HetznerCloudConfig {
             token: Some(form.hcloud_token.clone()),
             location: form.location.clone(),
             network: NetworkConfig {
@@ -840,7 +841,8 @@ fn create_cluster_config_from_form(form: &CreateClusterForm) -> ClusterConfig {
                 subnet_cidr: "10.0.1.0/24".to_string(),
                 zone: "eu-central".to_string(),
             },
-        },
+        }),
+        docker: None,
         talos: TalosConfig {
             version: form.talos_version.clone(),
             kubernetes_version: "1.35.0".to_string(),
@@ -2015,7 +2017,7 @@ mod tests {
         let config = create_cluster_config_from_form(&form);
         assert_eq!(config.cluster_name, "test-cluster");
         assert_eq!(config.talos.version, "v1.7.0");
-        assert_eq!(config.hcloud.location, "fsn1");
+        assert_eq!(config.hcloud.as_ref().unwrap().location, "fsn1");
         assert_eq!(config.control_planes.len(), 1);
         assert_eq!(config.control_planes[0].count, 3);
         assert_eq!(config.control_planes[0].server_type, "cx31");
@@ -2041,8 +2043,9 @@ mod tests {
     fn test_create_cluster_config_fixed_defaults() {
         let form = sample_form();
         let config = create_cluster_config_from_form(&form);
-        assert_eq!(config.hcloud.network.cidr, "10.0.0.0/16");
-        assert_eq!(config.hcloud.network.subnet_cidr, "10.0.1.0/24");
+        let hcloud = config.hcloud.as_ref().unwrap();
+        assert_eq!(hcloud.network.cidr, "10.0.0.0/16");
+        assert_eq!(hcloud.network.subnet_cidr, "10.0.1.0/24");
         assert!(config.cilium.enable_hubble);
         assert!(config.prometheus.is_none());
         assert!(config.autoscaler.is_none());

@@ -1,5 +1,13 @@
 cluster_name: oxide-cluster
 
+# Infrastructure provider. Defaults to `hcloud` (Hetzner Cloud).
+# Use `docker` to spin up a local Talos cluster via Talos's Docker provisioner
+# instead — useful for fast development and CI iteration. When set to
+# `docker`, the `hcloud:` section below is ignored and a `docker:` section
+# (optional) may be supplied to tweak the local provisioner. See
+# `# provider: docker` example near the bottom of this file.
+provider: hcloud
+
 hcloud:
   # Hetzner Cloud API token
   # You can also set this via HCLOUD_TOKEN environment variable
@@ -182,3 +190,46 @@ workers:
   #   count: 2
   #   labels:
   #     workload: memory-intensive
+
+# ---------------------------------------------------------------------------
+# Local cluster (Docker provisioner) example
+# ---------------------------------------------------------------------------
+# To run a Talos cluster locally on top of Docker (no cloud resources), set
+# the top-level `provider:` field to `docker` and remove or ignore the
+# `hcloud:` section. A minimal config looks like this:
+#
+# cluster_name: talos-local
+# provider: docker
+#
+# # Optional Docker provisioner tuning. All fields are optional.
+# docker:
+#   # Override the Talos image used by `talosctl cluster create`.
+#   # image: ghcr.io/siderolabs/talos:v1.13.0
+#   # Host port that should be forwarded to the Kubernetes API (6443/tcp).
+#   # api_port: 6443
+#   # Override the Docker network CIDR used by the cluster.
+#   # network_cidr: 10.5.0.0/24
+#
+# talos:
+#   version: v1.13.0
+#   kubernetes_version: 1.35.0
+#
+# cilium:
+#   version: 1.19.3
+#   enable_hubble: true
+#   enable_ipv6: false
+#
+# control_planes:
+#   - name: control-plane
+#     count: 1
+#     server_type: ""   # Ignored for local clusters
+#
+# workers:
+#   - name: worker
+#     count: 1
+#     server_type: ""
+#
+# # Note: the cluster autoscaler is Hetzner-specific and is rejected at
+# # config-validation time when `provider: docker`. Scaling and in-place
+# # upgrades are also unsupported for local clusters — destroy and re-create
+# # the cluster instead.

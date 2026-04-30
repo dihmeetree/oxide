@@ -2,14 +2,49 @@
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
+/// Infrastructure provider used to host the cluster.
+///
+/// `Hcloud` provisions real virtual machines on Hetzner Cloud (the original,
+/// production-oriented flow). `Docker` runs a Talos cluster locally as
+/// containers via `talosctl cluster create --provisioner docker`, which is
+/// useful for development, CI and quick experimentation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum Provider {
+    #[default]
+    Hcloud,
+    Docker,
+}
+
+impl Provider {
+    /// Returns true when this provider runs purely on the local machine and
+    /// therefore does not need any cloud-specific infrastructure (network,
+    /// firewall, SSH keys, ...).
+    pub const fn is_local(self) -> bool {
+        matches!(self, Provider::Docker)
+    }
+}
+
 /// Main cluster configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ClusterConfig {
     /// Cluster name (used for resource naming)
     pub cluster_name: String,
 
-    /// Hetzner Cloud configuration
-    pub hcloud: HetznerCloudConfig,
+    /// Infrastructure provider. Defaults to `hcloud` for back-compat with
+    /// existing configuration files that pre-date local-cluster support.
+    #[serde(default)]
+    pub provider: Provider,
+
+    /// Hetzner Cloud configuration. Required when `provider == hcloud`,
+    /// ignored otherwise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hcloud: Option<HetznerCloudConfig>,
+
+    /// Docker provisioner configuration. Only consulted when
+    /// `provider == docker`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub docker: Option<DockerConfig>,
 
     /// Talos configuration
     pub talos: TalosConfig,
@@ -34,6 +69,32 @@ pub struct ClusterConfig {
 
     /// Worker nodes
     pub workers: Vec<NodeConfig>,
+}
+
+/// Docker provisioner configuration for local clusters.
+///
+/// Local clusters use Talos's built-in `talosctl cluster create
+/// --provisioner docker` which provisions Talos nodes as Docker containers
+/// on the developer's machine. The fields below are the most common knobs
+/// that users may want to tweak; everything else relies on `talosctl`'s
+/// sensible defaults.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct DockerConfig {
+    /// Optional override for the Talos image used by the docker provisioner
+    /// (e.g. `ghcr.io/siderolabs/talos:v1.13.0`). When `None`, talosctl
+    /// picks the image matching `talos.version`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image: Option<String>,
+
+    /// Optional fixed host port to expose the Kubernetes API on. When
+    /// `None`, talosctl chooses a free port automatically.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub api_port: Option<u16>,
+
+    /// Optional CIDR for the docker bridge network. Talos default is
+    /// 10.5.0.0/24 which is fine for most users.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub network_cidr: Option<String>,
 }
 
 /// Hetzner Cloud API and network configuration
@@ -287,11 +348,51 @@ impl ClusterConfig {
             }
         }
 
-        // Validate network CIDRs
-        self.validate_cidr(&self.hcloud.network.cidr)?;
-        self.validate_cidr(&self.hcloud.network.subnet_cidr)?;
+        // Provider-specific validation. The `hcloud` block is only required
+        // for the Hetzner Cloud provider; for local/docker clusters there is
+        // no cloud network or firewall to validate.
+        match self.provider {
+            Provider::Hcloud => {
+                let hcloud = self.hcloud.as_ref().ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "provider is 'hcloud' but the `hcloud` configuration section is missing"
+                    )
+                })?;
+                self.validate_cidr(&hcloud.network.cidr)?;
+                self.validate_cidr(&hcloud.network.subnet_cidr)?;
+            }
+            Provider::Docker => {
+                if let Some(docker) = &self.docker {
+                    if let Some(cidr) = &docker.network_cidr {
+                        self.validate_cidr(cidr)?;
+                    }
+                }
+                // Autoscaling depends on the Hetzner Cloud API and only makes
+                // sense with the hcloud provider.
+                if let Some(autoscaler) = &self.autoscaler {
+                    if autoscaler.enabled {
+                        anyhow::bail!(
+                            "cluster autoscaler is only supported with provider = 'hcloud'"
+                        );
+                    }
+                }
+                // talosctl's docker provisioner only supports a single
+                // control plane node — reject multi-CP configs at parse
+                // time rather than failing later during `oxide create`.
+                let cp_count: u32 = self.control_planes.iter().map(|p| p.count).sum();
+                if cp_count > 1 {
+                    anyhow::bail!(
+                        "provider = 'docker' only supports a single control plane node \
+                         (got {cp_count}); set control_planes[*].count to 1"
+                    );
+                }
+                // The docker provisioner ignores `server_type`, so don't
+                // require it to be set on individual node pools.
+            }
+        }
 
-        // Validate autoscaler pool configuration if autoscaling is enabled
+        // Validate autoscaler pool configuration if autoscaling is enabled.
+        // Already short-circuited above for non-hcloud providers.
         if let Some(autoscaler) = &self.autoscaler {
             if autoscaler.enabled {
                 if autoscaler.worker_pools.is_empty() {
@@ -384,19 +485,25 @@ impl ClusterConfig {
 
     /// Get Hetzner Cloud API token from config or environment
     pub fn get_hcloud_token(&self) -> anyhow::Result<String> {
-        self.hcloud.token
-            .clone()
+        let token = self
+            .hcloud
+            .as_ref()
+            .and_then(|h| h.token.clone())
             .or_else(|| std::env::var("HCLOUD_TOKEN").ok())
-            .ok_or_else(|| anyhow::anyhow!(
-                "Hetzner Cloud API token not found. Set HCLOUD_TOKEN environment variable or specify in config"
-            ))
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "Hetzner Cloud API token not found. Set HCLOUD_TOKEN environment variable or specify in config"
+                )
+            })?;
+        Ok(token)
     }
 
-    /// Generate an example configuration file
+    /// Generate an example configuration file for the Hetzner Cloud provider.
     pub fn example() -> Self {
         Self {
             cluster_name: "talos-cluster".to_string(),
-            hcloud: HetznerCloudConfig {
+            provider: Provider::Hcloud,
+            hcloud: Some(HetznerCloudConfig {
                 token: None,
                 location: "nbg1".to_string(),
                 network: NetworkConfig {
@@ -404,7 +511,8 @@ impl ClusterConfig {
                     subnet_cidr: "10.0.1.0/24".to_string(),
                     zone: "eu-central".to_string(),
                 },
-            },
+            }),
+            docker: None,
             talos: TalosConfig {
                 version: "v1.13.0".to_string(),
                 kubernetes_version: "1.35.0".to_string(),
@@ -436,8 +544,52 @@ impl ClusterConfig {
         }
     }
 
+    /// Generate an example configuration file for the local Docker provider.
+    ///
+    /// Local clusters are intended for development and CI: a single control
+    /// plane and a single worker by default, no Hetzner-specific fields, and
+    /// no autoscaler (which only makes sense against a real cloud).
+    pub fn example_local() -> Self {
+        Self {
+            cluster_name: "talos-local".to_string(),
+            provider: Provider::Docker,
+            hcloud: None,
+            docker: Some(DockerConfig::default()),
+            talos: TalosConfig {
+                version: "v1.13.0".to_string(),
+                kubernetes_version: "1.35.0".to_string(),
+                cluster_endpoint: None,
+                hcloud_snapshot_id: None,
+                config_patches: vec![],
+            },
+            cilium: CiliumConfig {
+                version: "1.19.3".to_string(),
+                enable_hubble: true,
+                enable_ipv6: false,
+                helm_values: serde_yaml::Value::Null,
+            },
+            prometheus: Some(PrometheusConfig::default()),
+            metrics_server: Some(MetricsServerConfig { enabled: true }),
+            autoscaler: None,
+            control_planes: vec![NodeConfig {
+                name: "control-plane".to_string(),
+                // server_type is unused by the docker provisioner but kept
+                // for schema parity with the Hetzner config.
+                server_type: String::new(),
+                count: 1,
+                labels: std::collections::HashMap::new(),
+            }],
+            workers: vec![NodeConfig {
+                name: "worker".to_string(),
+                server_type: String::new(),
+                count: 1,
+                labels: std::collections::HashMap::new(),
+            }],
+        }
+    }
+
     /// Initialize example configuration file
-    pub async fn init(config_path: &Path) -> anyhow::Result<()> {
+    pub async fn init(config_path: &Path, provider: Provider) -> anyhow::Result<()> {
         use anyhow::Context;
         use tracing::info;
 
@@ -448,7 +600,10 @@ impl ClusterConfig {
             );
         }
 
-        let example_config = Self::example();
+        let example_config = match provider {
+            Provider::Hcloud => Self::example(),
+            Provider::Docker => Self::example_local(),
+        };
         let yaml = serde_yaml::to_string(&example_config)?;
 
         tokio::fs::write(config_path, yaml)
@@ -458,10 +613,19 @@ impl ClusterConfig {
         info!("Example configuration created: {}", config_path.display());
         info!("Next steps:");
         info!("  1. Edit the configuration file to match your requirements");
-        info!("  2. Set your Hetzner Cloud API token:");
-        info!("     export HCLOUD_TOKEN=your-token-here");
-        info!("  3. Create the cluster:");
-        info!("     oxide create");
+        match provider {
+            Provider::Hcloud => {
+                info!("  2. Set your Hetzner Cloud API token:");
+                info!("     export HCLOUD_TOKEN=your-token-here");
+                info!("  3. Create the cluster:");
+                info!("     oxide create");
+            }
+            Provider::Docker => {
+                info!("  2. Make sure Docker and talosctl are installed locally");
+                info!("  3. Create the cluster:");
+                info!("     oxide create");
+            }
+        }
 
         Ok(())
     }
@@ -505,5 +669,42 @@ mod tests {
         assert!(config.validate_cidr("999.0.0.0/16").is_err()); // Invalid IP
         assert!(config.validate_cidr("10.0.0/16").is_err()); // Incomplete IP
         assert!(config.validate_cidr("2001:db8::/129").is_err()); // Invalid prefix for IPv6
+    }
+
+    #[test]
+    fn test_local_example_validates() {
+        let config = ClusterConfig::example_local();
+        assert_eq!(config.provider, Provider::Docker);
+        assert!(config.hcloud.is_none());
+        assert!(
+            config.validate().is_ok(),
+            "default local example must validate"
+        );
+    }
+
+    #[test]
+    fn test_local_rejects_autoscaler() {
+        let mut config = ClusterConfig::example_local();
+        config.autoscaler = Some(AutoscalerConfig {
+            enabled: true,
+            version: default_autoscaler_version(),
+            worker_pools: vec![AutoscalePoolConfig {
+                name: "worker".into(),
+                server_type: "cpx21".into(),
+                location: "nbg1".into(),
+                min_nodes: 1,
+                max_nodes: 3,
+            }],
+        });
+        let err = config.validate().unwrap_err().to_string();
+        assert!(err.contains("autoscaler"), "got: {err}");
+    }
+
+    #[test]
+    fn test_hcloud_provider_requires_hcloud_section() {
+        let mut config = ClusterConfig::example();
+        config.hcloud = None;
+        let err = config.validate().unwrap_err().to_string();
+        assert!(err.contains("hcloud"), "got: {err}");
     }
 }

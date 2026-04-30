@@ -134,6 +134,16 @@ impl Cluster {
         }
     }
 
+    /// Fetch the Hetzner Cloud configuration block, returning a clear error
+    /// when this method is called against a non-Hetzner cluster (which would
+    /// be a programming bug — providers should be dispatched at the entry
+    /// points).
+    fn hcloud_config(&self) -> Result<&crate::config::HetznerCloudConfig> {
+        self.config.hcloud.as_ref().context(
+            "internal error: Hetzner-specific operation invoked on a cluster whose provider != hcloud",
+        )
+    }
+
     /// Internal cluster creation routine. Any error returned here triggers a
     /// rollback in [`create_cluster`].
     async fn create_cluster_inner(&self) -> Result<()> {
@@ -155,6 +165,8 @@ impl Cluster {
 
         info!("Cluster name: {}", self.config.cluster_name);
 
+        let hcloud_cfg = self.hcloud_config()?.clone();
+
         // Create Hetzner Cloud client
         let hcloud_token = self.config.get_hcloud_token()?;
         let hcloud_client = HetznerCloudClient::new(hcloud_token)?;
@@ -172,7 +184,7 @@ impl Cluster {
         // Create network
         let network_manager = NetworkManager::new(hcloud_client.clone());
         let network = network_manager
-            .ensure_network(&self.config.cluster_name, &self.config.hcloud.network)
+            .ensure_network(&self.config.cluster_name, &hcloud_cfg.network)
             .await?;
 
         // Ensure SSH key exists for cluster
@@ -222,7 +234,7 @@ impl Cluster {
             server_manager.create_control_planes(
                 &self.config.cluster_name,
                 &self.config.control_planes,
-                &self.config.hcloud.location,
+                &hcloud_cfg.location,
                 &network,
                 &self.config.talos.version,
                 self.config.talos.hcloud_snapshot_id.as_deref(),
@@ -232,7 +244,7 @@ impl Cluster {
             server_manager.create_workers(
                 &self.config.cluster_name,
                 &self.config.workers,
-                &self.config.hcloud.location,
+                &hcloud_cfg.location,
                 &network,
                 &self.config.talos.version,
                 self.config.talos.hcloud_snapshot_id.as_deref(),
@@ -727,7 +739,7 @@ impl Cluster {
                     cluster_name: &self.config.cluster_name,
                     node_name: &node_name,
                     server_type: &pool_config.server_type,
-                    location: &self.config.hcloud.location,
+                    location: &self.hcloud_config()?.location,
                     network_id: network.id,
                     role,
                     talos_version: &self.config.talos.version,
@@ -1081,11 +1093,19 @@ impl Cluster {
 
     /// Create cluster (CLI entry point)
     pub async fn create(config_path: &std::path::Path, output_dir: &std::path::Path) -> Result<()> {
-        use crate::config::ClusterConfig;
+        use crate::config::{ClusterConfig, Provider};
         let config =
             ClusterConfig::from_file(config_path).context("Failed to load configuration")?;
-        let cluster = Self::new(config, output_dir.to_path_buf());
-        cluster.create_cluster().await
+        match config.provider {
+            Provider::Docker => {
+                let local = crate::local::LocalCluster::new(config, output_dir.to_path_buf());
+                local.create().await
+            }
+            Provider::Hcloud => {
+                let cluster = Self::new(config, output_dir.to_path_buf());
+                cluster.create_cluster().await
+            }
+        }
     }
 
     /// Destroy cluster (CLI entry point)
@@ -1093,20 +1113,36 @@ impl Cluster {
         config_path: &std::path::Path,
         output_dir: &std::path::Path,
     ) -> Result<()> {
-        use crate::config::ClusterConfig;
+        use crate::config::{ClusterConfig, Provider};
         let config =
             ClusterConfig::from_file(config_path).context("Failed to load configuration")?;
-        let cluster = Self::new(config, output_dir.to_path_buf());
-        cluster.destroy_cluster().await
+        match config.provider {
+            Provider::Docker => {
+                let local = crate::local::LocalCluster::new(config, output_dir.to_path_buf());
+                local.destroy().await
+            }
+            Provider::Hcloud => {
+                let cluster = Self::new(config, output_dir.to_path_buf());
+                cluster.destroy_cluster().await
+            }
+        }
     }
 
     /// Show cluster status (CLI entry point)
     pub async fn status(config_path: &std::path::Path, output_dir: &std::path::Path) -> Result<()> {
-        use crate::config::ClusterConfig;
+        use crate::config::{ClusterConfig, Provider};
         let config =
             ClusterConfig::from_file(config_path).context("Failed to load configuration")?;
-        let cluster = Self::new(config, output_dir.to_path_buf());
-        cluster.show_status().await
+        match config.provider {
+            Provider::Docker => {
+                let local = crate::local::LocalCluster::new(config, output_dir.to_path_buf());
+                local.status().await
+            }
+            Provider::Hcloud => {
+                let cluster = Self::new(config, output_dir.to_path_buf());
+                cluster.show_status().await
+            }
+        }
     }
 
     /// Scale cluster (CLI entry point)
@@ -1122,6 +1158,12 @@ impl Cluster {
         use crate::config::ClusterConfig;
         let config =
             ClusterConfig::from_file(config_path).context("Failed to load configuration")?;
+        if config.provider.is_local() {
+            anyhow::bail!(
+                "scaling is not supported for local (docker) clusters; \
+                 destroy and re-create with the desired node counts instead"
+            );
+        }
         let cluster = Self::new(config, output_dir.to_path_buf());
         cluster
             .scale_cluster(node_type, pool_name, target_count, force, timeout)
@@ -1149,6 +1191,12 @@ impl Cluster {
 
         let config =
             ClusterConfig::from_file(&config_path).context("Failed to load configuration")?;
+        if config.provider.is_local() {
+            anyhow::bail!(
+                "in-place upgrades are not supported for local (docker) clusters; \
+                 destroy and re-create the cluster with the new Talos image instead"
+            );
+        }
         let cluster = Self::new(config, output_dir);
 
         let options = UpgradeOptions {

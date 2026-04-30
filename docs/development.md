@@ -47,13 +47,15 @@ oxide/
 │   ├── main.rs              # CLI entry point, command handling
 │   ├── config/              # Configuration management
 │   │   └── mod.rs           # Parse/validate cluster.yaml
-│   ├── hcloud/              # Hetzner Cloud integration
+│   ├── hcloud/              # Hetzner Cloud integration (provider: hcloud)
 │   │   ├── client.rs        # API client
 │   │   ├── server.rs        # Server operations
 │   │   ├── network.rs       # Network management
 │   │   ├── firewall.rs      # Firewall rules
 │   │   ├── ssh_key.rs       # SSH key management
 │   │   └── models.rs        # API types
+│   ├── local/               # Local Docker provisioner (provider: docker)
+│   │   └── mod.rs           # talosctl docker driver + optional installs
 │   ├── talos/               # Talos operations
 │   │   ├── client.rs        # talosctl wrapper
 │   │   └── config.rs        # Config generation

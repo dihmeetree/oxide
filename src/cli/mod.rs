@@ -34,7 +34,12 @@ pub enum Commands {
     Status,
 
     /// Generate example configuration file
-    Init,
+    Init {
+        /// Provider to scaffold a config for: `hcloud` (default) or `docker`
+        /// for local Talos clusters via Docker.
+        #[arg(long, value_enum, default_value_t = ProviderArg::Hcloud)]
+        provider: ProviderArg,
+    },
 
     /// Scale cluster nodes
     Scale {
@@ -122,6 +127,24 @@ pub enum Commands {
 pub enum NodeType {
     ControlPlane,
     Worker,
+}
+
+/// CLI mirror of [`crate::config::Provider`] for clap parsing.
+#[derive(Debug, Clone, Copy, clap::ValueEnum)]
+pub enum ProviderArg {
+    /// Hetzner Cloud (default; provisions real VMs)
+    Hcloud,
+    /// Local Talos cluster via Docker
+    Docker,
+}
+
+impl From<ProviderArg> for crate::config::Provider {
+    fn from(value: ProviderArg) -> Self {
+        match value {
+            ProviderArg::Hcloud => crate::config::Provider::Hcloud,
+            ProviderArg::Docker => crate::config::Provider::Docker,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -293,7 +316,12 @@ mod tests {
             ("create", Commands::Create),
             ("destroy", Commands::Destroy),
             ("status", Commands::Status),
-            ("init", Commands::Init),
+            (
+                "init",
+                Commands::Init {
+                    provider: ProviderArg::Hcloud,
+                },
+            ),
             ("deploy-nginx", Commands::DeployNginx),
             ("install-prometheus", Commands::InstallPrometheus),
             ("prometheus-status", Commands::PrometheusStatus),
