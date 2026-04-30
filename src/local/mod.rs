@@ -364,6 +364,171 @@ impl LocalCluster {
     }
 }
 
+/// Build synthetic [`Server`] records for the dashboard from the live
+/// docker containers belonging to a local cluster.
+///
+/// The dashboard's caching layer is built around `Vec<Server>` (a Hetzner
+/// Cloud type). Rather than fork the dashboard, we synthesize compatible
+/// records for local clusters by parsing `docker inspect`. Fields we don't
+/// have an analog for (datacenter location, public IP) get sensible
+/// placeholders so downstream code can still render rows for the node.
+///
+/// The synthesized labels include `cluster=<cluster_name>` and
+/// `talos-version=<version>` so existing grouping/labelling logic in the
+/// dashboard works unchanged.
+pub async fn synthesize_local_servers(
+    cluster_name: &str,
+) -> anyhow::Result<Vec<crate::hcloud::models::Server>> {
+    use crate::hcloud::models::{
+        Datacenter, IPv4, Location, PrivateNetwork, PublicNetwork, Server, ServerType,
+    };
+    use std::collections::HashMap;
+
+    let names_out = CommandBuilder::new("docker")
+        .args([
+            "ps",
+            "-a",
+            "--filter",
+            &format!("label=talos.cluster.name={cluster_name}"),
+            "--format",
+            "{{.Names}}",
+        ])
+        .context("docker ps failed while listing local cluster containers")
+        .output()
+        .await?;
+    let names: Vec<String> = names_out
+        .stdout
+        .lines()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(String::from)
+        .collect();
+    if names.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let mut servers = Vec::with_capacity(names.len());
+    for (idx, name) in names.iter().enumerate() {
+        let raw = CommandBuilder::new("docker")
+            .args(["inspect", name])
+            .context("docker inspect failed")
+            .run()
+            .await?;
+        let arr: serde_json::Value = match serde_json::from_str(&raw) {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+        let entry = match arr.as_array().and_then(|a| a.first()) {
+            Some(e) => e.clone(),
+            None => continue,
+        };
+
+        // Container running state -> coarse Hetzner-style status string.
+        let running = entry["State"]["Running"].as_bool().unwrap_or(false);
+        let status = if running { "running" } else { "off" }.to_string();
+        let created = entry["Created"]
+            .as_str()
+            .unwrap_or("1970-01-01T00:00:00Z")
+            .to_string();
+
+        // Talos's docker provisioner sets TALOSSKU=<cores>CPU-<mem>RAM in the
+        // container env. Parse it so the dashboard shows accurate CPU/RAM
+        // counters; fall back to 0/0.0 if absent.
+        let (cores, memory_gib) = entry["Config"]["Env"]
+            .as_array()
+            .and_then(|envs| {
+                envs.iter()
+                    .filter_map(|e| e.as_str())
+                    .find(|s| s.starts_with("TALOSSKU="))
+                    .map(parse_talos_sku)
+            })
+            .unwrap_or((0, 0.0));
+
+        // Pick the cluster network IP if present; otherwise leave a
+        // recognisable placeholder so downstream code does not panic.
+        let private_ip = entry["NetworkSettings"]["Networks"]
+            .as_object()
+            .and_then(|nets| nets.values().find_map(|v| v["IPAddress"].as_str()))
+            .filter(|s| !s.is_empty())
+            .unwrap_or("0.0.0.0")
+            .to_string();
+
+        // Talos's NodeRole is keyed off "control-plane" / "worker" in the
+        // *name*, not labels — match the existing dashboard heuristic.
+        let mut labels = HashMap::new();
+        labels.insert("cluster".to_string(), cluster_name.to_string());
+        if let Some(v) = entry["Config"]["Image"].as_str() {
+            // Image is typically `ghcr.io/siderolabs/talos:vX.Y.Z`.
+            if let Some((_, tag)) = v.rsplit_once(':') {
+                labels.insert("talos-version".to_string(), tag.to_string());
+            }
+        }
+        if let Some(t) = entry["Config"]["Labels"]["talos.type"].as_str() {
+            labels.insert("role".to_string(), t.to_string());
+        }
+
+        servers.push(Server {
+            id: idx as u64 + 1,
+            name: name.clone(),
+            status,
+            server_type: ServerType {
+                id: 0,
+                name: "docker".to_string(),
+                description: "Local Docker container".to_string(),
+                cores,
+                memory: memory_gib,
+                disk: 0,
+            },
+            datacenter: Datacenter {
+                id: 0,
+                name: "local".to_string(),
+                description: "Local Docker host".to_string(),
+                location: Location {
+                    id: 0,
+                    name: "local".to_string(),
+                    description: "Local Docker host".to_string(),
+                    country: "".to_string(),
+                    city: "".to_string(),
+                    latitude: 0.0,
+                    longitude: 0.0,
+                },
+            },
+            public_net: PublicNetwork {
+                ipv4: Some(IPv4 {
+                    ip: "127.0.0.1".to_string(),
+                    blocked: false,
+                }),
+                ipv6: None,
+                floating_ips: vec![],
+            },
+            private_net: vec![PrivateNetwork {
+                network: 0,
+                ip: private_ip,
+                alias_ips: vec![],
+                mac_address: String::new(),
+            }],
+            created,
+            labels,
+        });
+    }
+    Ok(servers)
+}
+
+/// Parse a Talos `TALOSSKU` env entry such as `TALOSSKU=2CPU-2048RAM`
+/// into `(cores, memory_gib)`. `RAM` is reported in MiB by Talos so we
+/// convert to GiB (the unit Hetzner uses) by dividing by 1024.0. Returns
+/// `(0, 0.0)` when the format does not match.
+fn parse_talos_sku(env: &str) -> (u32, f64) {
+    let value = env.trim_start_matches("TALOSSKU=");
+    let parts: Vec<&str> = value.split('-').collect();
+    if parts.len() != 2 {
+        return (0, 0.0);
+    }
+    let cores: u32 = parts[0].trim_end_matches("CPU").parse().unwrap_or(0);
+    let mem_mib: u32 = parts[1].trim_end_matches("RAM").parse().unwrap_or(0);
+    (cores, mem_mib as f64 / 1024.0)
+}
+
 /// Verify Docker is installed and reachable. The error message is meant to
 /// be actionable: missing Docker is the single most common reason local
 /// cluster creation fails on a fresh machine.

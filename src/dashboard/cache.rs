@@ -764,18 +764,31 @@ impl ClusterCache {
 
     /// Refresh cache with new data
     pub async fn refresh(&self, config_path: &std::path::Path) -> Result<()> {
-        info!("Starting full cache refresh (Hetzner API + Kubernetes)...");
-
         // Load config
         let config_str = tokio::fs::read_to_string(config_path).await?;
         let config: ClusterConfig = serde_yaml::from_str(&config_str)?;
-        let hcloud_token = config.get_hcloud_token()?;
 
-        // Fetch servers from Hetzner API
-        info!("Fetching servers from Hetzner Cloud API...");
-        let client = HetznerCloudClient::new(hcloud_token)?;
-        let servers = client.list_servers().await?;
-        info!("Retrieved {} servers from Hetzner", servers.len());
+        // Provider-specific server enumeration. Hetzner clusters hit the
+        // Cloud API; local (Docker) clusters synthesize equivalent records
+        // from `docker inspect` so the rest of the dashboard pipeline
+        // (grouping, node details, metrics) works unchanged.
+        let servers: Vec<Server> = match config.provider {
+            crate::config::Provider::Hcloud => {
+                info!("Starting full cache refresh (Hetzner API + Kubernetes)...");
+                let hcloud_token = config.get_hcloud_token()?;
+                info!("Fetching servers from Hetzner Cloud API...");
+                let client = HetznerCloudClient::new(hcloud_token)?;
+                let s = client.list_servers().await?;
+                info!("Retrieved {} servers from Hetzner", s.len());
+                s
+            }
+            crate::config::Provider::Docker => {
+                info!("Starting full cache refresh (Docker + Kubernetes)...");
+                let s = crate::local::synthesize_local_servers(&config.cluster_name).await?;
+                info!("Retrieved {} local container(s) for cluster", s.len());
+                s
+            }
+        };
 
         // Group by cluster name
         let clusters = group_servers_into_clusters(&servers);

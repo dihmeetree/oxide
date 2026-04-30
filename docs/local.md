@@ -154,6 +154,7 @@ config-validation time when `provider: docker`.
 | `oxide scale --node-type worker` | **Supported.** Spawns/removes worker containers (drains via `kubectl` first on scale-down) |
 | `oxide scale --node-type control-plane` | **Rejected** — Docker provisioner is single-CP        |
 | `oxide upgrade`   | **Rejected** with a helpful error — destroy and re-create       |
+| `oxide dashboard` | **Supported.** Container metadata is synthesized from `docker inspect` so cluster overview, node detail, pods, services, alerts and insights all render against the local cluster |
 
 ## Files written under `output/`
 
