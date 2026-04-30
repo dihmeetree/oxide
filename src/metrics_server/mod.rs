@@ -85,3 +85,82 @@ impl MetricsServer {
         metrics_server.uninstall_metrics_server().await
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::utils::command::test_support::MockCommandRunner;
+    use crate::utils::command::with_runner;
+    use std::sync::Arc;
+
+    #[tokio::test]
+    async fn test_install_metrics_server_calls_kubectl_apply() {
+        let dir = tempfile::tempdir().unwrap();
+        let kubeconfig = dir.path().join("kubeconfig");
+        std::fs::write(&kubeconfig, "dummy").unwrap();
+
+        let mock = Arc::new(MockCommandRunner::new());
+        mock.respond("kubectl", true, "", "");
+
+        let ms = MetricsServer::new(kubeconfig);
+        let result = with_runner(mock.clone(), async { ms.install_metrics_server().await }).await;
+
+        assert!(result.is_ok());
+        let calls = mock.calls_for("kubectl");
+        assert!(!calls.is_empty());
+        let args: Vec<_> = calls[0].args_str();
+        let args_str: Vec<&str> = args.iter().map(|s| s.as_ref()).collect();
+        assert!(args_str.contains(&"apply"), "expected 'apply' arg");
+        assert!(args_str.contains(&"-f"), "expected '-f' arg");
+        // URL should be in arguments
+        let has_url = args_str.iter().any(|a| a.contains("metrics-server"));
+        assert!(has_url, "expected metrics-server URL in args");
+    }
+
+    #[tokio::test]
+    async fn test_install_metrics_server_missing_kubeconfig() {
+        let ms = MetricsServer::new(PathBuf::from("/nonexistent/kubeconfig"));
+        let mock = Arc::new(MockCommandRunner::new());
+
+        let result = with_runner(mock.clone(), async { ms.install_metrics_server().await }).await;
+
+        assert!(result.is_err());
+        let msg = format!("{}", result.unwrap_err());
+        assert!(
+            msg.contains("Kubeconfig not found") || msg.contains("kubeconfig"),
+            "expected kubeconfig error, got: {}",
+            msg
+        );
+    }
+
+    #[tokio::test]
+    async fn test_uninstall_metrics_server_calls_kubectl_delete() {
+        let dir = tempfile::tempdir().unwrap();
+        let kubeconfig = dir.path().join("kubeconfig");
+        std::fs::write(&kubeconfig, "dummy").unwrap();
+
+        let mock = Arc::new(MockCommandRunner::new());
+        mock.respond("kubectl", true, "", "");
+
+        let ms = MetricsServer::new(kubeconfig);
+        let result = with_runner(mock.clone(), async { ms.uninstall_metrics_server().await }).await;
+
+        assert!(result.is_ok());
+        let calls = mock.calls_for("kubectl");
+        assert!(!calls.is_empty());
+        let args: Vec<_> = calls[0].args_str();
+        let args_str: Vec<&str> = args.iter().map(|s| s.as_ref()).collect();
+        assert!(args_str.contains(&"delete"), "expected 'delete' arg");
+        assert!(args_str.contains(&"-f"), "expected '-f' arg");
+    }
+
+    #[tokio::test]
+    async fn test_uninstall_metrics_server_missing_kubeconfig() {
+        let ms = MetricsServer::new(PathBuf::from("/nonexistent/kubeconfig"));
+        let mock = Arc::new(MockCommandRunner::new());
+
+        let result = with_runner(mock.clone(), async { ms.uninstall_metrics_server().await }).await;
+
+        assert!(result.is_err());
+    }
+}

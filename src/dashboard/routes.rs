@@ -1724,3 +1724,350 @@ pub async fn api_cilium_metrics(
     )
         .into_response()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::prometheus::NodeMetricsHistory;
+    use axum::http::{header, HeaderMap, HeaderValue};
+
+    // --- parse_log_level ---
+
+    #[test]
+    fn test_parse_log_level_structured_error() {
+        assert_eq!(
+            parse_log_level("level=error msg=\"something failed\""),
+            LogLevel::Error
+        );
+        assert_eq!(
+            parse_log_level("{\"level\":\"error\",\"msg\":\"oops\"}"),
+            LogLevel::Error
+        );
+        assert_eq!(parse_log_level("LEVEL=ERROR some output"), LogLevel::Error);
+    }
+
+    #[test]
+    fn test_parse_log_level_structured_warn() {
+        assert_eq!(
+            parse_log_level("level=warn msg=\"low disk\""),
+            LogLevel::Warning
+        );
+        assert_eq!(
+            parse_log_level("{\"level\":\"warn\",\"msg\":\"low disk\"}"),
+            LogLevel::Warning
+        );
+    }
+
+    #[test]
+    fn test_parse_log_level_structured_info_debug_trace() {
+        assert_eq!(
+            parse_log_level("level=info msg=\"started\""),
+            LogLevel::Info
+        );
+        assert_eq!(
+            parse_log_level("level=debug msg=\"connecting\""),
+            LogLevel::Debug
+        );
+        assert_eq!(
+            parse_log_level("level=trace msg=\"span entered\""),
+            LogLevel::Trace
+        );
+    }
+
+    #[test]
+    fn test_parse_log_level_bracketed() {
+        assert_eq!(
+            parse_log_level("[ERROR] something went wrong"),
+            LogLevel::Error
+        );
+        assert_eq!(parse_log_level("[WARN] be careful"), LogLevel::Warning);
+        assert_eq!(
+            parse_log_level("[warning] disk space low"),
+            LogLevel::Warning
+        );
+        assert_eq!(parse_log_level("[INFO] server started"), LogLevel::Info);
+        assert_eq!(parse_log_level("[DEBUG] connecting to db"), LogLevel::Debug);
+        assert_eq!(parse_log_level("[TRACE] function entered"), LogLevel::Trace);
+    }
+
+    #[test]
+    fn test_parse_log_level_prefix_colon() {
+        assert_eq!(
+            parse_log_level("error: failed to open file"),
+            LogLevel::Error
+        );
+        assert_eq!(parse_log_level("fatal: unrecoverable"), LogLevel::Error);
+        assert_eq!(parse_log_level("warn: retrying"), LogLevel::Warning);
+        assert_eq!(parse_log_level("warning: deprecated"), LogLevel::Warning);
+        assert_eq!(parse_log_level("info: ready"), LogLevel::Info);
+        assert_eq!(parse_log_level("debug: query took 2ms"), LogLevel::Debug);
+        assert_eq!(parse_log_level("trace: entering function"), LogLevel::Trace);
+    }
+
+    #[test]
+    fn test_parse_log_level_unknown() {
+        assert_eq!(
+            parse_log_level("just some plain log line"),
+            LogLevel::Unknown
+        );
+        assert_eq!(parse_log_level(""), LogLevel::Unknown);
+        assert_eq!(
+            parse_log_level("2023-01-01 server starting up"),
+            LogLevel::Unknown
+        );
+    }
+
+    #[test]
+    fn test_parse_log_level_fatal_panic_keywords() {
+        assert_eq!(
+            parse_log_level("the process had a fatal crash"),
+            LogLevel::Error
+        );
+        assert_eq!(
+            parse_log_level("encountered a panic situation"),
+            LogLevel::Error
+        );
+    }
+
+    // --- generate_etag ---
+
+    #[test]
+    fn test_generate_etag_same_input_same_output() {
+        let e1 = generate_etag("hello world");
+        let e2 = generate_etag("hello world");
+        assert_eq!(e1, e2);
+    }
+
+    #[test]
+    fn test_generate_etag_different_inputs() {
+        let e1 = generate_etag("content-a");
+        let e2 = generate_etag("content-b");
+        assert_ne!(e1, e2);
+    }
+
+    #[test]
+    fn test_generate_etag_quoted() {
+        let etag = generate_etag("some-content");
+        assert!(
+            etag.starts_with('"'),
+            "etag must start with quote, got: {}",
+            etag
+        );
+        assert!(
+            etag.ends_with('"'),
+            "etag must end with quote, got: {}",
+            etag
+        );
+    }
+
+    // --- check_etag ---
+
+    #[test]
+    fn test_check_etag_matching_header() {
+        let etag = generate_etag("my-page-content");
+        let mut headers = HeaderMap::new();
+        headers.insert(header::IF_NONE_MATCH, HeaderValue::from_str(&etag).unwrap());
+        assert!(check_etag(&headers, &etag));
+    }
+
+    #[test]
+    fn test_check_etag_mismatched_header() {
+        let etag = generate_etag("version-1");
+        let stale = generate_etag("version-0");
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            header::IF_NONE_MATCH,
+            HeaderValue::from_str(&stale).unwrap(),
+        );
+        assert!(!check_etag(&headers, &etag));
+    }
+
+    #[test]
+    fn test_check_etag_missing_header() {
+        let etag = generate_etag("content");
+        let headers = HeaderMap::new();
+        assert!(!check_etag(&headers, &etag));
+    }
+
+    // --- collect_unique_timestamps ---
+
+    #[test]
+    fn test_collect_unique_timestamps_dedupes_and_sorts() {
+        let history = NodeMetricsHistory {
+            cpu_history: vec![(200, 0.5), (100, 0.3), (200, 0.7), (300, 0.1)],
+            memory_history: vec![],
+        };
+        let ts = collect_unique_timestamps(&history);
+        assert_eq!(ts, vec![100, 200, 300]);
+    }
+
+    #[test]
+    fn test_collect_unique_timestamps_empty() {
+        let history = NodeMetricsHistory {
+            cpu_history: vec![],
+            memory_history: vec![],
+        };
+        let ts = collect_unique_timestamps(&history);
+        assert!(ts.is_empty());
+    }
+
+    #[test]
+    fn test_collect_unique_timestamps_only_cpu() {
+        // memory_history is ignored by this function
+        let history = NodeMetricsHistory {
+            cpu_history: vec![(10, 0.1), (20, 0.2)],
+            memory_history: vec![(5, 512.0), (30, 1024.0)],
+        };
+        let ts = collect_unique_timestamps(&history);
+        assert_eq!(ts, vec![10, 20]);
+    }
+
+    // --- align_metric_to_timestamps ---
+
+    #[test]
+    fn test_align_metric_exact_match() {
+        let timestamps = vec![100, 200, 300];
+        let metric = vec![(100, 0.3_f64), (200, 0.5), (300, 0.8)];
+        let result = align_metric_to_timestamps(&timestamps, &metric, 5);
+        assert_eq!(result, vec![0.3, 0.5, 0.8]);
+    }
+
+    #[test]
+    fn test_align_metric_within_tolerance() {
+        let timestamps = vec![100, 200];
+        let metric = vec![(101_i64, 0.4_f64), (203, 0.7)];
+        let result = align_metric_to_timestamps(&timestamps, &metric, 5);
+        assert_eq!(result[0], 0.4);
+        assert_eq!(result[1], 0.7);
+    }
+
+    #[test]
+    fn test_align_metric_outside_tolerance_returns_zero() {
+        let timestamps = vec![100_i64];
+        let metric = vec![(200_i64, 0.9_f64)];
+        let result = align_metric_to_timestamps(&timestamps, &metric, 5);
+        assert_eq!(result, vec![0.0]);
+    }
+
+    #[test]
+    fn test_align_metric_empty_history() {
+        let timestamps = vec![100_i64, 200];
+        let result = align_metric_to_timestamps(&timestamps, &[], 5);
+        assert_eq!(result, vec![0.0, 0.0]);
+    }
+
+    // --- build_pod_metrics_json ---
+
+    #[test]
+    fn test_build_pod_metrics_json_structure() {
+        let history = NodeMetricsHistory {
+            cpu_history: vec![(1000, 0.5), (2000, 0.7)],
+            memory_history: vec![(1000, 128.0), (2000, 256.0)],
+        };
+        let json = build_pod_metrics_json(&history);
+        assert!(json["timestamps"].is_array());
+        assert!(json["cpu_history"].is_array());
+        assert!(json["memory_history"].is_array());
+        let ts: Vec<i64> = serde_json::from_value(json["timestamps"].clone()).unwrap();
+        assert_eq!(ts, vec![1000, 2000]);
+    }
+
+    #[test]
+    fn test_build_pod_metrics_json_empty() {
+        let history = NodeMetricsHistory {
+            cpu_history: vec![],
+            memory_history: vec![],
+        };
+        let json = build_pod_metrics_json(&history);
+        let ts: Vec<i64> = serde_json::from_value(json["timestamps"].clone()).unwrap();
+        assert!(ts.is_empty());
+    }
+
+    // --- create_cluster_config_from_form ---
+
+    fn sample_form() -> CreateClusterForm {
+        CreateClusterForm {
+            cluster_name: "test-cluster".to_string(),
+            hcloud_token: "tok-abc123".to_string(),
+            talos_version: "v1.7.0".to_string(),
+            hcloud_snapshot_id: "snap-42".to_string(),
+            control_plane_count: 3,
+            worker_count: 2,
+            server_type: "cx31".to_string(),
+            location: "fsn1".to_string(),
+        }
+    }
+
+    #[test]
+    fn test_create_cluster_config_basic_fields() {
+        let form = sample_form();
+        let config = create_cluster_config_from_form(&form);
+        assert_eq!(config.cluster_name, "test-cluster");
+        assert_eq!(config.talos.version, "v1.7.0");
+        assert_eq!(config.hcloud.location, "fsn1");
+        assert_eq!(config.control_planes.len(), 1);
+        assert_eq!(config.control_planes[0].count, 3);
+        assert_eq!(config.control_planes[0].server_type, "cx31");
+    }
+
+    #[test]
+    fn test_create_cluster_config_workers() {
+        let form = sample_form();
+        let config = create_cluster_config_from_form(&form);
+        assert_eq!(config.workers.len(), 1);
+        assert_eq!(config.workers[0].count, 2);
+    }
+
+    #[test]
+    fn test_create_cluster_config_no_workers() {
+        let mut form = sample_form();
+        form.worker_count = 0;
+        let config = create_cluster_config_from_form(&form);
+        assert!(config.workers.is_empty());
+    }
+
+    #[test]
+    fn test_create_cluster_config_fixed_defaults() {
+        let form = sample_form();
+        let config = create_cluster_config_from_form(&form);
+        assert_eq!(config.hcloud.network.cidr, "10.0.0.0/16");
+        assert_eq!(config.hcloud.network.subnet_cidr, "10.0.1.0/24");
+        assert!(config.cilium.enable_hubble);
+        assert!(config.prometheus.is_none());
+        assert!(config.autoscaler.is_none());
+        assert!(config.metrics_server.is_none());
+    }
+
+    // --- default_timeout / default_true ---
+
+    #[test]
+    fn test_default_timeout_is_600() {
+        assert_eq!(default_timeout(), 600u64);
+    }
+
+    #[test]
+    fn test_default_true_is_true() {
+        assert!(default_true());
+    }
+
+    // --- ScaleClusterForm serde defaults ---
+
+    #[test]
+    fn test_scale_cluster_form_defaults() {
+        let json = r#"{"node_type": "worker", "pool_name": "workers", "count": 5}"#;
+        let form: ScaleClusterForm = serde_json::from_str(json).unwrap();
+        assert!(!form.force);
+        assert_eq!(form.timeout, 600);
+    }
+
+    #[test]
+    fn test_upgrade_cluster_form_defaults() {
+        let json = r#"{"version": "v1.8.0"}"#;
+        let form: UpgradeClusterForm = serde_json::from_str(json).unwrap();
+        assert!(form.preserve);
+        assert!(!form.control_plane);
+        assert!(!form.workers);
+        assert!(!form.wait);
+        assert!(!form.stage);
+    }
+}

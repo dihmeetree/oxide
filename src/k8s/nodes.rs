@@ -338,3 +338,131 @@ impl NodeManager {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::utils::command::test_support::MockCommandRunner;
+    use crate::utils::command::with_runner;
+    use std::sync::Arc;
+
+    #[tokio::test]
+    async fn test_delete_node_success() {
+        let mock = Arc::new(MockCommandRunner::new());
+        mock.respond("kubectl", true, "node \"worker-1\" deleted", "");
+
+        let result = with_runner(mock.clone(), async {
+            NodeManager::delete_node(Path::new("/fake/kubeconfig"), "worker-1").await
+        })
+        .await;
+
+        assert!(result.is_ok());
+        let calls = mock.calls_for("kubectl");
+        assert!(!calls.is_empty());
+        let args: Vec<_> = calls[0].args_str();
+        let args_str: Vec<&str> = args.iter().map(|s| s.as_ref()).collect();
+        assert!(args_str.contains(&"delete"));
+        assert!(args_str.contains(&"node"));
+        assert!(args_str.contains(&"worker-1"));
+    }
+
+    #[tokio::test]
+    async fn test_delete_node_not_found_ok() {
+        let mock = Arc::new(MockCommandRunner::new());
+        mock.respond(
+            "kubectl",
+            false,
+            "",
+            "Error from server (NotFound): nodes \"worker-1\" not found",
+        );
+
+        let result = with_runner(mock.clone(), async {
+            NodeManager::delete_node(Path::new("/fake/kubeconfig"), "worker-1").await
+        })
+        .await;
+
+        // NotFound is silently accepted
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_delete_node_real_failure() {
+        let mock = Arc::new(MockCommandRunner::new());
+        mock.respond("kubectl", false, "", "connection refused");
+
+        let result = with_runner(mock.clone(), async {
+            NodeManager::delete_node(Path::new("/fake/kubeconfig"), "worker-1").await
+        })
+        .await;
+
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_get_pods_on_node_success() {
+        let mock = Arc::new(MockCommandRunner::new());
+        mock.respond("kubectl", true, "coredns-abc nginx-xyz", "");
+
+        let result = with_runner(mock.clone(), async {
+            NodeManager::get_pods_on_node(Path::new("/fake/kubeconfig"), "worker-1").await
+        })
+        .await;
+
+        assert!(result.is_ok());
+        let pods = result.unwrap();
+        assert_eq!(pods.len(), 2);
+        assert!(pods.contains(&"coredns-abc".to_string()));
+        assert!(pods.contains(&"nginx-xyz".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_get_pods_on_node_empty() {
+        let mock = Arc::new(MockCommandRunner::new());
+        mock.respond("kubectl", true, "", "");
+
+        let result = with_runner(mock.clone(), async {
+            NodeManager::get_pods_on_node(Path::new("/fake/kubeconfig"), "worker-1").await
+        })
+        .await;
+
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_get_pods_on_node_not_found() {
+        let mock = Arc::new(MockCommandRunner::new());
+        mock.respond("kubectl", false, "", "not found");
+
+        let result = with_runner(mock.clone(), async {
+            NodeManager::get_pods_on_node(Path::new("/fake/kubeconfig"), "worker-1").await
+        })
+        .await;
+
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_get_pods_on_node_correct_args() {
+        let mock = Arc::new(MockCommandRunner::new());
+        mock.respond("kubectl", true, "", "");
+
+        with_runner(mock.clone(), async {
+            NodeManager::get_pods_on_node(Path::new("/fake/kube"), "my-node")
+                .await
+                .unwrap();
+        })
+        .await;
+
+        let calls = mock.calls_for("kubectl");
+        let args: Vec<_> = calls[0].args_str();
+        let args_str: Vec<&str> = args.iter().map(|s| s.as_ref()).collect();
+        assert!(args_str.contains(&"get"));
+        assert!(args_str.contains(&"pods"));
+        assert!(args_str.contains(&"--all-namespaces"));
+        // field selector includes the node name
+        let has_selector = args_str.iter().any(|a| a.contains("my-node"));
+        assert!(has_selector, "expected node name in field selector");
+    }
+}

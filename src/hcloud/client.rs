@@ -13,6 +13,7 @@ const HCLOUD_API_BASE: &str = "https://api.hetzner.cloud/v1";
 #[derive(Clone)]
 pub struct HetznerCloudClient {
     client: Client,
+    base_url: String,
     #[allow(dead_code)]
     api_token: String,
 }
@@ -20,6 +21,13 @@ pub struct HetznerCloudClient {
 impl HetznerCloudClient {
     /// Create a new Hetzner Cloud API client
     pub fn new(api_token: String) -> Result<Self> {
+        Self::with_base_url(api_token, HCLOUD_API_BASE.to_string())
+    }
+
+    /// Create a new client targeting a custom base URL.
+    ///
+    /// Primarily intended for tests that point the client at a mock server.
+    pub fn with_base_url(api_token: String, base_url: String) -> Result<Self> {
         let mut headers = header::HeaderMap::new();
         headers.insert(
             header::AUTHORIZATION,
@@ -37,12 +45,16 @@ impl HetznerCloudClient {
             .build()
             .context("Failed to create HTTP client")?;
 
-        Ok(Self { client, api_token })
+        Ok(Self {
+            client,
+            base_url: base_url.trim_end_matches('/').to_string(),
+            api_token,
+        })
     }
 
     /// Make a GET request to the API
     pub(crate) async fn get<T: DeserializeOwned>(&self, endpoint: &str) -> Result<T> {
-        let url = format!("{}/{}", HCLOUD_API_BASE, endpoint);
+        let url = format!("{}/{}", self.base_url, endpoint);
         debug!("GET {}", url);
 
         let response = self
@@ -61,7 +73,7 @@ impl HetznerCloudClient {
         endpoint: &str,
         body: &T,
     ) -> Result<R> {
-        let url = format!("{}/{}", HCLOUD_API_BASE, endpoint);
+        let url = format!("{}/{}", self.base_url, endpoint);
         debug!("POST {}", url);
 
         let response = self
@@ -77,7 +89,7 @@ impl HetznerCloudClient {
 
     /// Make a DELETE request to the API
     pub(crate) async fn delete(&self, endpoint: &str) -> Result<()> {
-        let url = format!("{}/{}", HCLOUD_API_BASE, endpoint);
+        let url = format!("{}/{}", self.base_url, endpoint);
         debug!("DELETE {}", url);
 
         let response = self
@@ -344,10 +356,395 @@ pub struct RouteRequest {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use wiremock::matchers::{body_json, header, method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    fn sample_server_json() -> serde_json::Value {
+        serde_json::json!({
+            "id": 42,
+            "name": "node-1",
+            "status": "running",
+            "server_type": {
+                "id": 1,
+                "name": "cx22",
+                "description": "CX22",
+                "cores": 2,
+                "memory": 4.0,
+                "disk": 40
+            },
+            "datacenter": {
+                "id": 1,
+                "name": "fsn1-dc14",
+                "description": "Falkenstein DC 14",
+                "location": {
+                    "id": 1,
+                    "name": "fsn1",
+                    "description": "Falkenstein",
+                    "country": "DE",
+                    "city": "Falkenstein",
+                    "latitude": 50.0,
+                    "longitude": 12.0
+                }
+            },
+            "public_net": {
+                "ipv4": {"ip": "1.2.3.4", "blocked": false},
+                "ipv6": null,
+                "floating_ips": []
+            },
+            "private_net": [],
+            "created": "2024-01-01T00:00:00Z",
+            "labels": {}
+        })
+    }
+
+    fn sample_action_json(status: &str) -> serde_json::Value {
+        serde_json::json!({
+            "id": 100,
+            "command": "create_server",
+            "status": status,
+            "progress": if status == "running" { 50 } else { 100 },
+            "started": "2024-01-01T00:00:00Z",
+            "finished": if status == "running" { serde_json::Value::Null } else { serde_json::Value::String("2024-01-01T00:01:00Z".into()) },
+            "error": serde_json::Value::Null
+        })
+    }
+
+    fn sample_network_json() -> serde_json::Value {
+        serde_json::json!({
+            "id": 7,
+            "name": "test-net",
+            "ip_range": "10.0.0.0/16",
+            "subnets": [],
+            "routes": [],
+            "servers": [],
+            "created": "2024-01-01T00:00:00Z"
+        })
+    }
+
+    fn sample_ssh_key_json() -> serde_json::Value {
+        serde_json::json!({
+            "id": 5,
+            "name": "key-1",
+            "fingerprint": "aa:bb",
+            "public_key": "ssh-ed25519 AAAA",
+            "labels": {},
+            "created": "2024-01-01T00:00:00Z"
+        })
+    }
+
+    async fn client(server: &MockServer) -> HetznerCloudClient {
+        HetznerCloudClient::with_base_url("test-token".into(), server.uri()).unwrap()
+    }
 
     #[test]
     fn test_client_creation() {
         let result = HetznerCloudClient::new("test-token".to_string());
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_with_base_url_strips_trailing_slash() {
+        let c =
+            HetznerCloudClient::with_base_url("t".into(), "https://api.example/".into()).unwrap();
+        assert_eq!(c.base_url, "https://api.example");
+    }
+
+    #[test]
+    fn test_invalid_token_rejected() {
+        // Header values cannot contain newlines.
+        let bad = HetznerCloudClient::new("invalid\ntoken".into());
+        assert!(bad.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_list_servers_authenticated() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/servers"))
+            .and(header("authorization", "Bearer test-token"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "servers": [sample_server_json()]
+            })))
+            .mount(&server)
+            .await;
+
+        let result = client(&server).await.list_servers().await.unwrap();
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].id, 42);
+        assert_eq!(result[0].public_net.ipv4.as_ref().unwrap().ip, "1.2.3.4");
+    }
+
+    #[tokio::test]
+    async fn test_get_server() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/servers/42"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "server": sample_server_json()
+            })))
+            .mount(&server)
+            .await;
+
+        let s = client(&server).await.get_server(42).await.unwrap();
+        assert_eq!(s.name, "node-1");
+    }
+
+    #[tokio::test]
+    async fn test_create_server() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/servers"))
+            .respond_with(ResponseTemplate::new(201).set_body_json(serde_json::json!({
+                "server": sample_server_json(),
+                "action": sample_action_json("running"),
+                "root_password": null
+            })))
+            .mount(&server)
+            .await;
+
+        let req = CreateServerRequest {
+            name: "node-1".into(),
+            server_type: "cx22".into(),
+            location: "fsn1".into(),
+            image: "ubuntu-24.04".into(),
+            ssh_keys: None,
+            user_data: None,
+            networks: None,
+            labels: None,
+            automount: None,
+            start_after_create: Some(true),
+        };
+        let resp = client(&server).await.create_server(req).await.unwrap();
+        assert_eq!(resp.server.id, 42);
+        assert_eq!(resp.action.status, "running");
+    }
+
+    #[tokio::test]
+    async fn test_delete_server() {
+        let server = MockServer::start().await;
+        Mock::given(method("DELETE"))
+            .and(path("/servers/42"))
+            .respond_with(ResponseTemplate::new(204))
+            .mount(&server)
+            .await;
+        client(&server).await.delete_server(42).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_get_action_and_wait_success() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/actions/100"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "action": sample_action_json("success")
+            })))
+            .mount(&server)
+            .await;
+
+        let c = client(&server).await;
+        assert_eq!(c.get_action(100).await.unwrap().status, "success");
+        // wait_for_action returns immediately when status is success
+        let action = c.wait_for_action(100, 5).await.unwrap();
+        assert_eq!(action.id, 100);
+    }
+
+    #[tokio::test]
+    async fn test_wait_for_action_error() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/actions/100"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "action": {
+                    "id": 100,
+                    "command": "create_server",
+                    "status": "error",
+                    "progress": 100,
+                    "started": "2024-01-01T00:00:00Z",
+                    "finished": "2024-01-01T00:01:00Z",
+                    "error": {"code": "rate_limit", "message": "too many"}
+                }
+            })))
+            .mount(&server)
+            .await;
+
+        let err = client(&server)
+            .await
+            .wait_for_action(100, 5)
+            .await
+            .unwrap_err();
+        let s = format!("{err:#}");
+        assert!(s.contains("rate_limit"), "{s}");
+    }
+
+    #[tokio::test]
+    async fn test_list_networks() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/networks"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "networks": [sample_network_json()]
+            })))
+            .mount(&server)
+            .await;
+        let nets = client(&server).await.list_networks().await.unwrap();
+        assert_eq!(nets.len(), 1);
+        assert_eq!(nets[0].id, 7);
+    }
+
+    #[tokio::test]
+    async fn test_get_network() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/networks/7"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "network": sample_network_json()
+            })))
+            .mount(&server)
+            .await;
+        let n = client(&server).await.get_network(7).await.unwrap();
+        assert_eq!(n.name, "test-net");
+    }
+
+    #[tokio::test]
+    async fn test_create_network_and_delete() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/networks"))
+            .and(body_json(serde_json::json!({
+                "name": "test-net",
+                "ip_range": "10.0.0.0/16"
+            })))
+            .respond_with(ResponseTemplate::new(201).set_body_json(serde_json::json!({
+                "network": sample_network_json()
+            })))
+            .mount(&server)
+            .await;
+        Mock::given(method("DELETE"))
+            .and(path("/networks/7"))
+            .respond_with(ResponseTemplate::new(204))
+            .mount(&server)
+            .await;
+
+        let c = client(&server).await;
+        let req = CreateNetworkRequest {
+            name: "test-net".into(),
+            ip_range: "10.0.0.0/16".into(),
+            subnets: None,
+            routes: None,
+            labels: None,
+        };
+        let n = c.create_network(req).await.unwrap();
+        assert_eq!(n.id, 7);
+        c.delete_network(7).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_attach_to_network() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/servers/42/actions/attach_to_network"))
+            .and(body_json(
+                serde_json::json!({"network": 7, "ip": "10.0.0.5"}),
+            ))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "action": sample_action_json("running")
+            })))
+            .mount(&server)
+            .await;
+        let action = client(&server)
+            .await
+            .attach_to_network(42, 7, Some("10.0.0.5".into()))
+            .await
+            .unwrap();
+        assert_eq!(action.command, "create_server");
+    }
+
+    #[tokio::test]
+    async fn test_power_on_server() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/servers/42/actions/poweron"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "action": sample_action_json("running")
+            })))
+            .mount(&server)
+            .await;
+        client(&server).await.power_on_server(42).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_ssh_keys_crud() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/ssh_keys"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "ssh_keys": [sample_ssh_key_json()]
+            })))
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .and(path("/ssh_keys"))
+            .respond_with(ResponseTemplate::new(201).set_body_json(serde_json::json!({
+                "ssh_key": sample_ssh_key_json()
+            })))
+            .mount(&server)
+            .await;
+        Mock::given(method("DELETE"))
+            .and(path("/ssh_keys/5"))
+            .respond_with(ResponseTemplate::new(204))
+            .mount(&server)
+            .await;
+
+        let c = client(&server).await;
+        assert_eq!(c.list_ssh_keys().await.unwrap().len(), 1);
+        let key = c
+            .create_ssh_key("key-1".into(), "ssh-ed25519 AAAA".into())
+            .await
+            .unwrap();
+        assert_eq!(key.id, 5);
+        c.delete_ssh_key(5).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_api_error_response_parsed() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/servers"))
+            .respond_with(ResponseTemplate::new(401).set_body_json(serde_json::json!({
+                "error": {"code": "unauthorized", "message": "bad token", "details": null}
+            })))
+            .mount(&server)
+            .await;
+        let err = client(&server).await.list_servers().await.unwrap_err();
+        let s = format!("{err:#}");
+        assert!(s.contains("unauthorized"), "{s}");
+        assert!(s.contains("bad token"), "{s}");
+    }
+
+    #[tokio::test]
+    async fn test_api_error_with_unparseable_body() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/servers"))
+            .respond_with(ResponseTemplate::new(500).set_body_string("oops"))
+            .mount(&server)
+            .await;
+        let err = client(&server).await.list_servers().await.unwrap_err();
+        let s = format!("{err:#}");
+        assert!(s.contains("500"), "{s}");
+        assert!(s.contains("oops"), "{s}");
+    }
+
+    #[tokio::test]
+    async fn test_delete_failure_includes_status() {
+        let server = MockServer::start().await;
+        Mock::given(method("DELETE"))
+            .and(path("/servers/99"))
+            .respond_with(ResponseTemplate::new(404).set_body_string("nope"))
+            .mount(&server)
+            .await;
+        let err = client(&server).await.delete_server(99).await.unwrap_err();
+        let s = format!("{err:#}");
+        assert!(s.contains("404"), "{s}");
     }
 }

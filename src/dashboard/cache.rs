@@ -3476,3 +3476,422 @@ async fn fetch_all_pod_metrics_history(
         .into_iter()
         .collect()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::dashboard::insights::Insight;
+    use crate::dashboard::templates::ContainerInfo;
+    use crate::hcloud::models::{
+        Datacenter, IPv4, Location, PrivateNetwork, PublicNetwork, Server, ServerType,
+    };
+    use crate::prometheus::{Alert, NodeMetricsHistory};
+
+    // --- calculate_age ---
+
+    #[test]
+    fn test_calculate_age_invalid_timestamp() {
+        let age = calculate_age("not-a-timestamp");
+        assert_eq!(age, "N/A");
+    }
+
+    #[test]
+    fn test_calculate_age_recent_minutes() {
+        // A timestamp 5 minutes ago
+        let ts = (chrono::Utc::now() - chrono::Duration::minutes(5)).to_rfc3339();
+        let age = calculate_age(&ts);
+        // Should show minutes (e.g. "5m")
+        assert!(age.ends_with('m'), "expected 'Nm', got: {}", age);
+    }
+
+    #[test]
+    fn test_calculate_age_hours() {
+        let ts = (chrono::Utc::now() - chrono::Duration::hours(3)).to_rfc3339();
+        let age = calculate_age(&ts);
+        assert!(age.ends_with('h'), "expected 'Nh', got: {}", age);
+    }
+
+    #[test]
+    fn test_calculate_age_days() {
+        let ts = (chrono::Utc::now() - chrono::Duration::days(10)).to_rfc3339();
+        let age = calculate_age(&ts);
+        assert!(age.ends_with('d'), "expected 'Nd', got: {}", age);
+    }
+
+    // --- sort_alerts ---
+
+    fn make_alert(severity: &str, state: &str) -> Alert {
+        Alert {
+            name: "TestAlert".to_string(),
+            state: state.to_string(),
+            severity: severity.to_string(),
+            description: "desc".to_string(),
+            labels: vec![],
+            active_at: None,
+            value: None,
+        }
+    }
+
+    #[test]
+    fn test_sort_alerts_severity_order() {
+        let mut alerts = vec![
+            make_alert("info", "firing"),
+            make_alert("critical", "firing"),
+            make_alert("warning", "firing"),
+        ];
+        sort_alerts(&mut alerts);
+        assert_eq!(alerts[0].severity, "critical");
+        assert_eq!(alerts[1].severity, "warning");
+        assert_eq!(alerts[2].severity, "info");
+    }
+
+    #[test]
+    fn test_sort_alerts_same_severity_state_order() {
+        let mut alerts = vec![
+            make_alert("warning", "pending"),
+            make_alert("warning", "firing"),
+        ];
+        sort_alerts(&mut alerts);
+        assert_eq!(alerts[0].state, "firing");
+        assert_eq!(alerts[1].state, "pending");
+    }
+
+    #[test]
+    fn test_sort_alerts_unknown_severity_last() {
+        let mut alerts = vec![
+            make_alert("unknown", "firing"),
+            make_alert("critical", "firing"),
+        ];
+        sort_alerts(&mut alerts);
+        assert_eq!(alerts[0].severity, "critical");
+        assert_eq!(alerts[1].severity, "unknown");
+    }
+
+    // --- sort_insights ---
+
+    fn make_insight(severity: &str, title: &str) -> Insight {
+        Insight {
+            title: title.to_string(),
+            insight_type: "warning".to_string(),
+            severity: severity.to_string(),
+            description: "desc".to_string(),
+            recommendation: "fix it".to_string(),
+            affected_resources: vec![],
+            category: "resources".to_string(),
+        }
+    }
+
+    #[test]
+    fn test_sort_insights_severity_order() {
+        let mut insights = vec![
+            make_insight("low", "alpha"),
+            make_insight("high", "zeta"),
+            make_insight("medium", "beta"),
+        ];
+        sort_insights(&mut insights);
+        assert_eq!(insights[0].severity, "high");
+        assert_eq!(insights[1].severity, "medium");
+        assert_eq!(insights[2].severity, "low");
+    }
+
+    #[test]
+    fn test_sort_insights_same_severity_alphabetical() {
+        let mut insights = vec![
+            make_insight("high", "Zulu"),
+            make_insight("high", "Alpha"),
+            make_insight("high", "Mike"),
+        ];
+        sort_insights(&mut insights);
+        assert_eq!(insights[0].title, "Alpha");
+        assert_eq!(insights[1].title, "Mike");
+        assert_eq!(insights[2].title, "Zulu");
+    }
+
+    // --- parse_cpu_resource ---
+
+    #[test]
+    fn test_parse_cpu_resource_millicores() {
+        assert_eq!(parse_cpu_resource("100m"), Some(100.0));
+        assert_eq!(parse_cpu_resource("250m"), Some(250.0));
+        assert_eq!(parse_cpu_resource("1000m"), Some(1000.0));
+    }
+
+    #[test]
+    fn test_parse_cpu_resource_cores() {
+        assert_eq!(parse_cpu_resource("1"), Some(1000.0));
+        assert_eq!(parse_cpu_resource("0.5"), Some(500.0));
+        assert_eq!(parse_cpu_resource("2"), Some(2000.0));
+    }
+
+    #[test]
+    fn test_parse_cpu_resource_empty_and_dash() {
+        assert!(parse_cpu_resource("").is_none());
+        assert!(parse_cpu_resource("-").is_none());
+    }
+
+    #[test]
+    fn test_parse_cpu_resource_invalid() {
+        assert!(parse_cpu_resource("abc").is_none());
+        assert!(parse_cpu_resource("xm").is_none());
+    }
+
+    // --- parse_memory_resource ---
+
+    #[test]
+    fn test_parse_memory_resource_ki() {
+        assert_eq!(parse_memory_resource("1024Ki"), Some(1.0));
+        assert_eq!(parse_memory_resource("2048Ki"), Some(2.0));
+    }
+
+    #[test]
+    fn test_parse_memory_resource_mi() {
+        assert_eq!(parse_memory_resource("128Mi"), Some(128.0));
+        assert_eq!(parse_memory_resource("512Mi"), Some(512.0));
+    }
+
+    #[test]
+    fn test_parse_memory_resource_gi() {
+        assert_eq!(parse_memory_resource("1Gi"), Some(1024.0));
+        assert_eq!(parse_memory_resource("4Gi"), Some(4096.0));
+    }
+
+    #[test]
+    fn test_parse_memory_resource_k() {
+        assert_eq!(parse_memory_resource("1024K"), Some(1.0));
+    }
+
+    #[test]
+    fn test_parse_memory_resource_m() {
+        assert_eq!(parse_memory_resource("256M"), Some(256.0));
+    }
+
+    #[test]
+    fn test_parse_memory_resource_g() {
+        assert_eq!(parse_memory_resource("2G"), Some(2048.0));
+    }
+
+    #[test]
+    fn test_parse_memory_resource_bytes() {
+        // 1 MiB = 1048576 bytes
+        let result = parse_memory_resource("1048576");
+        assert!(result.is_some());
+        assert!((result.unwrap() - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_parse_memory_resource_empty_and_dash() {
+        assert!(parse_memory_resource("").is_none());
+        assert!(parse_memory_resource("-").is_none());
+    }
+
+    // --- calculate_pod_resource_totals ---
+
+    fn make_container(cpu_req: &str, cpu_lim: &str, mem_req: &str, mem_lim: &str) -> ContainerInfo {
+        ContainerInfo {
+            name: "c".to_string(),
+            image: "img".to_string(),
+            cpu_request: cpu_req.to_string(),
+            cpu_limit: cpu_lim.to_string(),
+            memory_request: mem_req.to_string(),
+            memory_limit: mem_lim.to_string(),
+            ready: true,
+            restart_count: 0,
+        }
+    }
+
+    #[test]
+    fn test_calculate_pod_resource_totals_single() {
+        let containers = vec![make_container("100m", "500m", "128Mi", "512Mi")];
+        let (cpu_lim, cpu_req, mem_lim, mem_req) = calculate_pod_resource_totals(&containers);
+        assert_eq!(cpu_lim, 500.0);
+        assert_eq!(cpu_req, 100.0);
+        assert_eq!(mem_lim, 512.0);
+        assert_eq!(mem_req, 128.0);
+    }
+
+    #[test]
+    fn test_calculate_pod_resource_totals_multiple() {
+        let containers = vec![
+            make_container("100m", "200m", "64Mi", "128Mi"),
+            make_container("50m", "100m", "32Mi", "64Mi"),
+        ];
+        let (cpu_lim, cpu_req, mem_lim, mem_req) = calculate_pod_resource_totals(&containers);
+        assert_eq!(cpu_lim, 300.0);
+        assert_eq!(cpu_req, 150.0);
+        assert_eq!(mem_lim, 192.0);
+        assert_eq!(mem_req, 96.0);
+    }
+
+    #[test]
+    fn test_calculate_pod_resource_totals_missing_values() {
+        // "-" and "" are treated as None → skipped
+        let containers = vec![make_container("-", "-", "-", "-")];
+        let (cpu_lim, cpu_req, mem_lim, mem_req) = calculate_pod_resource_totals(&containers);
+        assert_eq!(cpu_lim, 0.0);
+        assert_eq!(cpu_req, 0.0);
+        assert_eq!(mem_lim, 0.0);
+        assert_eq!(mem_req, 0.0);
+    }
+
+    // --- group_servers_into_clusters ---
+
+    fn make_server(name: &str, status: &str, labels: Vec<(&str, &str)>) -> Server {
+        Server {
+            id: 1,
+            name: name.to_string(),
+            status: status.to_string(),
+            server_type: ServerType {
+                id: 1,
+                name: "cx21".to_string(),
+                description: "CX21".to_string(),
+                cores: 2,
+                memory: 4.0,
+                disk: 40,
+            },
+            datacenter: Datacenter {
+                id: 1,
+                name: "fsn1-dc14".to_string(),
+                description: "Falkenstein".to_string(),
+                location: Location {
+                    id: 1,
+                    name: "fsn1".to_string(),
+                    description: "Falkenstein".to_string(),
+                    country: "DE".to_string(),
+                    city: "Falkenstein".to_string(),
+                    latitude: 50.4,
+                    longitude: 12.3,
+                },
+            },
+            public_net: PublicNetwork {
+                ipv4: Some(IPv4 {
+                    ip: "1.2.3.4".to_string(),
+                    blocked: false,
+                }),
+                ipv6: None,
+                floating_ips: vec![],
+            },
+            private_net: vec![PrivateNetwork {
+                network: 1,
+                ip: "10.0.0.1".to_string(),
+                alias_ips: vec![],
+                mac_address: "86:00:00:11:22:33".to_string(),
+            }],
+            created: "2023-06-01T10:00:00+00:00".to_string(),
+            labels: labels
+                .into_iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn test_group_servers_into_clusters_basic() {
+        let servers = vec![
+            make_server(
+                "prod-control-plane-1",
+                "running",
+                vec![("talos-version", "v1.7.0")],
+            ),
+            make_server(
+                "prod-worker-1",
+                "running",
+                vec![("talos-version", "v1.7.0")],
+            ),
+            make_server("prod-worker-2", "running", vec![]),
+        ];
+        let clusters = group_servers_into_clusters(&servers);
+        assert_eq!(clusters.len(), 1);
+        assert_eq!(clusters[0].name, "prod");
+        assert_eq!(clusters[0].nodes, 3);
+        assert_eq!(clusters[0].status, "Running");
+    }
+
+    #[test]
+    fn test_group_servers_into_clusters_multiple_clusters() {
+        let servers = vec![
+            make_server("prod-control-plane-1", "running", vec![]),
+            make_server("staging-worker-1", "running", vec![]),
+        ];
+        let clusters = group_servers_into_clusters(&servers);
+        assert_eq!(clusters.len(), 2);
+        // sorted alphabetically
+        assert_eq!(clusters[0].name, "prod");
+        assert_eq!(clusters[1].name, "staging");
+    }
+
+    #[test]
+    fn test_group_servers_into_clusters_partial_status() {
+        let servers = vec![
+            make_server("prod-control-plane-1", "running", vec![]),
+            make_server("prod-worker-1", "starting", vec![]),
+        ];
+        let clusters = group_servers_into_clusters(&servers);
+        assert_eq!(clusters[0].status, "Partial");
+    }
+
+    #[test]
+    fn test_group_servers_into_clusters_version_from_label() {
+        let servers = vec![make_server(
+            "prod-worker-1",
+            "running",
+            vec![("talos-version", "v1.6.5")],
+        )];
+        let clusters = group_servers_into_clusters(&servers);
+        assert_eq!(clusters[0].version, "v1.6.5");
+    }
+
+    #[test]
+    fn test_group_servers_into_clusters_no_dash_skipped() {
+        // Server without a '-' in name is skipped (parts.len() < 2)
+        let servers = vec![
+            make_server("standalone", "running", vec![]),
+            make_server("prod-worker-1", "running", vec![]),
+        ];
+        let clusters = group_servers_into_clusters(&servers);
+        // "standalone" has parts=["standalone"], len < 2, so skipped
+        assert_eq!(clusters.len(), 1);
+        assert_eq!(clusters[0].name, "prod");
+    }
+
+    // --- trim_metrics_history ---
+
+    #[test]
+    fn test_trim_metrics_history_removes_old() {
+        let now = chrono::Utc::now().timestamp();
+        let old = now - METRICS_HISTORY_MAX_AGE_SECS - 100; // older than max age
+        let recent = now - 60; // 1 minute ago
+        let mut history = NodeMetricsHistory {
+            cpu_history: vec![(old, 0.5), (recent, 0.7)],
+            memory_history: vec![(old, 512.0), (recent, 1024.0)],
+        };
+        trim_metrics_history(&mut history);
+        assert_eq!(history.cpu_history.len(), 1);
+        assert_eq!(history.cpu_history[0].0, recent);
+        assert_eq!(history.memory_history.len(), 1);
+        assert_eq!(history.memory_history[0].0, recent);
+    }
+
+    #[test]
+    fn test_trim_metrics_history_keeps_all_recent() {
+        let now = chrono::Utc::now().timestamp();
+        let mut history = NodeMetricsHistory {
+            cpu_history: vec![(now - 100, 0.1), (now - 50, 0.2), (now - 10, 0.3)],
+            memory_history: vec![(now - 100, 64.0)],
+        };
+        trim_metrics_history(&mut history);
+        assert_eq!(history.cpu_history.len(), 3);
+        assert_eq!(history.memory_history.len(), 1);
+    }
+
+    #[test]
+    fn test_trim_metrics_history_removes_all_old() {
+        let old = chrono::Utc::now().timestamp() - METRICS_HISTORY_MAX_AGE_SECS - 1000;
+        let mut history = NodeMetricsHistory {
+            cpu_history: vec![(old, 0.1), (old - 500, 0.2)],
+            memory_history: vec![(old, 128.0)],
+        };
+        trim_metrics_history(&mut history);
+        assert!(history.cpu_history.is_empty());
+        assert!(history.memory_history.is_empty());
+    }
+}

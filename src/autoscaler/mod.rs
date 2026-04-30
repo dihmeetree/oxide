@@ -408,3 +408,81 @@ spec:
         autoscaler.uninstall_autoscaler().await
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::utils::command::test_support::MockCommandRunner;
+    use crate::utils::command::with_runner;
+    use std::sync::Arc;
+
+    #[tokio::test]
+    async fn test_uninstall_autoscaler_calls_kubectl_delete() {
+        let dir = tempfile::tempdir().unwrap();
+        let kubeconfig = dir.path().join("kubeconfig");
+        std::fs::write(&kubeconfig, "dummy").unwrap();
+
+        let mock = Arc::new(MockCommandRunner::new());
+        // All kubectl calls succeed (uninstall uses `let _ = ...` so errors are ignored anyway)
+        mock.respond("kubectl", true, "", "");
+
+        let autoscaler = Autoscaler::new(kubeconfig);
+        let result = with_runner(mock.clone(), async {
+            autoscaler.uninstall_autoscaler().await
+        })
+        .await;
+
+        assert!(result.is_ok());
+        let calls = mock.calls_for("kubectl");
+        // Multiple kubectl delete commands should have been issued
+        assert!(!calls.is_empty(), "expected kubectl to be called");
+        let any_delete = calls
+            .iter()
+            .any(|c| c.args_str().iter().any(|a| a.as_ref() == "delete"));
+        assert!(any_delete, "expected at least one 'delete' kubectl call");
+    }
+
+    #[tokio::test]
+    async fn test_uninstall_autoscaler_missing_kubeconfig() {
+        let mock = Arc::new(MockCommandRunner::new());
+        let autoscaler = Autoscaler::new(PathBuf::from("/nonexistent/kubeconfig"));
+
+        let result = with_runner(mock.clone(), async {
+            autoscaler.uninstall_autoscaler().await
+        })
+        .await;
+
+        assert!(result.is_err());
+        let msg = format!("{}", result.unwrap_err());
+        assert!(
+            msg.contains("Kubeconfig not found") || msg.contains("kubeconfig"),
+            "unexpected error: {}",
+            msg
+        );
+    }
+
+    #[tokio::test]
+    async fn test_uninstall_autoscaler_removes_deployment() {
+        let dir = tempfile::tempdir().unwrap();
+        let kubeconfig = dir.path().join("kubeconfig");
+        std::fs::write(&kubeconfig, "dummy").unwrap();
+
+        let mock = Arc::new(MockCommandRunner::new());
+        mock.respond("kubectl", true, "", "");
+
+        let autoscaler = Autoscaler::new(kubeconfig);
+        with_runner(mock.clone(), async {
+            autoscaler.uninstall_autoscaler().await.unwrap();
+        })
+        .await;
+
+        let calls = mock.calls_for("kubectl");
+        // Verify the first delete removes the deployment
+        let deploys_deleted = calls.iter().any(|c| {
+            let args: Vec<_> = c.args_str();
+            let args_str: Vec<&str> = args.iter().map(|s| s.as_ref()).collect();
+            args_str.contains(&"deployment") && args_str.contains(&"cluster-autoscaler")
+        });
+        assert!(deploys_deleted, "expected deployment deletion call");
+    }
+}

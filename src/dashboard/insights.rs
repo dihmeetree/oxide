@@ -1675,3 +1675,120 @@ fn parse_memory_to_mi(memory: &str) -> f64 {
         memory.parse::<f64>().unwrap_or(0.0) / (1024.0 * 1024.0)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // --- should_skip_namespace ---
+
+    #[test]
+    fn test_should_skip_namespace_system() {
+        assert!(should_skip_namespace("kube-system"));
+        assert!(should_skip_namespace("monitoring"));
+        assert!(should_skip_namespace("kube-public"));
+        assert!(should_skip_namespace("kube-node-lease"));
+    }
+
+    #[test]
+    fn test_should_skip_namespace_user_namespaces() {
+        assert!(!should_skip_namespace("default"));
+        assert!(!should_skip_namespace("my-app"));
+        assert!(!should_skip_namespace("production"));
+        assert!(!should_skip_namespace("staging"));
+        assert!(!should_skip_namespace(""));
+    }
+
+    // --- parse_cpu_to_millicores ---
+
+    #[test]
+    fn test_parse_cpu_millicores_suffix() {
+        assert_eq!(parse_cpu_to_millicores("100m"), 100.0);
+        assert_eq!(parse_cpu_to_millicores("500m"), 500.0);
+        assert_eq!(parse_cpu_to_millicores("1000m"), 1000.0);
+        assert_eq!(parse_cpu_to_millicores("250m"), 250.0);
+    }
+
+    #[test]
+    fn test_parse_cpu_full_cores() {
+        assert_eq!(parse_cpu_to_millicores("1"), 1000.0);
+        assert_eq!(parse_cpu_to_millicores("2"), 2000.0);
+        assert_eq!(parse_cpu_to_millicores("0.5"), 500.0);
+        assert_eq!(parse_cpu_to_millicores("0.25"), 250.0);
+    }
+
+    #[test]
+    fn test_parse_cpu_invalid_returns_zero() {
+        assert_eq!(parse_cpu_to_millicores(""), 0.0);
+        assert_eq!(parse_cpu_to_millicores("abc"), 0.0);
+        // "xm" → strip 'm' → "x".parse fails → 0.0
+        assert_eq!(parse_cpu_to_millicores("xm"), 0.0);
+    }
+
+    // --- parse_memory_to_mi ---
+
+    #[test]
+    fn test_parse_memory_mi_suffix() {
+        assert_eq!(parse_memory_to_mi("128Mi"), 128.0);
+        assert_eq!(parse_memory_to_mi("512Mi"), 512.0);
+        assert_eq!(parse_memory_to_mi("1024Mi"), 1024.0);
+    }
+
+    #[test]
+    fn test_parse_memory_gi_suffix() {
+        assert_eq!(parse_memory_to_mi("1Gi"), 1024.0);
+        assert_eq!(parse_memory_to_mi("2Gi"), 2048.0);
+        assert_eq!(parse_memory_to_mi("4Gi"), 4096.0);
+    }
+
+    #[test]
+    fn test_parse_memory_ki_suffix() {
+        assert_eq!(parse_memory_to_mi("1024Ki"), 1.0);
+        assert_eq!(parse_memory_to_mi("2048Ki"), 2.0);
+    }
+
+    #[test]
+    fn test_parse_memory_plain_m() {
+        assert_eq!(parse_memory_to_mi("128M"), 128.0);
+        assert_eq!(parse_memory_to_mi("512M"), 512.0);
+    }
+
+    #[test]
+    fn test_parse_memory_plain_g() {
+        assert_eq!(parse_memory_to_mi("1G"), 1024.0);
+        assert_eq!(parse_memory_to_mi("2G"), 2048.0);
+    }
+
+    #[test]
+    fn test_parse_memory_plain_k() {
+        assert_eq!(parse_memory_to_mi("1024K"), 1.0);
+        assert_eq!(parse_memory_to_mi("2048K"), 2.0);
+    }
+
+    #[test]
+    fn test_parse_memory_bytes_fallback() {
+        // 1 MiB in bytes = 1048576
+        let result = parse_memory_to_mi("1048576");
+        assert!(
+            (result - 1.0).abs() < 1e-9,
+            "expected 1.0 MiB, got {}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_parse_memory_invalid_returns_zero() {
+        assert_eq!(parse_memory_to_mi(""), 0.0);
+        assert_eq!(parse_memory_to_mi("abc"), 0.0);
+        assert_eq!(parse_memory_to_mi("invalid_value"), 0.0);
+    }
+
+    // --- Ti suffix (not in the implementation) is treated as bytes → small value ---
+    #[test]
+    fn test_parse_memory_unrecognised_suffix_treated_as_bytes() {
+        // "1Ti" has no matching suffix → parse as bytes → tiny value
+        let result = parse_memory_to_mi("1Ti");
+        // "1Ti".parse::<f64>() fails → 0.0
+        assert_eq!(result, 0.0);
+    }
+}

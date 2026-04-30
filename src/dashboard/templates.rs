@@ -538,3 +538,205 @@ pub struct DeploymentCondition {
     pub message: String,
     pub last_update: String,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // --- ClusterInfo round-trip ---
+
+    #[test]
+    fn test_cluster_info_round_trip() {
+        let info = ClusterInfo {
+            name: "prod".to_string(),
+            status: "Running".to_string(),
+            nodes: 3,
+            version: "v1.7.0".to_string(),
+            created: "2023-06-01".to_string(),
+        };
+        let json = serde_json::to_string(&info).unwrap();
+        let info2: ClusterInfo = serde_json::from_str(&json).unwrap();
+        assert_eq!(info2.name, info.name);
+        assert_eq!(info2.nodes, 3);
+        assert_eq!(info2.status, "Running");
+    }
+
+    // --- ContainerInfo round-trip ---
+
+    #[test]
+    fn test_container_info_round_trip() {
+        let c = ContainerInfo {
+            name: "nginx".to_string(),
+            image: "nginx:1.25".to_string(),
+            cpu_request: "100m".to_string(),
+            cpu_limit: "500m".to_string(),
+            memory_request: "128Mi".to_string(),
+            memory_limit: "512Mi".to_string(),
+            ready: true,
+            restart_count: 2,
+        };
+        let json = serde_json::to_string(&c).unwrap();
+        let c2: ContainerInfo = serde_json::from_str(&json).unwrap();
+        assert_eq!(c2.name, "nginx");
+        assert!(c2.ready);
+        assert_eq!(c2.restart_count, 2);
+    }
+
+    // --- PodDetail with nested ContainerInfo ---
+
+    #[test]
+    fn test_pod_detail_round_trip() {
+        let pod = PodDetail {
+            cluster_name: "prod".to_string(),
+            node_name: "prod-worker-1".to_string(),
+            name: "nginx-abc123".to_string(),
+            namespace: "default".to_string(),
+            status: "Running".to_string(),
+            restarts: 0,
+            age: "2d".to_string(),
+            ip: "10.0.0.5".to_string(),
+            cpu: "50m".to_string(),
+            memory: "64Mi".to_string(),
+            cpu_limit: "500m".to_string(),
+            cpu_request: "100m".to_string(),
+            memory_limit: "512Mi".to_string(),
+            memory_request: "128Mi".to_string(),
+            cpu_percent: "10%".to_string(),
+            memory_percent: "12%".to_string(),
+            labels: vec![("app".to_string(), "nginx".to_string())],
+            containers: vec![ContainerInfo {
+                name: "nginx".to_string(),
+                image: "nginx:latest".to_string(),
+                cpu_request: "100m".to_string(),
+                cpu_limit: "500m".to_string(),
+                memory_request: "128Mi".to_string(),
+                memory_limit: "512Mi".to_string(),
+                ready: true,
+                restart_count: 0,
+            }],
+        };
+        let json = serde_json::to_string(&pod).unwrap();
+        let pod2: PodDetail = serde_json::from_str(&json).unwrap();
+        assert_eq!(pod2.name, "nginx-abc123");
+        assert_eq!(pod2.containers.len(), 1);
+        assert_eq!(pod2.labels[0], ("app".to_string(), "nginx".to_string()));
+    }
+
+    // --- ServicePort with optional node_port ---
+
+    #[test]
+    fn test_service_port_with_node_port() {
+        let port = ServicePort {
+            name: "http".to_string(),
+            protocol: "TCP".to_string(),
+            port: 80,
+            target_port: "8080".to_string(),
+            node_port: Some(30080),
+        };
+        let json = serde_json::to_string(&port).unwrap();
+        let port2: ServicePort = serde_json::from_str(&json).unwrap();
+        assert_eq!(port2.node_port, Some(30080));
+    }
+
+    #[test]
+    fn test_service_port_without_node_port() {
+        let port = ServicePort {
+            name: "http".to_string(),
+            protocol: "TCP".to_string(),
+            port: 443,
+            target_port: "8443".to_string(),
+            node_port: None,
+        };
+        let json = serde_json::to_string(&port).unwrap();
+        let port2: ServicePort = serde_json::from_str(&json).unwrap();
+        assert!(port2.node_port.is_none());
+    }
+
+    // --- EventInfo with optional object_node ---
+
+    #[test]
+    fn test_event_info_with_node() {
+        let ev = EventInfo {
+            cluster_name: "prod".to_string(),
+            namespace: "default".to_string(),
+            name: "pod-crash".to_string(),
+            event_type: "Warning".to_string(),
+            reason: "OOMKilled".to_string(),
+            message: "Container was OOM killed".to_string(),
+            object_kind: "Pod".to_string(),
+            object_name: "my-pod".to_string(),
+            object_node: Some("worker-1".to_string()),
+            source: "kubelet".to_string(),
+            count: 3,
+            first_seen: "2023-01-01T00:00:00Z".to_string(),
+            last_seen: "2023-01-01T01:00:00Z".to_string(),
+        };
+        let json = serde_json::to_string(&ev).unwrap();
+        let ev2: EventInfo = serde_json::from_str(&json).unwrap();
+        assert_eq!(ev2.object_node, Some("worker-1".to_string()));
+        assert_eq!(ev2.count, 3);
+    }
+
+    #[test]
+    fn test_event_info_no_node() {
+        let ev = EventInfo {
+            cluster_name: "prod".to_string(),
+            namespace: "kube-system".to_string(),
+            name: "sched-event".to_string(),
+            event_type: "Normal".to_string(),
+            reason: "Scheduled".to_string(),
+            message: "Pod scheduled".to_string(),
+            object_kind: "Pod".to_string(),
+            object_name: "coredns-xyz".to_string(),
+            object_node: None,
+            source: "scheduler".to_string(),
+            count: 1,
+            first_seen: "2023-01-01T00:00:00Z".to_string(),
+            last_seen: "2023-01-01T00:00:00Z".to_string(),
+        };
+        let json = serde_json::to_string(&ev).unwrap();
+        let ev2: EventInfo = serde_json::from_str(&json).unwrap();
+        assert!(ev2.object_node.is_none());
+    }
+
+    // --- LogLevel serde ---
+
+    #[test]
+    fn test_log_level_serde_round_trip() {
+        for level in [
+            LogLevel::Error,
+            LogLevel::Warning,
+            LogLevel::Info,
+            LogLevel::Debug,
+            LogLevel::Trace,
+            LogLevel::Unknown,
+        ] {
+            let json = serde_json::to_string(&level).unwrap();
+            let level2: LogLevel = serde_json::from_str(&json).unwrap();
+            assert_eq!(level, level2);
+        }
+    }
+
+    // --- DeploymentInfo round-trip ---
+
+    #[test]
+    fn test_deployment_info_round_trip() {
+        let d = DeploymentInfo {
+            cluster_name: "prod".to_string(),
+            namespace: "default".to_string(),
+            name: "my-deployment".to_string(),
+            ready_replicas: 3,
+            desired_replicas: 3,
+            available_replicas: 3,
+            unavailable_replicas: 0,
+            status: "Available".to_string(),
+            age: "5d".to_string(),
+            strategy: "RollingUpdate".to_string(),
+        };
+        let json = serde_json::to_string(&d).unwrap();
+        let d2: DeploymentInfo = serde_json::from_str(&json).unwrap();
+        assert_eq!(d2.name, "my-deployment");
+        assert_eq!(d2.ready_replicas, 3);
+        assert_eq!(d2.unavailable_replicas, 0);
+    }
+}

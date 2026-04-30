@@ -42,9 +42,13 @@ tower-http = { version = "0.6", features = ["fs", "trace", "compression-full", "
 tower = "0.5"
 # Lock-free concurrent HashMap
 dashmap = "6.1"
+# Async trait support for the command runner abstraction
+async-trait = "0.1"
 
 [dev-dependencies]
 tokio-test = "0.4"
+wiremock = "0.6"
+tempfile = "3.10"
 
 # Performance-optimized build profiles
 [profile.release]

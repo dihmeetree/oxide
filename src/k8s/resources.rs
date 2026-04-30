@@ -27,3 +27,54 @@ impl Resources {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::utils::command::test_support::MockCommandRunner;
+    use crate::utils::command::with_runner;
+    use std::sync::Arc;
+
+    #[tokio::test]
+    async fn test_apply_manifest_calls_kubectl() {
+        let mock = Arc::new(MockCommandRunner::new());
+        mock.respond("kubectl", true, "", "");
+
+        let kubeconfig = Path::new("/fake/kubeconfig");
+        let manifest = Path::new("/fake/manifest.yaml");
+
+        with_runner(mock.clone(), async {
+            Resources::apply_manifest(kubeconfig, manifest)
+                .await
+                .unwrap();
+        })
+        .await;
+
+        let calls = mock.calls_for("kubectl");
+        assert!(!calls.is_empty(), "expected kubectl to be called");
+        let args: Vec<_> = calls[0].args_str();
+        let args_str: Vec<&str> = args.iter().map(|s| s.as_ref()).collect();
+        assert!(args_str.contains(&"apply"), "expected 'apply' in args");
+        assert!(args_str.contains(&"-f"), "expected '-f' in args");
+        assert!(
+            args_str.contains(&"/fake/manifest.yaml"),
+            "expected manifest path"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_apply_manifest_failure_propagates() {
+        let mock = Arc::new(MockCommandRunner::new());
+        mock.respond("kubectl", false, "", "failed to connect");
+
+        let kubeconfig = Path::new("/fake/kubeconfig");
+        let manifest = Path::new("/fake/manifest.yaml");
+
+        let result = with_runner(mock.clone(), async {
+            Resources::apply_manifest(kubeconfig, manifest).await
+        })
+        .await;
+
+        assert!(result.is_err(), "expected error when kubectl fails");
+    }
+}
