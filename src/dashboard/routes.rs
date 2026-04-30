@@ -172,6 +172,8 @@ fn preloader_page() -> impl IntoResponse {
         <!DOCTYPE html>
         <html>
         <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
             <meta http-equiv="refresh" content="5">
             <title>Loading - Oxide</title>
             <style>
@@ -182,10 +184,12 @@ fn preloader_page() -> impl IntoResponse {
                     display: flex;
                     align-items: center;
                     justify-content: center;
-                    height: 100vh;
+                    min-height: 100vh;
                     margin: 0;
+                    padding: 16px;
+                    box-sizing: border-box;
                 }
-                .loader { text-align: center; }
+                .loader { text-align: center; max-width: 100%; }
                 .logo-container {
                     display: flex;
                     align-items: center;
@@ -193,8 +197,8 @@ fn preloader_page() -> impl IntoResponse {
                     gap: 12px;
                     margin-bottom: 12px;
                 }
-                .logo { width: 64px; height: 64px; object-fit: contain; }
-                .brand { font-size: 2.5rem; font-weight: 600; color: #F2F2F2; margin: 0; }
+                .logo { width: 56px; height: 56px; object-fit: contain; }
+                .brand { font-size: 2rem; font-weight: 600; color: #F2F2F2; margin: 0; }
                 @keyframes spin-slow {
                     from { transform: rotate(0deg); }
                     to { transform: rotate(360deg); }
@@ -218,13 +222,19 @@ fn preloader_page() -> impl IntoResponse {
                     color: #B8B8B8;
                     font-size: 1rem;
                     line-height: 1.6;
-                    margin: 20px 0 8px 0;
+                    margin: 20px auto 8px;
                     max-width: 520px;
+                    padding: 0 8px;
                 }
                 .countdown-text {
                     color: #888888;
                     font-size: 0.9375rem;
                     margin: 0;
+                }
+                @media (max-width: 480px) {
+                    .logo { width: 48px; height: 48px; }
+                    .brand { font-size: 1.5rem; }
+                    .status-text { font-size: 0.9375rem; }
                 }
             </style>
         </head>

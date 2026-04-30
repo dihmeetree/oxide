@@ -163,6 +163,52 @@
         nav button.bg-accent-blue.bg-\[#252525\] {
             background-color: #2776F3 !important;
         }
+
+        /* ----- Mobile optimizations ----- */
+        /* Smooth iOS momentum scrolling for any horizontally scrolling
+           container (used by every data table). */
+        .overflow-x-auto {
+            -webkit-overflow-scrolling: touch;
+        }
+
+        @media (max-width: 767px) {
+            /* Force table cells to keep content on a single line so the
+               table grows wider than its `overflow-x-auto` wrapper, which
+               actually triggers the horizontal scrollbar. Without this,
+               cells just text-wrap and the scrollbar never appears. */
+            .overflow-x-auto > table th,
+            .overflow-x-auto > table td {
+                white-space: nowrap;
+            }
+
+            /* Visible scroll affordance on touch devices that hide the
+               scrollbar by default. */
+            .overflow-x-auto::-webkit-scrollbar {
+                height: 6px;
+            }
+
+            /* Scale down oversized desktop headlines on small screens so
+               page headers don't crowd out the status pills next to them. */
+            h1.text-3xl, h2.text-3xl, .text-3xl {
+                font-size: 1.5rem;
+                line-height: 2rem;
+            }
+            h1.text-4xl, h2.text-4xl, .text-4xl {
+                font-size: 1.875rem;
+                line-height: 2.25rem;
+            }
+
+            /* Page-level header rows (a status/title cluster on the left
+               plus action buttons or pills on the right) sit as direct
+               children of the page-wrapping `.space-y-6`. Allow them to
+               wrap on narrow screens so action buttons drop below the
+               title instead of overlapping it. */
+            .space-y-6 > .flex.items-center.justify-between,
+            .space-y-4 > .flex.items-center.justify-between {
+                flex-wrap: wrap;
+                gap: 1rem;
+            }
+        }
     </style>
     <script>
         // Enable smooth scroll restoration
@@ -231,18 +277,35 @@
                 }
             }, 200);
         }
+
+        // Mobile drawer toggle. Used only at < md breakpoints; the button
+        // and menu are hidden via Tailwind's md:hidden / hidden classes
+        // on larger viewports.
+        function toggleMobileMenu() {
+            const menu = document.getElementById('mobile-menu');
+            const open = document.getElementById('mobile-menu-icon-open');
+            const close = document.getElementById('mobile-menu-icon-close');
+            const button = document.getElementById('mobile-menu-button');
+            const wasHidden = menu.classList.toggle('hidden');
+            // After toggle: if wasHidden is true, the menu is now hidden.
+            const expanded = !wasHidden;
+            open.classList.toggle('hidden', expanded);
+            close.classList.toggle('hidden', !expanded);
+            button.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+        }
     </script>
 </head>
 <body class="min-h-screen text-text-primary flex flex-col">
     <nav class="bg-dark-sidebar border-b border-dark-border">
-        <div class="max-w-6xl mx-auto px-6">
+        <div class="max-w-6xl mx-auto px-4 md:px-6">
             <div class="flex items-center justify-between h-16">
-                <div class="flex items-center">
+                <div class="flex items-center min-w-0">
                     <div class="flex-shrink-0 flex items-center space-x-2">
                         <img src="/static/logo.png" alt="Oxide Logo" class="h-10 w-10 object-contain" width="40" height="40">
                         <h1 class="text-2xl font-semibold text-text-primary">Oxide</h1>
                     </div>
-                    <div class="ml-10 flex items-baseline space-x-1">
+                    <!-- Desktop nav (>= md) -->
+                    <div class="hidden md:flex ml-10 items-baseline space-x-1">
                         <a href="/" class="flex items-center gap-1.5 px-4 py-2 rounded-md text-sm font-medium transition {% if active_page == "dashboard" %}bg-accent-blue text-text-primary{% else %}text-text-primaryAlt hover:bg-[#252525] hover:text-text-primary{% endif %}">
                             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
                                 <path stroke-linecap="round" stroke-linejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
@@ -367,17 +430,61 @@
                         </a>
                     </div>
                 </div>
+                <!-- Hamburger (< md) -->
+                <button id="mobile-menu-button" type="button"
+                    class="md:hidden inline-flex items-center justify-center p-2 rounded-md text-text-primaryAlt hover:bg-[#252525] hover:text-text-primary focus:outline-none focus:ring-2 focus:ring-accent-blue"
+                    aria-controls="mobile-menu" aria-expanded="false" aria-label="Toggle navigation"
+                    onclick="toggleMobileMenu()">
+                    <svg id="mobile-menu-icon-open" class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16"/>
+                    </svg>
+                    <svg id="mobile-menu-icon-close" class="hidden w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
+                    </svg>
+                </button>
+            </div>
+        </div>
+        <!-- Mobile drawer (< md) -->
+        <div id="mobile-menu" class="hidden md:hidden border-t border-dark-border">
+            <div class="px-4 py-3 space-y-1">
+                <a href="/" class="flex items-center gap-3 px-3 py-2 rounded-md text-base font-medium {% if active_page == "dashboard" %}bg-accent-blue text-text-primary{% else %}text-text-primaryAlt hover:bg-[#252525] hover:text-text-primary{% endif %}">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/></svg>
+                    Home
+                </a>
+                <div class="pt-2 pb-1 px-3 text-xs uppercase tracking-wider text-text-muted">Resources</div>
+                <a href="/clusters" class="flex items-center gap-3 px-3 py-2 rounded-md text-base font-medium {% if active_page == "clusters" %}bg-accent-blue text-text-primary{% else %}text-text-primaryAlt hover:bg-[#252525] hover:text-text-primary{% endif %}">Clusters</a>
+                <a href="/nodes" class="flex items-center gap-3 px-3 py-2 rounded-md text-base font-medium {% if active_page == "nodes" %}bg-accent-blue text-text-primary{% else %}text-text-primaryAlt hover:bg-[#252525] hover:text-text-primary{% endif %}">Nodes</a>
+                <a href="/pods" class="flex items-center gap-3 px-3 py-2 rounded-md text-base font-medium {% if active_page == "pods" %}bg-accent-blue text-text-primary{% else %}text-text-primaryAlt hover:bg-[#252525] hover:text-text-primary{% endif %}">Pods</a>
+                <a href="/services" class="flex items-center gap-3 px-3 py-2 rounded-md text-base font-medium {% if active_page == "services" %}bg-accent-blue text-text-primary{% else %}text-text-primaryAlt hover:bg-[#252525] hover:text-text-primary{% endif %}">Services</a>
+                <a href="/deployments" class="flex items-center gap-3 px-3 py-2 rounded-md text-base font-medium {% if active_page == "deployments" %}bg-accent-blue text-text-primary{% else %}text-text-primaryAlt hover:bg-[#252525] hover:text-text-primary{% endif %}">Deployments</a>
+                <div class="pt-2 pb-1 px-3 text-xs uppercase tracking-wider text-text-muted">Networking</div>
+                <a href="/cilium" class="flex items-center gap-3 px-3 py-2 rounded-md text-base font-medium {% if active_page == "cilium" %}bg-accent-blue text-text-primary{% else %}text-text-primaryAlt hover:bg-[#252525] hover:text-text-primary{% endif %}">Cilium</a>
+                <a href="/envoy" class="flex items-center gap-3 px-3 py-2 rounded-md text-base font-medium {% if active_page == "envoy" %}bg-accent-blue text-text-primary{% else %}text-text-primaryAlt hover:bg-[#252525] hover:text-text-primary{% endif %}">Envoy</a>
+                <div class="pt-2 pb-1 px-3 text-xs uppercase tracking-wider text-text-muted">Observability</div>
+                <a href="/events" class="flex items-center justify-between gap-3 px-3 py-2 rounded-md text-base font-medium {% if active_page == "events" %}bg-accent-blue text-text-primary{% else %}text-text-primaryAlt hover:bg-[#252525] hover:text-text-primary{% endif %}">
+                    <span>Events</span>
+                    {% if warning_events_count > 0 %}<span class="inline-flex items-center justify-center min-w-[1.25rem] h-5 px-1.5 text-xs font-bold rounded-full {% if active_page == "events" %}bg-white text-gray-900{% else %}bg-[#EC4899] text-white{% endif %}">{{ warning_events_count }}</span>{% endif %}
+                </a>
+                <a href="/metrics" class="flex items-center gap-3 px-3 py-2 rounded-md text-base font-medium {% if active_page == "metrics" %}bg-accent-blue text-text-primary{% else %}text-text-primaryAlt hover:bg-[#252525] hover:text-text-primary{% endif %}">Metrics</a>
+                <a href="/alerts" class="flex items-center justify-between gap-3 px-3 py-2 rounded-md text-base font-medium {% if active_page == "alerts" %}bg-accent-blue text-text-primary{% else %}text-text-primaryAlt hover:bg-[#252525] hover:text-text-primary{% endif %}">
+                    <span>Alerts</span>
+                    {% if firing_alerts_count > 0 %}<span class="inline-flex items-center justify-center min-w-[1.25rem] h-5 px-1.5 text-xs font-bold rounded-full {% if active_page == "alerts" %}bg-white text-gray-900{% else %}bg-[#F59E0B] text-white{% endif %}">{{ firing_alerts_count }}</span>{% endif %}
+                </a>
+                <a href="/insights" class="flex items-center justify-between gap-3 px-3 py-2 rounded-md text-base font-medium {% if active_page == "insights" %}bg-accent-blue text-text-primary{% else %}text-text-primaryAlt hover:bg-[#252525] hover:text-text-primary{% endif %}">
+                    <span>Insights</span>
+                    {% if insights_count > 0 %}<span class="inline-flex items-center justify-center min-w-[1.25rem] h-5 px-1.5 text-xs font-bold rounded-full {% if active_page == "insights" %}bg-white text-gray-900{% else %}bg-[#14B8A6] text-white{% endif %}">{{ insights_count }}</span>{% endif %}
+                </a>
             </div>
         </div>
     </nav>
 
-    <main class="max-w-6xl mx-auto px-6 py-8 pb-16 flex-1 w-full">
+    <main class="max-w-6xl mx-auto px-4 md:px-6 py-6 md:py-8 pb-16 flex-1 w-full">
         {% block content %}{% endblock %}
     </main>
 
     <!-- Footer -->
     <footer class="border-t border-dark-border bg-dark-sidebar mt-auto">
-        <div class="max-w-6xl mx-auto px-6 py-4">
+        <div class="max-w-6xl mx-auto px-4 md:px-6 py-4">
             <div class="flex items-center justify-between text-sm">
                 <div class="flex items-center space-x-2">
                     <img src="/static/logo.png" alt="Oxide" class="h-5 w-5 object-contain" width="20" height="20">
@@ -410,7 +517,7 @@
     </footer>
 
     <!-- Toast Notification -->
-    <div id="toast" class="hidden fixed bottom-6 right-6 max-w-md bg-[#242424] border border-dark-border rounded-lg p-4 z-[9999] shadow-xl">
+    <div id="toast" class="hidden fixed bottom-4 right-4 left-4 sm:left-auto sm:bottom-6 sm:right-6 sm:max-w-md bg-[#242424] border border-dark-border rounded-lg p-4 z-[9999] shadow-xl">
         <div class="flex items-start">
             <div id="toast-icon" class="flex-shrink-0 mr-3"></div>
             <div class="flex-1">
