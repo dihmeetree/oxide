@@ -340,6 +340,10 @@ use crate::k8s::client::KubernetesClient;
 #[derive(Clone)]
 pub struct ClusterCache {
     pub(super) inner: Arc<RwLock<CacheData>>,
+    /// True until the first full refresh has finished. Used to keep the very
+    /// first refresh fast (short Prometheus history window, early-flip
+    /// `is_ready`) so the dashboard becomes interactive as soon as possible.
+    pub(super) first_refresh: Arc<std::sync::atomic::AtomicBool>,
 }
 
 pub(super) struct CacheData {
@@ -413,6 +417,7 @@ impl ClusterCache {
                 cluster_metrics_json_cache: Arc::new(std::collections::HashMap::new()),
                 node_metrics_json_cache: Arc::from("{}"),
             })),
+            first_refresh: Arc::new(std::sync::atomic::AtomicBool::new(true)),
         }
     }
 
@@ -793,8 +798,31 @@ impl ClusterCache {
         // Group by cluster name
         let clusters = group_servers_into_clusters(&servers);
 
+        // STREAMING READY: publish cluster + server lists immediately, before
+        // doing any of the slow Kubernetes / Prometheus work. The dashboard
+        // can already render the clusters/nodes pages while the rest of the
+        // refresh continues in this same task.
+        {
+            let mut data = self.inner.write().await;
+            data.clusters = Arc::from(clusters.clone().into_boxed_slice());
+            data.servers = Arc::from(servers.clone().into_boxed_slice());
+            data.is_ready = true;
+        }
+
+        // FAST FIRST REFRESH: keep the initial Prometheus history window
+        // small so the first refresh completes quickly (Prometheus TSDB is
+        // still cold and per-series range queries dominate). Subsequent
+        // refreshes fetch a full 2 hours.
+        let is_first = self
+            .first_refresh
+            .swap(false, std::sync::atomic::Ordering::Relaxed);
+        let history_window = if is_first { "15m" } else { "2h" };
+
         // Fetch all Kubernetes/Prometheus data in parallel
-        info!("Fetching Kubernetes and Prometheus data...");
+        info!(
+            "Fetching Kubernetes and Prometheus data (history window: {})...",
+            history_window
+        );
         let (
             mut node_details,
             mut pod_details,
@@ -815,8 +843,8 @@ impl ClusterCache {
             fetch_all_services(config_path, &config.cluster_name),
             fetch_all_service_details(config_path, &config.cluster_name),
             fetch_all_deployment_details(config_path, &config.cluster_name),
-            fetch_all_pod_metrics_history(config_path),
-            fetch_all_node_metrics_history(&servers, config_path),
+            fetch_all_pod_metrics_history(config_path, history_window),
+            fetch_all_node_metrics_history(&servers, config_path, history_window),
             fetch_cilium_data(config_path, &config, &config.cluster_name),
             fetch_envoy_data(config_path, &config.cluster_name),
             fetch_alerts(config_path),
@@ -984,8 +1012,8 @@ impl ClusterCache {
             fetch_all_services(config_path, &cluster_name),
             fetch_all_service_details(config_path, &cluster_name),
             fetch_all_deployment_details(config_path, &cluster_name),
-            fetch_all_pod_metrics_history(config_path),
-            fetch_all_node_metrics_history(&servers, config_path),
+            fetch_all_pod_metrics_history(config_path, "2h"),
+            fetch_all_node_metrics_history(&servers, config_path, "2h"),
             fetch_cilium_data(config_path, &config, &cluster_name),
             fetch_envoy_data(config_path, &cluster_name),
             fetch_alerts(config_path),
@@ -1996,13 +2024,14 @@ fn trim_metrics_history(history: &mut crate::prometheus::NodeMetricsHistory) {
     history.memory_history.retain(|(ts, _)| *ts >= cutoff);
 }
 
-/// Fetch historical metrics for all nodes
+/// Fetch historical metrics for **all nodes** with two range queries (one
+/// CPU, one memory) instead of N×2 per-node fetches. The Prometheus client
+/// lookups happen against a shared port-forward in `prometheus::client`.
 async fn fetch_all_node_metrics_history(
     servers: &[Server],
     config_path: &std::path::Path,
+    history_window: &str,
 ) -> std::collections::HashMap<String, crate::prometheus::NodeMetricsHistory> {
-    use std::sync::Arc;
-
     let output_dir = config_path
         .parent()
         .and_then(|p| p.parent())
@@ -2011,51 +2040,36 @@ async fn fetch_all_node_metrics_history(
 
     let kubeconfig = output_dir.join("kubeconfig");
 
-    // Check if kubeconfig exists
     if !kubeconfig.exists() {
         info!("Kubeconfig not found, skipping metrics history fetch");
         return std::collections::HashMap::new();
     }
 
-    // Wrap kubeconfig in Arc to avoid cloning PathBuf for each task
-    let kubeconfig = Arc::new(kubeconfig);
-
-    // Fetch metrics history for all nodes in parallel
-    let fetch_tasks: Vec<_> = servers
-        .iter()
-        .map(|server| {
-            let kubeconfig = Arc::clone(&kubeconfig);
-            // Extract only needed fields instead of cloning entire server
-            let server_name = server.name.clone();
-            let private_ip = server
-                .private_net
-                .first()
-                .map(|net| net.ip.clone())
-                .unwrap_or_else(|| "N/A".to_string());
-
-            async move {
-                let mut history = crate::prometheus::query_node_metrics_range(
-                    &private_ip,
-                    &kubeconfig,
-                    "1h",
-                    "1m",
-                )
-                .await
-                .unwrap_or_default();
-
-                // Trim old data to prevent memory leaks
-                trim_metrics_history(&mut history);
-
-                (server_name, history)
+    // Single batched query keyed by `instance` (node IP).
+    let by_ip =
+        match crate::prometheus::query_all_node_metrics_range(&kubeconfig, history_window, "1m")
+            .await
+        {
+            Ok(m) => m,
+            Err(e) => {
+                tracing::debug!("Batched node metrics query failed: {}", e);
+                return std::collections::HashMap::new();
             }
-        })
-        .collect();
+        };
 
-    // Execute all fetch tasks in parallel and collect directly into HashMap
-    futures::future::join_all(fetch_tasks)
-        .await
-        .into_iter()
-        .collect()
+    // Map back from instance IP to the dashboard's server.name keys.
+    let mut out = std::collections::HashMap::with_capacity(servers.len());
+    for server in servers {
+        let private_ip = match server.private_net.first() {
+            Some(net) => net.ip.as_str(),
+            None => continue,
+        };
+        if let Some(mut history) = by_ip.get(private_ip).cloned() {
+            trim_metrics_history(&mut history);
+            out.insert(server.name.clone(), history);
+        }
+    }
+    out
 }
 
 /// Build detailed cluster info
@@ -3413,9 +3427,8 @@ async fn fetch_all_deployment_details(
 /// Fetch metrics history for all pods
 async fn fetch_all_pod_metrics_history(
     config_path: &std::path::Path,
+    history_window: &str,
 ) -> std::collections::HashMap<String, crate::prometheus::NodeMetricsHistory> {
-    use std::sync::Arc;
-
     let output_dir = config_path
         .parent()
         .and_then(|p| p.parent())
@@ -3424,87 +3437,28 @@ async fn fetch_all_pod_metrics_history(
 
     let kubeconfig = output_dir.join("kubeconfig");
 
-    // Check if kubeconfig exists
     if !kubeconfig.exists() {
         info!("Kubeconfig not found, skipping pod metrics history fetch");
         return std::collections::HashMap::new();
     }
 
-    // Get all pods to fetch metrics for
-    let output = match tokio::process::Command::new("kubectl")
-        .arg("--kubeconfig")
-        .arg(&kubeconfig)
-        .arg("get")
-        .arg("pods")
-        .arg("--all-namespaces")
-        .arg("-o")
-        .arg("json")
-        .output()
-        .await
-    {
-        Ok(output) => output,
-        Err(e) => {
-            info!("Failed to query pods for metrics: {}", e);
-            return std::collections::HashMap::new();
-        }
-    };
-
-    if !output.status.success() {
-        return std::collections::HashMap::new();
-    }
-
-    let pods_json: serde_json::Value = match serde_json::from_slice(&output.stdout) {
-        Ok(json) => json,
-        Err(_) => return std::collections::HashMap::new(),
-    };
-
-    let items = match pods_json["items"].as_array() {
-        Some(items) => items,
-        None => return std::collections::HashMap::new(),
-    };
-
-    // Wrap kubeconfig in Arc to avoid cloning PathBuf for each task
-    let kubeconfig = Arc::new(kubeconfig);
-
-    // Fetch metrics for all pods in parallel
-    let fetch_tasks: Vec<_> = items
-        .iter()
-        .map(|pod| {
-            let namespace = pod["metadata"]["namespace"]
-                .as_str()
-                .unwrap_or("unknown")
-                .to_string();
-            let pod_name = pod["metadata"]["name"]
-                .as_str()
-                .unwrap_or("unknown")
-                .to_string();
-            let kubeconfig = Arc::clone(&kubeconfig);
-
-            async move {
-                let mut history = crate::prometheus::query_pod_metrics_range(
-                    &namespace,
-                    &pod_name,
-                    &kubeconfig,
-                    "1h",
-                    "1m",
-                )
-                .await
-                .unwrap_or_default();
-
-                // Trim old data to prevent memory leaks
+    // Single batched query keyed by `namespace/pod`. Prometheus enumerates
+    // the pods directly from container_* metric labels, so we don't need to
+    // first list pods via kubectl.
+    match crate::prometheus::query_all_pod_metrics_range(&kubeconfig, history_window, "1m").await {
+        Ok(map) => {
+            let mut out = std::collections::HashMap::with_capacity(map.len());
+            for (key, mut history) in map {
                 trim_metrics_history(&mut history);
-
-                let key = format!("{}/{}", namespace, pod_name);
-                (key, history)
+                out.insert(key, history);
             }
-        })
-        .collect();
-
-    // Execute all fetch tasks in parallel and collect directly into HashMap
-    futures::future::join_all(fetch_tasks)
-        .await
-        .into_iter()
-        .collect()
+            out
+        }
+        Err(e) => {
+            tracing::debug!("Batched pod metrics query failed: {}", e);
+            std::collections::HashMap::new()
+        }
+    }
 }
 
 #[cfg(test)]

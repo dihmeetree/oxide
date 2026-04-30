@@ -7,6 +7,9 @@ use crate::config::PrometheusConfig;
 use crate::utils::command::CommandBuilder;
 use crate::utils::polling::PollingConfig;
 
+pub mod client;
+pub use client::shared_client;
+
 /// Prometheus deployment manager
 pub struct Prometheus {
     config: PrometheusConfig,
@@ -620,36 +623,12 @@ pub async fn query_node_metrics(
     node_private_ip: &str,
     kubeconfig_path: &std::path::Path,
 ) -> Result<NodeMetrics> {
-    // Get the Prometheus pod name
-    let output = CommandBuilder::new("kubectl")
-        .args([
-            "get",
-            "pods",
-            "-n",
-            "monitoring",
-            "-l",
-            "app.kubernetes.io/name=prometheus",
-            "-o",
-            "jsonpath={.items[0].metadata.name}",
-        ])
-        .kubeconfig(kubeconfig_path)
-        .context("Failed to get Prometheus pod name")
-        .output()
-        .await?;
+    let client = shared_client(kubeconfig_path).await;
 
-    if !output.success || output.stdout.is_empty() {
-        return Ok(NodeMetrics::default());
-    }
-
-    let pod_name = output.stdout.trim();
-
-    // Query CPU usage (percentage of allocatable CPU)
     let cpu_query = format!(
         "100 * (1 - avg(rate(node_cpu_seconds_total{{mode=\"idle\",instance=~\"{}:.*\"}}[5m])))",
         node_private_ip
     );
-
-    // OPTIMIZATION: Query all metrics in parallel (3× faster!)
     let mem_used_query = format!(
         "node_memory_MemTotal_bytes{{instance=~\"{}:.*\"}} - node_memory_MemAvailable_bytes{{instance=~\"{}:.*\"}}",
         node_private_ip, node_private_ip
@@ -660,9 +639,9 @@ pub async fn query_node_metrics(
     );
 
     let (cpu_result, mem_used_result, mem_total_result) = tokio::join!(
-        query_prometheus(pod_name, &cpu_query, kubeconfig_path),
-        query_prometheus(pod_name, &mem_used_query, kubeconfig_path),
-        query_prometheus(pod_name, &mem_total_query, kubeconfig_path)
+        client.instant_scalar(&cpu_query),
+        client.instant_scalar(&mem_used_query),
+        client.instant_scalar(&mem_total_query)
     );
 
     let cpu_usage = cpu_result?.unwrap_or(0.0);
@@ -683,55 +662,6 @@ pub async fn query_node_metrics(
     })
 }
 
-/// Execute a Prometheus query
-async fn query_prometheus(
-    pod_name: &str,
-    query: &str,
-    kubeconfig_path: &std::path::Path,
-) -> Result<Option<f64>> {
-    let url = format!(
-        "http://localhost:9090/api/v1/query?query={}",
-        urlencoding::encode(query)
-    );
-
-    let output = CommandBuilder::new("kubectl")
-        .args([
-            "exec",
-            "-n",
-            "monitoring",
-            pod_name,
-            "-c",
-            "prometheus",
-            "--",
-            "wget",
-            "-qO-",
-            &url,
-        ])
-        .kubeconfig(kubeconfig_path)
-        .context("Failed to query Prometheus")
-        .output()
-        .await?;
-
-    if !output.success {
-        return Ok(None);
-    }
-
-    let response: PrometheusResponse =
-        serde_json::from_str(&output.stdout).context("Failed to parse Prometheus response")?;
-
-    if response.status != "success" || response.data.result.is_empty() {
-        return Ok(None);
-    }
-
-    let value = response.data.result[0]
-        .value
-        .1
-        .parse::<f64>()
-        .unwrap_or(0.0);
-
-    Ok(Some(value))
-}
-
 /// Query Prometheus for historical metrics (range query)
 pub async fn query_node_metrics_range(
     node_private_ip: &str,
@@ -739,50 +669,26 @@ pub async fn query_node_metrics_range(
     duration: &str, // e.g., "1h"
     step: &str,     // e.g., "1m"
 ) -> Result<NodeMetricsHistory> {
-    // Get the Prometheus pod name
-    let output = CommandBuilder::new("kubectl")
-        .args([
-            "get",
-            "pods",
-            "-n",
-            "monitoring",
-            "-l",
-            "app.kubernetes.io/name=prometheus",
-            "-o",
-            "jsonpath={.items[0].metadata.name}",
-        ])
-        .kubeconfig(kubeconfig_path)
-        .context("Failed to get Prometheus pod name")
-        .output()
-        .await?;
+    let client = shared_client(kubeconfig_path).await;
+    let duration_secs = parse_duration(duration)?;
 
-    if !output.success || output.stdout.is_empty() {
-        return Ok(NodeMetricsHistory::default());
-    }
-
-    let pod_name = output.stdout.trim();
-
-    // Query CPU usage history
     let cpu_query = format!(
         "100 * (1 - avg(rate(node_cpu_seconds_total{{mode=\"idle\",instance=~\"{}:.*\"}}[5m])))",
         node_private_ip
     );
-
-    let cpu_history =
-        query_prometheus_range(pod_name, &cpu_query, duration, step, kubeconfig_path).await?;
-
-    // Query memory usage history
     let mem_query = format!(
         "100 * (1 - (node_memory_MemAvailable_bytes{{instance=~\"{}:.*\"}} / node_memory_MemTotal_bytes{{instance=~\"{}:.*\"}}))",
         node_private_ip, node_private_ip
     );
 
-    let memory_history =
-        query_prometheus_range(pod_name, &mem_query, duration, step, kubeconfig_path).await?;
+    let (cpu_history, memory_history) = tokio::join!(
+        client.range_single(&cpu_query, duration_secs, step),
+        client.range_single(&mem_query, duration_secs, step)
+    );
 
     Ok(NodeMetricsHistory {
-        cpu_history,
-        memory_history,
+        cpu_history: cpu_history.unwrap_or_default(),
+        memory_history: memory_history.unwrap_or_default(),
     })
 }
 
@@ -815,75 +721,8 @@ pub struct PrometheusRangeResult {
     pub values: Vec<(f64, String)>,
 }
 
-/// Execute a Prometheus range query
-async fn query_prometheus_range(
-    pod_name: &str,
-    query: &str,
-    duration: &str,
-    step: &str,
-    kubeconfig_path: &std::path::Path,
-) -> Result<Vec<(i64, f64)>> {
-    // Calculate start and end times (end=now, start=now-duration)
-    let end = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_secs();
-
-    let duration_secs = parse_duration(duration)?;
-    let start = end - duration_secs;
-
-    let url = format!(
-        "http://localhost:9090/api/v1/query_range?query={}&start={}&end={}&step={}",
-        urlencoding::encode(query),
-        start,
-        end,
-        step
-    );
-
-    let output = CommandBuilder::new("kubectl")
-        .args([
-            "exec",
-            "-n",
-            "monitoring",
-            pod_name,
-            "-c",
-            "prometheus",
-            "--",
-            "wget",
-            "-qO-",
-            &url,
-        ])
-        .kubeconfig(kubeconfig_path)
-        .context("Failed to query Prometheus range")
-        .output()
-        .await?;
-
-    if !output.success {
-        return Ok(vec![]);
-    }
-
-    let response: PrometheusRangeResponse = serde_json::from_str(&output.stdout)
-        .context("Failed to parse Prometheus range response")?;
-
-    if response.status != "success" || response.data.result.is_empty() {
-        return Ok(vec![]);
-    }
-
-    let values: Vec<(i64, f64)> = response.data.result[0]
-        .values
-        .iter()
-        .map(|(timestamp, value)| {
-            let ts = *timestamp as i64;
-            let val = value.parse::<f64>().unwrap_or(0.0);
-            (ts, val)
-        })
-        .collect();
-
-    Ok(values)
-}
-
 /// Parse duration string like "1h", "30m", "1d" to seconds
-fn parse_duration(duration: &str) -> Result<u64> {
+pub(crate) fn parse_duration(duration: &str) -> Result<u64> {
     let duration = duration.trim();
     if duration.is_empty() {
         anyhow::bail!("Empty duration string");
@@ -926,66 +765,86 @@ mod tests {
     }
 }
 
-/// Query pod metrics history from Prometheus
-pub async fn query_pod_metrics_range(
-    namespace: &str,
-    pod_name: &str,
+/// Batch-fetch CPU + memory range histories for **every** pod in one pair of
+/// queries, keyed by `"namespace/pod"`. Replaces the previous per-pod fan-out
+/// (N pods × 2 wget-through-kubectl calls) with exactly two HTTP requests.
+pub async fn query_all_pod_metrics_range(
     kubeconfig_path: &std::path::Path,
-    duration: &str, // e.g., "1h"
-    step: &str,     // e.g., "1m"
-) -> Result<NodeMetricsHistory> {
-    // Get the Prometheus pod name
-    let output = CommandBuilder::new("kubectl")
-        .args([
-            "get",
-            "pods",
-            "-n",
-            "monitoring",
-            "-l",
-            "app.kubernetes.io/name=prometheus",
-            "-o",
-            "jsonpath={.items[0].metadata.name}",
-        ])
-        .kubeconfig(kubeconfig_path)
-        .context("Failed to get Prometheus pod name")
-        .output()
-        .await?;
+    duration: &str,
+    step: &str,
+) -> Result<std::collections::HashMap<String, NodeMetricsHistory>> {
+    let client = shared_client(kubeconfig_path).await;
+    let duration_secs = parse_duration(duration)?;
 
-    if !output.success || output.stdout.is_empty() {
-        return Ok(NodeMetricsHistory::default());
+    // `sum by (namespace, pod) (...)` collapses per-container series into one
+    // series per pod with `namespace` and `pod` labels intact for keying.
+    let cpu_query = "sum by (namespace, pod) (rate(container_cpu_usage_seconds_total{container!=\"\",pod!=\"\"}[5m])) * 100";
+    let mem_query = "sum by (namespace, pod) (container_memory_working_set_bytes{container!=\"\",pod!=\"\"}) / 1024 / 1024";
+
+    let (cpu_series, mem_series) = tokio::join!(
+        client.range_multi(cpu_query, duration_secs, step),
+        client.range_multi(mem_query, duration_secs, step)
+    );
+
+    let mut out: std::collections::HashMap<String, NodeMetricsHistory> =
+        std::collections::HashMap::new();
+
+    for (labels, values) in cpu_series.unwrap_or_default() {
+        if let (Some(ns), Some(pod)) = (labels.get("namespace"), labels.get("pod")) {
+            let key = format!("{}/{}", ns, pod);
+            out.entry(key).or_default().cpu_history = values;
+        }
     }
-
-    let prom_pod_name = output.stdout.trim();
-
-    // Query CPU usage history (rate of cpu usage for the pod)
-    let cpu_query = format!(
-        "sum(rate(container_cpu_usage_seconds_total{{namespace=\"{}\",pod=\"{}\",container!=\"\"}}[5m])) * 100",
-        namespace, pod_name
-    );
-
-    let cpu_history =
-        query_prometheus_range(prom_pod_name, &cpu_query, duration, step, kubeconfig_path).await?;
-
-    // Query memory usage history (in bytes)
-    let memory_query = format!(
-        "sum(container_memory_working_set_bytes{{namespace=\"{}\",pod=\"{}\",container!=\"\"}}) / 1024 / 1024",
-        namespace, pod_name
-    );
-
-    let memory_history = query_prometheus_range(
-        prom_pod_name,
-        &memory_query,
-        duration,
-        step,
-        kubeconfig_path,
-    )
-    .await?;
-
-    Ok(NodeMetricsHistory {
-        cpu_history,
-        memory_history,
-    })
+    for (labels, values) in mem_series.unwrap_or_default() {
+        if let (Some(ns), Some(pod)) = (labels.get("namespace"), labels.get("pod")) {
+            let key = format!("{}/{}", ns, pod);
+            out.entry(key).or_default().memory_history = values;
+        }
+    }
+    Ok(out)
 }
+
+/// Batch-fetch CPU + memory range histories for **every** node in one pair of
+/// queries, keyed by node IP (the `instance` label without port suffix).
+pub async fn query_all_node_metrics_range(
+    kubeconfig_path: &std::path::Path,
+    duration: &str,
+    step: &str,
+) -> Result<std::collections::HashMap<String, NodeMetricsHistory>> {
+    let client = shared_client(kubeconfig_path).await;
+    let duration_secs = parse_duration(duration)?;
+
+    let cpu_query =
+        "100 * (1 - avg by (instance) (rate(node_cpu_seconds_total{mode=\"idle\"}[5m])))";
+    let mem_query = "100 * (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes))";
+
+    let (cpu_series, mem_series) = tokio::join!(
+        client.range_multi(cpu_query, duration_secs, step),
+        client.range_multi(mem_query, duration_secs, step)
+    );
+
+    let mut out: std::collections::HashMap<String, NodeMetricsHistory> =
+        std::collections::HashMap::new();
+
+    for (labels, values) in cpu_series.unwrap_or_default() {
+        if let Some(instance) = labels.get("instance") {
+            let key = strip_port(instance).to_string();
+            out.entry(key).or_default().cpu_history = values;
+        }
+    }
+    for (labels, values) in mem_series.unwrap_or_default() {
+        if let Some(instance) = labels.get("instance") {
+            let key = strip_port(instance).to_string();
+            out.entry(key).or_default().memory_history = values;
+        }
+    }
+    Ok(out)
+}
+
+fn strip_port(instance: &str) -> &str {
+    instance.split(':').next().unwrap_or(instance)
+}
+
 /// Alert information from Prometheus
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Alert {
@@ -1000,54 +859,14 @@ pub struct Alert {
 
 /// Query all alerts from Prometheus
 pub async fn query_alerts(kubeconfig_path: &std::path::Path) -> Result<Vec<Alert>> {
-    // Get the Prometheus pod name
-    let output = CommandBuilder::new("kubectl")
-        .args([
-            "get",
-            "pods",
-            "-n",
-            "monitoring",
-            "-l",
-            "app.kubernetes.io/name=prometheus",
-            "-o",
-            "jsonpath={.items[0].metadata.name}",
-        ])
-        .kubeconfig(kubeconfig_path)
-        .context("Failed to get Prometheus pod name")
-        .output()
-        .await?;
-
-    if !output.success || output.stdout.is_empty() {
-        return Ok(Vec::new());
-    }
-
-    let prom_pod_name = output.stdout.trim();
-
-    // Query alerts API
-    let alert_output = CommandBuilder::new("kubectl")
-        .args([
-            "exec",
-            "-n",
-            "monitoring",
-            prom_pod_name,
-            "--",
-            "wget",
-            "-q",
-            "-O-",
-            "http://localhost:9090/api/v1/alerts",
-        ])
-        .kubeconfig(kubeconfig_path)
-        .context("Failed to query Prometheus alerts")
-        .output()
-        .await?;
-
-    if !alert_output.success {
-        tracing::debug!(
-            "Prometheus alerts query failed: {}",
-            alert_output.stderr.trim()
-        );
-        return Ok(Vec::new());
-    }
+    let client = shared_client(kubeconfig_path).await;
+    let body = match client.get_json("/api/v1/alerts").await {
+        Ok(b) => b,
+        Err(e) => {
+            tracing::debug!("Prometheus alerts query failed: {}", e);
+            return Ok(Vec::new());
+        }
+    };
 
     #[derive(Deserialize)]
     struct AlertsResponse {
@@ -1070,7 +889,7 @@ pub async fn query_alerts(kubeconfig_path: &std::path::Path) -> Result<Vec<Alert
     }
 
     let response: AlertsResponse =
-        serde_json::from_str(&alert_output.stdout).context("Failed to parse alerts response")?;
+        serde_json::from_str(&body).context("Failed to parse alerts response")?;
 
     let alerts: Vec<Alert> = response
         .data
@@ -1174,59 +993,29 @@ pub async fn query_envoy_metrics_range(
     duration: &str, // e.g., "1h"
     step: &str,     // e.g., "1m"
 ) -> Result<EnvoyMetricsHistory> {
-    // Get the Prometheus pod name
-    let output = CommandBuilder::new("kubectl")
-        .args([
-            "get",
-            "pods",
-            "-n",
-            "monitoring",
-            "-l",
-            "app.kubernetes.io/name=prometheus",
-            "-o",
-            "jsonpath={.items[0].metadata.name}",
-        ])
-        .kubeconfig(kubeconfig_path)
-        .context("Failed to get Prometheus pod name")
-        .output()
-        .await?;
+    let client = shared_client(kubeconfig_path).await;
+    let duration_secs = parse_duration(duration)?;
 
-    if !output.success || output.stdout.is_empty() {
-        return Ok(EnvoyMetricsHistory::default());
-    }
-
-    let pod_name = output.stdout.trim();
-
-    // Query total requests per second using Hubble metrics
     let rps_query = "sum(rate(hubble_http_requests_total[5m]))";
-    let rps_history =
-        query_prometheus_range(pod_name, rps_query, duration, step, kubeconfig_path).await?;
+    let s2xx_query = "sum(rate(hubble_http_requests_total{status=~\"2..\"}[5m]))";
+    let s3xx_query = "sum(rate(hubble_http_requests_total{status=~\"3..\"}[5m]))";
+    let s4xx_query = "sum(rate(hubble_http_requests_total{status=~\"4..\"}[5m]))";
+    let s5xx_query = "sum(rate(hubble_http_requests_total{status=~\"5..\"}[5m]))";
 
-    // Query 2xx responses per second
-    let status_2xx_query = "sum(rate(hubble_http_requests_total{status=~\"2..\"}[5m]))";
-    let status_2xx_history =
-        query_prometheus_range(pod_name, status_2xx_query, duration, step, kubeconfig_path).await?;
-
-    // Query 3xx responses per second
-    let status_3xx_query = "sum(rate(hubble_http_requests_total{status=~\"3..\"}[5m]))";
-    let status_3xx_history =
-        query_prometheus_range(pod_name, status_3xx_query, duration, step, kubeconfig_path).await?;
-
-    // Query 4xx responses per second
-    let status_4xx_query = "sum(rate(hubble_http_requests_total{status=~\"4..\"}[5m]))";
-    let status_4xx_history =
-        query_prometheus_range(pod_name, status_4xx_query, duration, step, kubeconfig_path).await?;
-
-    // Query 5xx responses per second
-    let status_5xx_query = "sum(rate(hubble_http_requests_total{status=~\"5..\"}[5m]))";
-    let status_5xx_history =
-        query_prometheus_range(pod_name, status_5xx_query, duration, step, kubeconfig_path).await?;
+    // Fire all five range queries concurrently against the shared port-forward.
+    let (rps, s2xx, s3xx, s4xx, s5xx) = tokio::join!(
+        client.range_single(rps_query, duration_secs, step),
+        client.range_single(s2xx_query, duration_secs, step),
+        client.range_single(s3xx_query, duration_secs, step),
+        client.range_single(s4xx_query, duration_secs, step),
+        client.range_single(s5xx_query, duration_secs, step),
+    );
 
     Ok(EnvoyMetricsHistory {
-        rps_history,
-        status_2xx_history,
-        status_3xx_history,
-        status_4xx_history,
-        status_5xx_history,
+        rps_history: rps.unwrap_or_default(),
+        status_2xx_history: s2xx.unwrap_or_default(),
+        status_3xx_history: s3xx.unwrap_or_default(),
+        status_4xx_history: s4xx.unwrap_or_default(),
+        status_5xx_history: s5xx.unwrap_or_default(),
     })
 }
