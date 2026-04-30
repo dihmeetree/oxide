@@ -137,7 +137,7 @@ oxide create
 ```yaml
 # In cluster.yaml
 talos:
-  kubernetes_version: 1.30.0
+  kubernetes_version: 1.35.0
 ```
 
 This controls which Kubernetes version is installed on all nodes.
@@ -528,7 +528,7 @@ Update the version in `cluster.yaml`:
 
 ```yaml
 talos:
-  kubernetes_version: 1.34.1
+  kubernetes_version: 1.35.0
 ```
 
 Then run upgrade:
@@ -536,7 +536,7 @@ Then run upgrade:
 ```bash
 talosctl --talosconfig ./output/talosconfig \
   --nodes <node-ip> \
-  upgrade-k8s --to 1.34.1
+  upgrade-k8s --to 1.35.0
 ```
 
 **Best Practices:**

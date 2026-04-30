@@ -6,7 +6,7 @@ authors = ["Oxide - Talos Kubernetes with Cilium"]
 
 [dependencies]
 # HTTP client for Hetzner Cloud API
-reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
+reqwest = { version = "0.13", features = ["json", "rustls"], default-features = false }
 # Async runtime
 tokio = { version = "1.0", features = ["full"] }
 futures = "0.3"
@@ -14,8 +14,6 @@ futures = "0.3"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = { version = "1.0", features = ["preserve_order", "raw_value"] }
 serde_yaml = "0.9"
-# High-performance SIMD JSON
-simd-json = "0.13"
 # Error handling
 anyhow = "1.0"
 # Logging
@@ -27,8 +25,9 @@ clap = { version = "4.0", features = ["derive"] }
 chrono = { version = "0.4", features = ["serde"] }
 # Base64 encoding for cloud-init
 base64 = "0.22"
-# Random generation for secrets
-rand = "0.8"
+# Random generation for ED25519 SSH key seeding (uses the same rand_core
+# version expected by ed25519-dalek so OsRng implements its CryptoRngCore bound)
+rand_core = { version = "0.6", features = ["getrandom"] }
 # ED25519 SSH key generation
 ed25519-dalek = { version = "2.1", features = ["rand_core"] }
 # URL handling
@@ -37,7 +36,7 @@ urlencoding = "2.1"
 # Web framework for dashboard
 axum = "0.8.6"
 # HTML templating
-askama = { version = "0.14.0", features = ["serde_json"] }
+askama = { version = "0.16", features = ["serde_json"] }
 # Tower middleware for serving static files
 tower-http = { version = "0.6", features = ["fs", "trace", "compression-full", "set-header"] }
 tower = "0.5"

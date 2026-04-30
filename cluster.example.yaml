@@ -23,10 +23,10 @@ hcloud:
 talos:
   # Talos Linux version
   # See: https://github.com/siderolabs/talos/releases
-  version: v1.11.3
+  version: v1.13.0
 
   # Kubernetes version
-  kubernetes_version: 1.34.1
+  kubernetes_version: 1.35.0
 
   # Hetzner Cloud snapshot ID containing Talos image (REQUIRED)
   # To create a snapshot using rescue mode:
@@ -35,13 +35,13 @@ talos:
   # 3. SSH into rescue system: ssh root@<server-ip>
   # 4. Download and write Talos image:
   #    cd /tmp
-  #    wget -O /tmp/talos.raw.xz https://factory.talos.dev/image/376567988ad370138ad8b2698212367b8edcb69b5fd68c80be1f2ec7d603b4ba/v1.11.0/hcloud-amd64.raw.xz
+  #    wget -O /tmp/talos.raw.xz https://factory.talos.dev/image/376567988ad370138ad8b2698212367b8edcb69b5fd68c80be1f2ec7d603b4ba/v1.13.0/hcloud-amd64.raw.xz
   #    xz -d -c /tmp/talos.raw.xz | dd of=/dev/sda && sync
   #    shutdown -h now
-  # 5. Create snapshot: hcloud server create-image --type snapshot --description "Talos v1.11.0" talos-snapshot
+  # 5. Create snapshot: hcloud server create-image --type snapshot --description "Talos v1.13.0" talos-snapshot
   # 6. Get snapshot ID: hcloud image list
   # 7. Delete temporary server: hcloud server delete talos-snapshot
-  # Alternative: Use Packer (see terraform-hcloud-talos/_packer directory or https://www.talos.dev/v1.11/talos-guides/install/cloud-platforms/hetzner/)
+  # Alternative: Use Packer (see terraform-hcloud-talos/_packer directory or https://www.talos.dev/v1.13/talos-guides/install/cloud-platforms/hetzner/)
   hcloud_snapshot_id: "123456789" # Replace with your snapshot ID
 
   # Cluster endpoint (optional - defaults to first control plane IP)
@@ -53,7 +53,7 @@ talos:
 cilium:
   # Cilium version
   # See: https://github.com/cilium/cilium/releases
-  version: 1.17.8
+  version: 1.19.3
 
   # Enable Hubble observability platform
   enable_hubble: true
@@ -75,7 +75,7 @@ cilium:
 prometheus:
   # kube-prometheus-stack Helm chart version
   # See: https://github.com/prometheus-community/helm-charts/tree/main/charts/kube-prometheus-stack
-  version: 77.13.0
+  version: 84.4.0
 
   # Enable Prometheus installation
   enabled: true
@@ -119,7 +119,7 @@ autoscaler:
 
   # Cluster autoscaler version
   # See: https://github.com/kubernetes/autoscaler/releases
-  version: v1.34.0
+  version: v1.35.0
 
   # Worker pools to autoscale
   # IMPORTANT: Set min_nodes to 0 so the autoscaler only manages nodes it creates,

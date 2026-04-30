@@ -130,8 +130,8 @@ mod tests {
     #[test]
     fn test_config_generator_creation() {
         let talos_config = TalosConfig {
-            version: "v1.7.0".to_string(),
-            kubernetes_version: "1.30.0".to_string(),
+            version: "v1.13.0".to_string(),
+            kubernetes_version: "1.35.0".to_string(),
             cluster_endpoint: None,
             hcloud_snapshot_id: None,
             config_patches: vec![],

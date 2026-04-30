@@ -143,7 +143,7 @@ talos:
 **Required:** Yes
 **Description:** Kubernetes version to install
 
-**Example:** `1.30.0`
+**Example:** `1.35.0`
 
 **Supported Versions:** Check [Talos compatibility matrix](https://www.talos.dev/latest/introduction/support-matrix/)
 
@@ -199,7 +199,7 @@ cilium:
 **Required:** Yes
 **Description:** Cilium Helm chart version
 
-**Example:** `1.17.8`
+**Example:** `1.19.3`
 
 **Compatible Versions:** 1.15.0+
 
@@ -339,14 +339,14 @@ hcloud:
     zone: eu-central
 
 talos:
-  version: v1.8.0
-  kubernetes_version: 1.30.0
+  version: v1.13.0
+  kubernetes_version: 1.35.0
   hcloud_snapshot_id: "123456789"
   pod_cidr: 10.0.16.0/20
   service_cidr: 10.0.8.0/21
 
 cilium:
-  version: 1.17.8
+  version: 1.19.3
   enable_hubble: true
   enable_ipv6: false
 

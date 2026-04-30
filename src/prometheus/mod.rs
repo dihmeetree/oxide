@@ -831,7 +831,7 @@ mod tests {
     #[test]
     fn test_calculate_retention_size() {
         let config = PrometheusConfig {
-            version: "65.8.1".to_string(),
+            version: "84.4.0".to_string(),
             enabled: true,
             namespace: "monitoring".to_string(),
             enable_grafana: true,
