@@ -7,7 +7,7 @@
 </style>
 <div class="space-y-6">
   <!-- Header -->
-  <div class="flex items-center justify-between">
+  <div class="flex flex-wrap items-center justify-between gap-4">
     <div class="flex items-center gap-4">
       <a
         href="/clusters/{{ pod.cluster_name }}/nodes/{{ pod.node_name }}/pods/{{ pod.namespace }}/{{ pod.name }}"
@@ -40,9 +40,9 @@
   <!-- Container Selection -->
   {% if pod.containers.len() > 1 %}
   <div class="rounded-lg p-4 bg-[#242424] border border-dark-border">
-    <div class="flex items-center gap-4">
+    <div class="flex flex-wrap items-center gap-4">
       <label class="text-base font-medium text-text-secondary">Container:</label>
-      <div class="flex gap-2">
+      <div class="flex flex-wrap gap-2">
         {% for container in pod.containers %}
         <a
           href="?container={{ container.name }}&tail={{ tail_lines }}"
@@ -74,10 +74,10 @@
 
   <!-- Controls -->
   <div class="rounded-lg p-4 bg-[#242424] border border-dark-border">
-    <div class="flex items-center justify-between">
-      <div class="flex items-center gap-4">
+    <div class="flex flex-wrap items-center justify-between gap-4">
+      <div class="flex flex-wrap items-center gap-4">
         <label class="text-base font-medium text-text-secondary">Tail Lines:</label>
-        <div class="flex gap-2">
+        <div class="flex flex-wrap gap-2">
           <a
             href="?{% if selected_container.is_some() %}container={{ selected_container.as_ref().unwrap() }}&{% endif %}tail=100"
             class="px-3 py-1.5 rounded text-sm font-medium
@@ -140,9 +140,9 @@
 
   <!-- Search and Filters -->
   <div class="rounded-lg p-4 bg-[#242424] border border-dark-border">
-    <div class="flex items-center gap-4 mb-4">
+    <div class="flex flex-wrap items-center gap-4 mb-4">
       <label class="text-base font-medium text-text-secondary">Search:</label>
-      <div class="flex-1 max-w-md relative">
+      <div class="flex-1 max-w-md min-w-0 relative">
         <input
           type="text"
           id="search-input"
@@ -161,9 +161,9 @@
       </div>
       <span id="filter-count" class="text-sm text-text-muted ml-auto"></span>
     </div>
-    <div class="flex items-center gap-4">
+    <div class="flex flex-wrap items-center gap-4">
       <label class="text-base font-medium text-text-secondary">Filter by Level:</label>
-      <div class="flex gap-2">
+      <div class="flex flex-wrap gap-2">
         <button
           onclick="filterByLevel('all')"
           id="filter-all"
@@ -242,8 +242,8 @@
 
   <!-- Logs Container -->
   <div class="rounded-lg bg-[#242424] border border-dark-border overflow-hidden">
-    <div class="bg-[#1a1a1a] px-4 py-2 border-b border-dark-border flex items-center justify-between">
-      <span class="text-base font-medium text-text-secondary">
+    <div class="bg-[#1a1a1a] px-4 py-2 border-b border-dark-border flex flex-wrap items-center justify-between gap-3">
+      <span class="text-sm sm:text-base font-medium text-text-secondary break-all">
         Logs (Last {{ tail_lines }} lines)
         {% if selected_container.is_some() %} - Container: {{ selected_container.as_ref().unwrap() }}{% endif %}
       </span>
@@ -265,7 +265,7 @@
           <p class="text-lg font-medium text-text-secondary mb-2">No logs found</p>
           <p class="text-base text-text-muted">Try adjusting your filters or search terms</p>
         </div>
-        <div id="log-content" class="text-xs font-mono">
+        <div id="log-content" class="text-xs sm:text-sm font-mono overflow-x-auto">
           {% for line in log_lines %}
           <div class="log-line px-4 py-2 hover:bg-[#2a2a2a] border-b border-dark-border/30 cursor-text text-base flex items-start gap-3" onclick="copyLine(this)"
                data-level="{% match line.level %}{% when LogLevel::Error %}error{% when LogLevel::Warning %}warning{% when LogLevel::Info %}info{% when LogLevel::Debug %}debug{% when LogLevel::Trace %}trace{% when LogLevel::Unknown %}unknown{% endmatch %}">
