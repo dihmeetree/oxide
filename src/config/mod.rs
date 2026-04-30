@@ -568,7 +568,12 @@ impl ClusterConfig {
                 enable_ipv6: false,
                 helm_values: serde_yaml::Value::Null,
             },
-            prometheus: Some(PrometheusConfig::default()),
+            prometheus: Some(PrometheusConfig {
+                // Local clusters have no default StorageClass; persistent
+                // PVCs would stay Pending and stall `wait_for_ready`.
+                enable_persistent_storage: false,
+                ..PrometheusConfig::default()
+            }),
             metrics_server: Some(MetricsServerConfig { enabled: true }),
             autoscaler: None,
             control_planes: vec![NodeConfig {

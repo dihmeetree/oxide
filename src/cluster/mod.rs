@@ -11,7 +11,7 @@ use std::path::PathBuf;
 use tracing::info;
 
 use crate::autoscaler::Autoscaler;
-use crate::cilium::Cilium;
+use crate::cilium::{Cilium, HETZNER_UPSTREAM_DNS};
 use crate::config::ClusterConfig;
 use crate::hcloud::network::NetworkManager;
 use crate::hcloud::server::{ServerInfo, ServerManager};
@@ -320,6 +320,7 @@ impl Cluster {
             self.config.cilium.clone(),
             kubeconfig_path.clone(),
             control_plane_count,
+            HETZNER_UPSTREAM_DNS,
         );
         cilium.install().await?;
         cilium.wait_for_ready(300).await?;
@@ -397,6 +398,7 @@ impl Cluster {
                     self.config.cilium.clone(),
                     kubeconfig_path.clone(),
                     control_plane_count,
+                    HETZNER_UPSTREAM_DNS,
                 );
                 cilium.configure_monitoring().await?;
             }
@@ -547,6 +549,7 @@ impl Cluster {
                 self.config.cilium.clone(),
                 kubeconfig_path,
                 control_plane_count,
+                HETZNER_UPSTREAM_DNS,
             );
             match cilium.get_status().await {
                 Ok(status) => info!("{}", status),

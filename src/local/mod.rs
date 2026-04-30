@@ -17,9 +17,9 @@
 use anyhow::{Context, Result};
 use std::path::PathBuf;
 use tokio::process::Command;
-use tracing::info;
+use tracing::{info, warn};
 
-use crate::cilium::Cilium;
+use crate::cilium::{Cilium, PUBLIC_UPSTREAM_DNS};
 use crate::config::{ClusterConfig, DockerConfig};
 use crate::helm::Helm;
 use crate::k8s::KubernetesClient;
@@ -231,7 +231,12 @@ impl LocalCluster {
         let cp_count = self.control_plane_count();
 
         info!("Installing Cilium CNI...");
-        let cilium = Cilium::new(self.config.cilium.clone(), kubeconfig.clone(), cp_count);
+        let cilium = Cilium::new(
+            self.config.cilium.clone(),
+            kubeconfig.clone(),
+            cp_count,
+            PUBLIC_UPSTREAM_DNS,
+        );
         cilium.install().await?;
         cilium.wait_for_ready(300).await?;
 
@@ -245,10 +250,25 @@ impl LocalCluster {
         if let Some(prom) = &self.config.prometheus {
             if prom.enabled {
                 info!("Installing Prometheus monitoring stack...");
-                // Prometheus reads the config file off disk, so route it
-                // through the same code path the Hetzner flow uses.
+                // Local clusters don't ship with a default storage class.
+                // If the user (or our default config) leaves persistent
+                // storage enabled, the Prometheus + Grafana + Alertmanager
+                // PVCs stay Pending forever and `wait_for_ready` hangs.
+                // Force-disable here and warn so the install completes.
+                let mut cfg = self.config.clone();
+                if let Some(p) = cfg.prometheus.as_mut() {
+                    if p.enable_persistent_storage {
+                        warn!(
+                            "Forcing prometheus.enable_persistent_storage=false for local \
+                             clusters (no default StorageClass). Set it to false in your \
+                             cluster.yaml to silence this warning, or install a CSI driver \
+                             before re-running."
+                        );
+                        p.enable_persistent_storage = false;
+                    }
+                }
                 let cfg_path = self.output_dir.join("config-snapshot.yaml");
-                tokio::fs::write(&cfg_path, serde_yaml::to_string(&self.config)?)
+                tokio::fs::write(&cfg_path, serde_yaml::to_string(&cfg)?)
                     .await
                     .context("Failed to snapshot config for Prometheus install")?;
                 Prometheus::install(&cfg_path, &self.output_dir).await?;

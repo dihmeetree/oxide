@@ -6,24 +6,42 @@ use crate::config::CiliumConfig;
 use crate::utils::command::CommandBuilder;
 use crate::utils::polling::PollingConfig;
 
+/// Default upstream DNS servers used by Hetzner deployments. These are
+/// Hetzner's own private resolvers, reachable from the pod network even
+/// when the cluster is private-only.
+pub const HETZNER_UPSTREAM_DNS: &[&str] = &["185.12.64.1", "185.12.64.2"];
+
+/// Default upstream DNS servers used by local (Docker) deployments. The
+/// Docker bridge NATs to the host's network so any reliable public
+/// resolver works; Cloudflare + Google are the standard pair.
+pub const PUBLIC_UPSTREAM_DNS: &[&str] = &["1.1.1.1", "8.8.8.8"];
+
 /// Cilium deployment manager
 pub struct Cilium {
     config: CiliumConfig,
     kubeconfig_path: std::path::PathBuf,
     control_plane_count: u32,
+    /// Upstream resolvers CoreDNS forwards to. Stored as space-separated
+    /// IPs ready to drop into a Corefile `forward .` line.
+    upstream_dns: Vec<String>,
 }
 
 impl Cilium {
-    /// Create a new Cilium manager
-    pub const fn new(
+    /// Create a new Cilium manager. `upstream_dns` lists the resolvers
+    /// CoreDNS will forward `.` to; pass `HETZNER_UPSTREAM_DNS` for
+    /// Hetzner clusters and `PUBLIC_UPSTREAM_DNS` (or anything else
+    /// reachable from pod network) for local clusters.
+    pub fn new(
         config: CiliumConfig,
         kubeconfig_path: std::path::PathBuf,
         control_plane_count: u32,
+        upstream_dns: &[&str],
     ) -> Self {
         Self {
             config,
             kubeconfig_path,
             control_plane_count,
+            upstream_dns: upstream_dns.iter().map(|s| (*s).to_string()).collect(),
         }
     }
 
@@ -257,9 +275,11 @@ impl Cilium {
             .await
     }
 
-    /// Configure CoreDNS to use Hetzner private DNS servers
-    /// This is required because Cilium's VXLAN tunneling prevents pods from reaching Talos Host DNS (169.254.x.x)
-    /// We use Hetzner's private DNS servers which are accessible from the pod network
+    /// Configure CoreDNS to forward upstream queries to the configured
+    /// resolver list (Hetzner private DNS for cloud clusters, public DNS
+    /// for local clusters). This is required because Cilium's VXLAN
+    /// tunneling prevents pods from reaching Talos host-DNS at
+    /// 169.254.x.x.
     async fn configure_coredns_public_dns(&self) -> Result<()> {
         info!("Waiting for CoreDNS to be deployed...");
 
@@ -278,39 +298,42 @@ impl Cilium {
             })
             .await?;
 
-        info!("Configuring CoreDNS to use Hetzner private DNS servers...");
+        let upstreams = self.upstream_dns.join(" ");
+        info!("Configuring CoreDNS to forward upstream queries to: {upstreams}");
 
-        let coredns_config = r"
+        let coredns_config = format!(
+            r"
 data:
   Corefile: |
-    .:53 {
+    .:53 {{
         errors
-        health {
+        health {{
             lameduck 5s
-        }
+        }}
         ready
-        log . {
+        log . {{
             class error
-        }
+        }}
         prometheus :9153
 
-        kubernetes cluster.local in-addr.arpa ip6.arpa {
+        kubernetes cluster.local in-addr.arpa ip6.arpa {{
             pods insecure
             fallthrough in-addr.arpa ip6.arpa
             ttl 30
-        }
-        forward . 185.12.64.1 185.12.64.2 {
+        }}
+        forward . {upstreams} {{
            max_concurrent 1000
-        }
-        cache 30 {
+        }}
+        cache 30 {{
            disable success cluster.local
            disable denial cluster.local
-        }
+        }}
         loop
         reload
         loadbalance
-    }
-";
+    }}
+"
+        );
 
         // Stage the patch in a unique temp file so concurrent runs cannot
         // clobber each other and a local attacker cannot pre-create a symlink
