@@ -60,6 +60,17 @@ impl DashboardServer {
         info!("Starting background data refresh...");
         cache.start_background_refresh(self.config_path.clone(), self.cache_refresh_interval);
 
+        // Long-cache static assets (JS/CSS/images) — they're served from
+        // disk and changes are infrequent. Versioned filenames or manual
+        // cache-busting can be added later if needed.
+        let static_service = ServeDir::new("static");
+        let static_router = Router::new().nest_service("/", static_service).layer(
+            SetResponseHeaderLayer::overriding(
+                header::CACHE_CONTROL,
+                HeaderValue::from_static("public, max-age=31536000, immutable"),
+            ),
+        );
+
         let app = Router::new()
             .route("/", get(routes::index))
             .route("/clusters", get(routes::clusters_list))
@@ -119,7 +130,7 @@ impl DashboardServer {
                 "/api/pods/{namespace}/{pod}/metrics",
                 get(routes::api_pod_metrics),
             )
-            .nest_service("/static", ServeDir::new("static"))
+            .nest_service("/static", static_router)
             .with_state(AppState {
                 config_path: self.config_path,
                 output_dir: self.output_dir,

@@ -1,10 +1,10 @@
 /// Cluster data cache with background refresh
 use anyhow::Result;
+use arc_swap::ArcSwap;
 use dashmap::DashMap;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tokio::sync::RwLock;
 use tracing::{error, info};
 
 use crate::dashboard::templates::CiliumPod;
@@ -339,13 +339,14 @@ use crate::k8s::client::KubernetesClient;
 /// Cache for cluster data
 #[derive(Clone)]
 pub struct ClusterCache {
-    pub(super) inner: Arc<RwLock<CacheData>>,
+    pub(super) inner: Arc<ArcSwap<CacheData>>,
     /// True until the first full refresh has finished. Used to keep the very
     /// first refresh fast (short Prometheus history window, early-flip
     /// `is_ready`) so the dashboard becomes interactive as soon as possible.
     pub(super) first_refresh: Arc<std::sync::atomic::AtomicBool>,
 }
 
+#[derive(Clone)]
 pub(super) struct CacheData {
     pub(super) clusters: Arc<[ClusterInfo]>,
     pub(super) servers: Arc<[Server]>,
@@ -385,7 +386,7 @@ impl ClusterCache {
     /// Create a new empty cache
     pub fn new() -> Self {
         Self {
-            inner: Arc::new(RwLock::new(CacheData {
+            inner: Arc::new(ArcSwap::from_pointee(CacheData {
                 clusters: Arc::from([]),
                 servers: Arc::from([]),
                 node_details: Arc::new(DashMap::new()),
@@ -424,13 +425,13 @@ impl ClusterCache {
     /// Get all clusters from cache
     #[inline]
     pub async fn get_clusters(&self) -> Arc<[ClusterInfo]> {
-        let data = self.inner.read().await;
+        let data = self.inner.load();
         Arc::clone(&data.clusters)
     }
 
     /// Get detailed cluster info from cache
     pub async fn get_cluster_detail(&self, cluster_name: &str) -> Option<ClusterDetail> {
-        let data = self.inner.read().await;
+        let data = self.inner.load();
 
         // Filter servers by their `cluster` label so cluster names containing
         // hyphens (e.g. "my-cluster") are matched correctly. Fall back to the
@@ -469,7 +470,7 @@ impl ClusterCache {
         _cluster_name: &str,
         node_name: &str,
     ) -> Option<NodeDetail> {
-        let data = self.inner.read().await;
+        let data = self.inner.load();
         data.node_details.get(node_name).map(|v| v.clone())
     }
 
@@ -481,7 +482,7 @@ impl ClusterCache {
         namespace: &str,
         pod_name: &str,
     ) -> Option<super::templates::PodDetail> {
-        let data = self.inner.read().await;
+        let data = self.inner.load();
         let key = format!("{}/{}", namespace, pod_name);
         data.pod_details.get(&key).map(|v| v.clone())
     }
@@ -492,7 +493,7 @@ impl ClusterCache {
         namespace: &str,
         service_name: &str,
     ) -> Option<super::templates::ServiceDetail> {
-        let data = self.inner.read().await;
+        let data = self.inner.load();
         let key = format!("{}/{}", namespace, service_name);
         data.service_details.get(&key).map(|v| v.clone())
     }
@@ -503,14 +504,14 @@ impl ClusterCache {
         namespace: &str,
         deployment_name: &str,
     ) -> Option<super::templates::DeploymentDetail> {
-        let data = self.inner.read().await;
+        let data = self.inner.load();
         let key = format!("{}/{}", namespace, deployment_name);
         data.deployment_details.get(&key).map(|v| v.clone())
     }
 
     /// Get all events from cache
     pub async fn get_events(&self) -> (Arc<[super::templates::EventInfo]>, usize, usize) {
-        let data = self.inner.read().await;
+        let data = self.inner.load();
         let normal_count = data
             .events
             .iter()
@@ -527,7 +528,7 @@ impl ClusterCache {
     pub async fn get_deployments(
         &self,
     ) -> (Arc<[super::templates::DeploymentInfo]>, usize, usize, usize) {
-        let data = self.inner.read().await;
+        let data = self.inner.load();
         let available_count = data
             .deployments
             .iter()
@@ -557,7 +558,7 @@ impl ClusterCache {
         namespace: &str,
         pod_name: &str,
     ) -> Option<crate::prometheus::NodeMetricsHistory> {
-        let data = self.inner.read().await;
+        let data = self.inner.load();
         let key = format!("{}/{}", namespace, pod_name);
         data.pod_metrics_history.get(&key).cloned()
     }
@@ -629,13 +630,13 @@ impl ClusterCache {
     pub async fn get_node_metrics_history(
         &self,
     ) -> Arc<std::collections::HashMap<String, crate::prometheus::NodeMetricsHistory>> {
-        let data = self.inner.read().await;
+        let data = self.inner.load();
         Arc::clone(&data.node_metrics_history)
     }
 
     /// Get all node details map from cache
     pub async fn get_node_details_map(&self) -> std::collections::HashMap<String, NodeDetail> {
-        let data = self.inner.read().await;
+        let data = self.inner.load();
         data.node_details
             .iter()
             .map(|entry| (entry.key().clone(), entry.value().clone()))
@@ -644,7 +645,7 @@ impl ClusterCache {
 
     /// Get all pods from cache
     pub async fn get_all_pods(&self) -> Vec<super::templates::PodDetail> {
-        let data = self.inner.read().await;
+        let data = self.inner.load();
         data.pod_details
             .iter()
             .map(|entry| entry.value().clone())
@@ -653,7 +654,7 @@ impl ClusterCache {
 
     /// Get all node details from cache
     pub async fn get_all_node_details(&self) -> Vec<super::templates::NodeDetail> {
-        let data = self.inner.read().await;
+        let data = self.inner.load();
         data.node_details
             .iter()
             .map(|entry| entry.value().clone())
@@ -662,7 +663,7 @@ impl ClusterCache {
 
     /// Get all services from cache
     pub async fn get_all_services(&self) -> Vec<super::templates::ServiceInfo> {
-        let data = self.inner.read().await;
+        let data = self.inner.load();
         data.services
             .iter()
             .map(|entry| entry.value().clone())
@@ -673,7 +674,7 @@ impl ClusterCache {
     pub async fn get_pod_metrics_history(
         &self,
     ) -> Arc<std::collections::HashMap<String, crate::prometheus::NodeMetricsHistory>> {
-        let data = self.inner.read().await;
+        let data = self.inner.load();
         Arc::clone(&data.pod_metrics_history)
     }
 
@@ -682,7 +683,7 @@ impl ClusterCache {
     pub async fn get_cilium_data(
         &self,
     ) -> (Arc<[super::templates::CiliumPod]>, Arc<str>, bool, bool) {
-        let data = self.inner.read().await;
+        let data = self.inner.load();
         (
             Arc::clone(&data.cilium_pods),
             Arc::clone(&data.cilium_version),
@@ -694,14 +695,14 @@ impl ClusterCache {
     /// Get all alerts from cache
     #[inline]
     pub async fn get_alerts(&self) -> Arc<[crate::prometheus::Alert]> {
-        let data = self.inner.read().await;
+        let data = self.inner.load();
         Arc::clone(&data.alerts)
     }
 
     /// Get all insights from cache
     #[inline]
     pub async fn get_insights(&self) -> Arc<[super::insights::Insight]> {
-        let data = self.inner.read().await;
+        let data = self.inner.load();
         Arc::clone(&data.insights)
     }
 
@@ -712,7 +713,7 @@ impl ClusterCache {
         Arc<std::collections::HashMap<String, crate::prometheus::NodeMetricsHistory>>,
         Arc<std::collections::HashMap<String, crate::prometheus::NodeMetricsHistory>>,
     ) {
-        let data = self.inner.read().await;
+        let data = self.inner.load();
         (
             Arc::clone(&data.node_metrics_history),
             Arc::clone(&data.pod_metrics_history),
@@ -721,20 +722,20 @@ impl ClusterCache {
 
     /// Get pre-serialized metrics JSON from cache
     pub async fn get_metrics_json_cache(&self) -> Arc<str> {
-        let data = self.inner.read().await;
+        let data = self.inner.load();
         Arc::clone(&data.metrics_json_cache)
     }
 
     /// Get pre-serialized Cilium metrics JSON from cache
     pub async fn get_cilium_metrics_json_cache(&self) -> Arc<str> {
-        let data = self.inner.read().await;
+        let data = self.inner.load();
         Arc::clone(&data.cilium_metrics_json_cache)
     }
 
     /// Get Envoy data from cache
     #[inline]
     pub async fn get_envoy_data(&self) -> (Arc<[super::templates::EnvoyPod]>, Arc<str>) {
-        let data = self.inner.read().await;
+        let data = self.inner.load();
         (
             Arc::clone(&data.envoy_pods),
             Arc::clone(&data.envoy_version),
@@ -743,13 +744,13 @@ impl ClusterCache {
 
     /// Get pre-serialized Envoy metrics JSON from cache
     pub async fn get_envoy_metrics_json_cache(&self) -> Arc<str> {
-        let data = self.inner.read().await;
+        let data = self.inner.load();
         Arc::clone(&data.envoy_metrics_json_cache)
     }
 
     /// Get pre-serialized cluster metrics JSON from cache
     pub async fn get_cluster_metrics_json_cache(&self, cluster_name: &str) -> Option<Arc<str>> {
-        let data = self.inner.read().await;
+        let data = self.inner.load();
         data.cluster_metrics_json_cache
             .get(cluster_name)
             .map(Arc::clone)
@@ -757,13 +758,13 @@ impl ClusterCache {
 
     /// Get pre-serialized node-only metrics JSON from cache
     pub async fn get_node_metrics_json_cache(&self) -> Arc<str> {
-        let data = self.inner.read().await;
+        let data = self.inner.load();
         Arc::clone(&data.node_metrics_json_cache)
     }
 
     /// Check if cache has been populated at least once
     pub async fn is_ready(&self) -> bool {
-        let data = self.inner.read().await;
+        let data = self.inner.load();
         data.is_ready
     }
 
@@ -803,10 +804,12 @@ impl ClusterCache {
         // can already render the clusters/nodes pages while the rest of the
         // refresh continues in this same task.
         {
-            let mut data = self.inner.write().await;
-            data.clusters = Arc::from(clusters.clone().into_boxed_slice());
-            data.servers = Arc::from(servers.clone().into_boxed_slice());
-            data.is_ready = true;
+            let prev = self.inner.load_full();
+            let mut new_data = (*prev).clone();
+            new_data.clusters = Arc::from(clusters.clone().into_boxed_slice());
+            new_data.servers = Arc::from(servers.clone().into_boxed_slice());
+            new_data.is_ready = true;
+            self.inner.store(Arc::new(new_data));
         }
 
         // FAST FIRST REFRESH: keep the initial Prometheus history window
@@ -922,8 +925,9 @@ impl ClusterCache {
         let insights_count = insights.len();
         let warning_events_count = events.iter().filter(|e| e.event_type == "Warning").count();
 
-        // Update cache
-        let mut data = self.inner.write().await;
+        // Update cache (full snapshot replace)
+        let prev = self.inner.load_full();
+        let mut data = (*prev).clone();
         data.clusters = Arc::from(clusters.into_boxed_slice());
         data.servers = Arc::from(servers.into_boxed_slice());
         data.node_details = Arc::new(node_details.into_iter().collect());
@@ -965,6 +969,7 @@ impl ClusterCache {
             data.alerts.len(),
             data.insights.len()
         );
+        self.inner.store(Arc::new(data));
         Ok(())
     }
 
@@ -973,7 +978,7 @@ impl ClusterCache {
         info!("Starting Kubernetes/Prometheus data refresh...");
 
         // Read current state
-        let data = self.inner.read().await;
+        let data = self.inner.load();
         let servers = data.servers.clone();
         let cluster_name = data.clusters.first().map(|c| c.name.clone());
         drop(data); // Release read lock
@@ -1068,7 +1073,7 @@ impl ClusterCache {
 
         // Get servers for cluster metrics cache (need to read from current data)
         let (cluster_metrics_json_cache, node_metrics_json_cache) = {
-            let data = self.inner.read().await;
+            let data = self.inner.load();
             (
                 build_cluster_metrics_json_caches(&data.servers, &node_metrics_history),
                 build_node_metrics_json_cache(&node_metrics_history),
@@ -1087,8 +1092,9 @@ impl ClusterCache {
         let insights_count = insights.len();
         let warning_events_count = events.iter().filter(|e| e.event_type == "Warning").count();
 
-        // Update cache with Kubernetes/Prometheus data
-        let mut data = self.inner.write().await;
+        // Update cache with Kubernetes/Prometheus data (snapshot replace)
+        let prev = self.inner.load_full();
+        let mut data = (*prev).clone();
         data.pod_details = Arc::new(pod_details.into_iter().collect());
         data.services = Arc::new(services.into_iter().collect());
         data.service_details = Arc::new(service_details.into_iter().collect());
@@ -1125,6 +1131,7 @@ impl ClusterCache {
             data.insights.len()
         );
 
+        self.inner.store(Arc::new(data));
         Ok(())
     }
 

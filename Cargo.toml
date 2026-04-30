@@ -48,6 +48,7 @@ tower = "0.5"
 dashmap = "6.1"
 # Async trait support for the command runner abstraction
 async-trait = "0.1"
+arc-swap = "1.9.1"
 
 [dev-dependencies]
 tokio-test = "0.4"

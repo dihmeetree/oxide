@@ -82,7 +82,7 @@ fn parse_log_level(line: &str) -> LogLevel {
 async fn get_alerts_and_insights_counts(
     cache: &super::cache::ClusterCache,
 ) -> (usize, usize, usize) {
-    let data = cache.inner.read().await;
+    let data = cache.inner.load();
     (
         data.firing_alerts_count,
         data.insights_count,
