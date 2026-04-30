@@ -63,13 +63,12 @@ impl DashboardServer {
         // Long-cache static assets (JS/CSS/images) — they're served from
         // disk and changes are infrequent. Versioned filenames or manual
         // cache-busting can be added later if needed.
-        let static_service = ServeDir::new("static");
-        let static_router = Router::new().nest_service("/", static_service).layer(
-            SetResponseHeaderLayer::overriding(
+        let static_router = Router::new()
+            .fallback_service(ServeDir::new("static"))
+            .layer(SetResponseHeaderLayer::overriding(
                 header::CACHE_CONTROL,
                 HeaderValue::from_static("public, max-age=31536000, immutable"),
-            ),
-        );
+            ));
 
         let app = Router::new()
             .route("/", get(routes::index))
